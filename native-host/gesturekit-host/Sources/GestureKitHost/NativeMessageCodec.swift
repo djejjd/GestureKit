@@ -18,9 +18,12 @@ public enum NativeMessageCodec {
             throw NativeMessageCodecError.messageTooShort
         }
 
-        let expectedLength = input.prefix(4).withUnsafeBytes { rawBuffer in
-            rawBuffer.load(as: UInt32.self).littleEndian
-        }
+        let bytes = Array(input.prefix(4))
+        let expectedLength =
+            UInt32(bytes[0]) |
+            UInt32(bytes[1]) << 8 |
+            UInt32(bytes[2]) << 16 |
+            UInt32(bytes[3]) << 24
         let payload = input.dropFirst(4)
         guard payload.count == Int(expectedLength) else {
             throw NativeMessageCodecError.lengthMismatch(expected: Int(expectedLength), actual: payload.count)
