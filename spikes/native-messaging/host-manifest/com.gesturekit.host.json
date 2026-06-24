@@ -1,0 +1,9 @@
+{
+  "name": "com.gesturekit.host",
+  "description": "GestureKit Native Messaging Host Spike",
+  "path": "/absolute/path/to/GestureKit/.build/debug/GestureKitHost",
+  "type": "stdio",
+  "allowed_origins": [
+    "chrome-extension://REPLACE_WITH_LOCAL_EXTENSION_ID/"
+  ]
+}
