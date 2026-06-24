@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gesturekit.local/schemas/gesture-event.schema.json",
+  "allOf": [
+    { "$ref": "./message.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "type": { "const": "gesture_event" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["gesture", "appBundleId"],
+          "properties": {
+            "gesture": {
+              "type": "string",
+              "enum": ["three_finger_tap", "three_finger_swipe_left", "three_finger_swipe_right"]
+            },
+            "appBundleId": { "type": "string", "minLength": 1 },
+            "confidence": { "type": "number", "minimum": 0, "maximum": 1 }
+          }
+        }
+      }
+    }
+  ]
+}

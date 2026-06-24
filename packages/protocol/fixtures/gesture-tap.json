@@ -1,0 +1,12 @@
+{
+  "version": 1,
+  "id": "fixture-gesture-tap",
+  "type": "gesture_event",
+  "timestamp": 1782200000000,
+  "payload": {
+    "gesture": "three_finger_tap",
+    "appBundleId": "com.google.Chrome",
+    "confidence": 0.97
+  },
+  "error": null
+}

@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gesturekit.local/schemas/action-result.schema.json",
+  "allOf": [
+    { "$ref": "./message.schema.json" },
+    {
+      "type": "object",
+      "properties": {
+        "type": { "const": "action_result" },
+        "payload": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["action", "status"],
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": ["open_link_background", "activate_left_tab", "activate_right_tab"]
+            },
+            "status": {
+              "type": "string",
+              "enum": ["success", "edge_reached", "no_target", "page_unavailable", "unsupported_url_scheme", "native_host_disconnected", "extension_unavailable", "error"]
+            },
+            "details": { "type": "object" }
+          }
+        }
+      }
+    }
+  ]
+}

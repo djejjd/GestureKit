@@ -1,0 +1,14 @@
+{
+  "version": 1,
+  "id": "fixture-action-result-success",
+  "type": "action_result",
+  "timestamp": 1782200000100,
+  "payload": {
+    "action": "open_link_background",
+    "status": "success",
+    "details": {
+      "url": "https://example.com/"
+    }
+  },
+  "error": null
+}
