@@ -39,7 +39,6 @@ native-host/gesturekit-host/
   Sources/GestureKitHost/main.swift
   Sources/GestureKitHost/NativeMessageCodec.swift
   Sources/GestureKitHost/LocalEventClient.swift
-  Tests/GestureKitHostTests/NativeMessageCodecTests.swift
 
 extensions/chrome/
   manifest.json
@@ -150,11 +149,6 @@ let package = Package(
         .executableTarget(
             name: "GestureKitHost",
             path: "native-host/gesturekit-host/Sources/GestureKitHost"
-        ),
-        .testTarget(
-            name: "GestureKitHostTests",
-            dependencies: ["GestureKitHost"],
-            path: "native-host/gesturekit-host/Tests/GestureKitHostTests"
         ),
         .executableTarget(
             name: "TrackpadInputProbe",
@@ -662,39 +656,10 @@ Expected: commit succeeds.
 
 - Create: `native-host/gesturekit-host/Sources/GestureKitHost/NativeMessageCodec.swift`
 - Modify: `native-host/gesturekit-host/Sources/GestureKitHost/main.swift`
-- Create: `native-host/gesturekit-host/Tests/GestureKitHostTests/NativeMessageCodecTests.swift`
 - Create: `spikes/native-messaging/README.md`
 - Create: `spikes/native-messaging/host-manifest/com.gesturekit.host.json`
 
-- [ ] **Step 1: Write codec tests first**
-
-Create `native-host/gesturekit-host/Tests/GestureKitHostTests/NativeMessageCodecTests.swift`:
-
-```swift
-import XCTest
-@testable import GestureKitHost
-
-final class NativeMessageCodecTests: XCTestCase {
-    func testEncodesChromeNativeMessageWithLittleEndianLengthPrefix() throws {
-        let payload = Data("{\"version\":1}".utf8)
-        let encoded = NativeMessageCodec.encode(payload)
-
-        XCTAssertEqual(encoded.prefix(4), Data([13, 0, 0, 0]))
-        XCTAssertEqual(encoded.dropFirst(4), payload)
-    }
-
-    func testDecodesChromeNativeMessageWithLittleEndianLengthPrefix() throws {
-        var input = Data([13, 0, 0, 0])
-        input.append(Data("{\"version\":1}".utf8))
-
-        let decoded = try NativeMessageCodec.decode(input)
-
-        XCTAssertEqual(String(data: decoded, encoding: .utf8), "{\"version\":1}")
-    }
-}
-```
-
-- [ ] **Step 2: Implement codec**
+- [ ] **Step 1: Implement codec**
 
 Create `native-host/gesturekit-host/Sources/GestureKitHost/NativeMessageCodec.swift`:
 
@@ -731,12 +696,39 @@ public enum NativeMessageCodec {
 }
 ```
 
-- [ ] **Step 3: Update host main for handshake spike**
+- [ ] **Step 2: Update host main for handshake and self-test spike**
 
 Replace `native-host/gesturekit-host/Sources/GestureKitHost/main.swift` with:
 
 ```swift
 import Foundation
+
+enum GestureKitHostSelfTest {
+    static func run() throws {
+        let payload = Data("{\"version\":1}".utf8)
+        let encoded = NativeMessageCodec.encode(payload)
+        guard encoded.prefix(4) == Data([13, 0, 0, 0]) else {
+            throw NSError(domain: "GestureKitHostSelfTest", code: 1, userInfo: [NSLocalizedDescriptionKey: "Invalid length prefix"])
+        }
+
+        let decoded = try NativeMessageCodec.decode(encoded)
+        guard decoded == payload else {
+            throw NSError(domain: "GestureKitHostSelfTest", code: 2, userInfo: [NSLocalizedDescriptionKey: "Decoded payload mismatch"])
+        }
+
+        print("GestureKitHost self-test passed")
+    }
+}
+
+if CommandLine.arguments.contains("--self-test") {
+    do {
+        try GestureKitHostSelfTest.run()
+        exit(0)
+    } catch {
+        fputs("GestureKitHost self-test failed: \(error)\n", stderr)
+        exit(1)
+    }
+}
 
 let response = Data("""
 {"version":1,"id":"host-hello","type":"hello","timestamp":0,"payload":{"host":"GestureKitHost"},"error":null}
@@ -745,7 +737,7 @@ let response = Data("""
 FileHandle.standardOutput.write(NativeMessageCodec.encode(response))
 ```
 
-- [ ] **Step 4: Create host manifest sample**
+- [ ] **Step 3: Create host manifest sample**
 
 Create `spikes/native-messaging/host-manifest/com.gesturekit.host.json`:
 
@@ -780,21 +772,21 @@ Manual setup:
 The checked-in manifest is a template. It must not contain a machine-specific path or real extension ID.
 ```
 
-- [ ] **Step 5: Run host tests**
+- [ ] **Step 4: Run host codec self-test**
 
 Run:
 
 ```bash
-swift test --filter NativeMessageCodecTests
+swift run GestureKitHost --self-test
 ```
 
 Expected:
 
 ```text
-Test Suite 'NativeMessageCodecTests' passed
+GestureKitHost self-test passed
 ```
 
-- [ ] **Step 6: Commit native messaging spike**
+- [ ] **Step 5: Commit native messaging spike**
 
 Run:
 
@@ -941,7 +933,7 @@ Create or update `docs/research/chrome-native-messaging-notes.md` with:
 
 ## Evidence
 
-- `swift test --filter NativeMessageCodecTests` passed.
+- `swift run GestureKitHost --self-test` passed.
 - Manual Chrome connection result recorded during spike execution.
 
 ## V1 Impact

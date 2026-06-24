@@ -16,11 +16,6 @@ let package = Package(
             name: "GestureKitHost",
             path: "native-host/gesturekit-host/Sources/GestureKitHost"
         ),
-        .testTarget(
-            name: "GestureKitHostTests",
-            dependencies: ["GestureKitHost"],
-            path: "native-host/gesturekit-host/Tests/GestureKitHostTests"
-        ),
         .executableTarget(
             name: "TrackpadInputProbe",
             path: "spikes/trackpad-input/Sources/TrackpadInputProbe"
