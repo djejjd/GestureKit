@@ -3,13 +3,14 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "tsc --project tsconfig.build.json",
+    "build": "node scripts/build.mjs",
     "test": "vitest run",
     "test:watch": "vitest"
   },
   "devDependencies": {
     "@types/chrome": "^0.0.268",
     "@types/node": "^26.0.0",
+    "esbuild": "^0.25.11",
     "jsdom": "^27.0.1",
     "typescript": "^5.5.4",
     "vitest": "^2.0.5"
