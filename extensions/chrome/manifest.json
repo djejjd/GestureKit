@@ -5,13 +5,13 @@
   "permissions": ["nativeMessaging", "storage"],
   "host_permissions": ["<all_urls>"],
   "background": {
-    "service_worker": "src/background/nativePort.js",
+    "service_worker": "dist/background/nativePort.js",
     "type": "module"
   },
   "content_scripts": [
     {
       "matches": ["<all_urls>"],
-      "js": ["src/content/pointerTracker.js"],
+      "js": ["dist/content/pointerTracker.js"],
       "run_at": "document_idle"
     }
   ]

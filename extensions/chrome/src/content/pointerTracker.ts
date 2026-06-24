@@ -28,3 +28,12 @@ export function resolveLinkAtLastPointer(now: number = Date.now()) {
 
   return resolveLinkAtPoint(lastPointer.x, lastPointer.y);
 }
+
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message.type !== "gesturekit.resolveLastPointer") {
+    return false;
+  }
+
+  sendResponse(resolveLinkAtLastPointer());
+  return false;
+});
