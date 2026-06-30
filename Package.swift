@@ -1,15 +1,18 @@
-// swift-tools-version: 5.10
+// swift-tools-version: 6.2
 
 import PackageDescription
 
 let package = Package(
     name: "GestureKit",
     platforms: [
-        .macOS(.v13)
+        .macOS(.v15)
     ],
     products: [
         .executable(name: "GestureKitHost", targets: ["GestureKitHost"]),
         .executable(name: "TrackpadInputProbe", targets: ["TrackpadInputProbe"])
+    ],
+    dependencies: [
+        .package(url: "https://github.com/Kyome22/OpenMultiTouchSupport.git", branch: "main")
     ],
     targets: [
         .executableTarget(
@@ -18,6 +21,9 @@ let package = Package(
         ),
         .executableTarget(
             name: "TrackpadInputProbe",
+            dependencies: [
+                .product(name: "OpenMultitouchSupport", package: "OpenMultiTouchSupport")
+            ],
             path: "spikes/trackpad-input/Sources/TrackpadInputProbe"
         )
     ]
