@@ -137,7 +137,11 @@ device_status=listener_stopped stopped=true
 - 非 Chrome 前台观察结果。
 - macOS 三指系统手势冲突观察。
 
-当前结论：OpenMultitouchSupport backend 可以在本机启动并接收触控板事件，足以继续进入 Task 5 审核；但手势阈值稳定性还需要后续人工矩阵验证。
+稳定性验证记录位置：
+
+- `docs/research/trackpad-gesture-stability-matrix.md`
+
+当前结论：OpenMultitouchSupport backend 可以在本机启动并接收触控板事件，Task 5 实现已具备继续补齐规格证据的基础；但手势阈值稳定性还需要后续人工矩阵验证。矩阵完成前，不进入正式产品实现。
 
 ## 网络和构建环境记录
 

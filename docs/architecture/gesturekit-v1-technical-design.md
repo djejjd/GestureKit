@@ -4,8 +4,10 @@
 
 相关文档：
 
+- `docs/product/gesturekit-v1-requirements.md`
 - `docs/product/gesturekit-v1-contract.md`
 - `docs/plans/gesturekit-v1-predevelopment-plan.md`
+- `docs/research/trackpad-gesture-stability-matrix.md`
 - `docs/adr/0001-use-native-host-shim.md`
 - `docs/adr/0002-use-extension-last-pointer-position.md`
 - `docs/adr/0003-use-rules-engine-from-v1.md`
@@ -212,7 +214,7 @@ GestureKit App 识别 three_finger_tap
 -> Background 调用 chrome.tabs.create
 ```
 
-如果最近位置不存在或过期，返回 `no_target`，不做 native 坐标猜测。
+如果最近位置不存在或过期，返回 `no_recent_pointer`，不做 native 坐标猜测。如果最近位置有效但没有命中支持的链接，返回 `no_target`。
 
 V1 位置新鲜度建议：
 
@@ -506,13 +508,15 @@ Chrome 扩展：
 
 手动验证矩阵：
 
-- 内置触控板。
-- Magic Trackpad。
-- 单显示器。
-- 双显示器。
-- Retina 和非 Retina 外接屏。
-- Chrome 普通窗口。
-- Chrome 全屏窗口。
+- 内置触控板：当前设备具备时必测。
+- Magic Trackpad：当前环境具备时必测，否则记录为 `N/A`。
+- 单显示器：当前环境具备时必测，否则记录为 `N/A`。
+- 双显示器：当前环境具备时必测，否则记录为 `N/A`。
+- Retina 和非 Retina 外接屏：当前环境具备时必测，否则记录为 `N/A`。
+- Chrome 普通窗口：必测。
+- Chrome 全屏窗口：必测。
+
+正式开发前的触控板输入稳定性以 `docs/research/trackpad-gesture-stability-matrix.md` 为准。产品动作端到端验收在正式产品实现阶段单独执行。
 
 ## 14. 分发策略
 

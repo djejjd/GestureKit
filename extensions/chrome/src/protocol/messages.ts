@@ -11,11 +11,15 @@ export type ActionType =
 export type ActionStatus =
   | "success"
   | "edge_reached"
+  | "no_recent_pointer"
   | "no_target"
   | "page_unavailable"
   | "unsupported_url_scheme"
+  | "unsupported_app"
   | "native_host_disconnected"
+  | "app_unavailable"
   | "extension_unavailable"
+  | "gesture_unstable"
   | "error";
 
 export type GestureKitMessage<TType extends string, TPayload extends object> = {

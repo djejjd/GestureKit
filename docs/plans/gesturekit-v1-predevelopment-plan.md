@@ -138,12 +138,17 @@
 - 验收矩阵是否需要新增或删减。
 - 是否有 spike 发现应作为 V1 阻塞项。
 
-## 7. 进入正式实施计划的条件
+## 7. 进入正式产品实现计划的条件
 
-只有满足以下条件，才进入 `docs/plans/gesturekit-v1-implementation-plan.md`：
+只有满足以下条件，才开始编写或执行后续正式产品实现计划。正式产品实现计划建议使用稳定路径 `docs/plans/gesturekit-v1-product-implementation-plan.md`。
+
+现有 `docs/plans/gesturekit-v1-implementation-plan.md` 是正式开发前 spike 执行计划，不代表后续产品实现计划。
 
 - 三个 spike 均完成或给出明确替代方案。
+- `docs/research/trackpad-gesture-stability-matrix.md` 已完成，并给出 `passed` 或 `passed_with_notes` 结论。
 - 契约没有未解决冲突。
 - 主技术设计已根据 spike 结果更新。
 - V1 验收标准仍然可执行。
 - 用户确认进入正式实现阶段。
+
+如果手势稳定性矩阵结论为 `blocked`，不得进入正式实现阶段。应先回到输入 backend、手势阈值或 V1 手势选择重新评审。

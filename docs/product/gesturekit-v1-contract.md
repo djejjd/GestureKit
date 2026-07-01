@@ -2,10 +2,14 @@
 
 日期：2026-06-23
 
+更新日期：2026-07-01
+
 相关文档：
 
+- `docs/product/gesturekit-v1-requirements.md`
 - `docs/architecture/gesturekit-v1-technical-design.md`
 - `docs/plans/gesturekit-v1-predevelopment-plan.md`
+- `docs/research/trackpad-gesture-stability-matrix.md`
 - `docs/adr/0001-use-native-host-shim.md`
 - `docs/adr/0002-use-extension-last-pointer-position.md`
 - `docs/adr/0003-use-rules-engine-from-v1.md`
@@ -132,6 +136,7 @@ V1 只有在以下条件满足时才能判定完成：
 - Chrome tab 左右切换边界有测试。
 - content script 普通链接识别有测试。
 - 至少完成一次手动端到端验证：三指点按链接、三指左滑、三指右滑。
+- `docs/research/trackpad-gesture-stability-matrix.md` 的人工手势稳定性矩阵已完成，且结论没有阻断 V1 三个核心功能。
 
 ### 8.4 失败处理验收
 
@@ -142,7 +147,21 @@ V1 只有在以下条件满足时才能判定完成：
 - 最近 pointer 位置过期时有可诊断状态。
 - 无相邻 tab 时有可诊断状态。
 
-## 9. 审核原则
+## 9. 正式开发前关口
+
+正式产品实现开始前必须满足以下条件：
+
+- `docs/product/gesturekit-v1-requirements.md` 已明确 V1 用户可见行为、非目标、失败状态和验收输出。
+- 三个正式开发前 spike 已完成或给出明确替代方案。
+- 手势稳定性矩阵已完成，至少覆盖 Chrome 前台三指点按、三指左滑、三指右滑各 10 次。
+- 非 Chrome 前台输入可观测性和 macOS 三指系统手势冲突已有观察记录。
+- 后续正式产品实现计划已单独产出；现有 `docs/plans/gesturekit-v1-implementation-plan.md` 是 spike 执行计划，不作为正式产品实现计划。
+- Spike 发现已同步到本契约、技术设计或研究文档，不存在未处理的架构冲突。
+- 用户明确确认进入正式实现阶段。
+
+如果任一关口失败，不能通过局部代码修补绕过；必须先回到规格、技术设计或手势方案重新评审。
+
+## 10. 审核原则
 
 代码审核和架构审核按以下原则进行：
 
@@ -154,7 +173,7 @@ V1 只有在以下条件满足时才能判定完成：
 - Minor 问题不得阻塞验收。
 - 如果审核意见要求扩大范围，必须先更新本契约并获得确认。
 
-## 10. 变更控制
+## 11. 变更控制
 
 以下情况必须先更新契约或设计文档：
 
@@ -167,7 +186,7 @@ V1 只有在以下条件满足时才能判定完成：
 - 扩展支持到其他浏览器或其他 App。
 - 改变安全或隐私承诺。
 
-## 11. 文档命名和目录规则
+## 12. 文档命名和目录规则
 
 长期项目文档使用稳定路径，不用日期作为主文件名。
 
@@ -193,12 +212,14 @@ V1 只有在以下条件满足时才能判定完成：
 - 主技术设计：`gesturekit-v1-technical-design.md`
 - 架构专题：`<topic>-architecture.md`
 - ADR：`0001-short-decision-title.md`
-- 实施计划：`gesturekit-v1-implementation-plan.md`
+- Spike 执行计划：`gesturekit-v1-implementation-plan.md`
+- 正式产品实现计划：`gesturekit-v1-product-implementation-plan.md`
 
-## 12. 当前契约状态
+## 13. 当前契约状态
 
 本契约是 V1 的初始约束。进入实现计划前，应先确认：
 
 - 本契约范围是否被用户接受。
+- V1 产品规格是否被用户接受。
 - V1 技术设计是否与本契约一致。
 - 实施计划是否能映射到本契约的验收标准。

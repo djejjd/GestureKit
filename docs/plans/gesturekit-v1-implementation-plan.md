@@ -1,4 +1,8 @@
-# GestureKit V1 Implementation Plan
+# GestureKit V1 正式开发前 Spike 执行计划
+
+> 本文档是已执行的 spike 计划，用于验证触控板输入、Chrome Native Messaging 和 Chrome 链接命中三条高风险链路。它不是后续正式产品实现计划。
+>
+> 后续正式产品实现计划应单独创建，建议路径为 `docs/plans/gesturekit-v1-product-implementation-plan.md`。正式计划必须中文优先，并以 `docs/product/gesturekit-v1-contract.md` 和 `docs/product/gesturekit-v1-requirements.md` 为上游契约。
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -15,6 +19,7 @@
 Implementation must comply with:
 
 - `docs/product/gesturekit-v1-contract.md`
+- `docs/product/gesturekit-v1-requirements.md`
 - `docs/architecture/gesturekit-v1-technical-design.md`
 - `docs/plans/gesturekit-v1-predevelopment-plan.md`
 - `docs/adr/0001-use-native-host-shim.md`
@@ -309,7 +314,7 @@ Create `packages/protocol/schemas/action-result.schema.json`:
             },
             "status": {
               "type": "string",
-              "enum": ["success", "edge_reached", "no_target", "page_unavailable", "unsupported_url_scheme", "native_host_disconnected", "extension_unavailable", "error"]
+              "enum": ["success", "edge_reached", "no_recent_pointer", "no_target", "page_unavailable", "unsupported_url_scheme", "unsupported_app", "native_host_disconnected", "app_unavailable", "extension_unavailable", "gesture_unstable", "error"]
             },
             "details": { "type": "object" }
           }
