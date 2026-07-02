@@ -24,8 +24,8 @@
 | 设备 | MacBook 内置触控板，设备输出显示 `FamilyID: 109`、`Dimensions: 18 x 24` |
 | Chrome 版本 | 149.0.7827.201 |
 | OpenMultitouchSupport revision | `15c6bb0c6a2d2858559493a28ab23f7ac58648a3` |
-| 系统三指相关设置 | 待测，尚未人工确认 Mission Control、App Expose、Swipe between pages、三指拖移等 |
-| 显示器环境 | Chrome 普通窗口已测；`system_profiler SPDisplaysDataType` 在当前 shell 只返回 GPU 摘要，显示器组合待人工确认 |
+| 系统三指相关设置 | `TrackpadThreeFingerDrag=1`；`TrackpadThreeFingerHorizSwipeGesture=0`；`TrackpadThreeFingerVertSwipeGesture=0`；`TrackpadThreeFingerTapGesture=0`；用户在系统手势冲突观察中未看到 Mission Control、切桌面、窗口拖移、页面切换等系统动作 |
+| 显示器环境 | Chrome 普通窗口和全屏窗口已测；用户确认当前只有内置屏幕；外接屏组合按当前环境记为 `N/A` |
 
 ## 3. 运行命令
 
@@ -79,9 +79,9 @@ probe 候选行会输出累计计数，例如 `[counts tap=3 left=0 right=0 uncl
 
 | 前台 App | 手势 | 次数 | probe 是否有候选 | 产品动作验收 | 结论 | 备注 |
 | --- | --- | ---: | --- | --- | --- | --- |
-| 未确认 | 三指点按 | 3 | 未完成 | 后续端到端测试覆盖 `unsupported_app` 或等价状态 | 中止 | 2026-07-01 启动过非 Chrome 观察 probe，但未按 3 类各 3 次矩阵完成，不能作为有效验收记录 |
-| 未确认 | 三指左滑 | 3 | 未完成 | 后续端到端测试覆盖 `unsupported_app` 或等价状态 | 中止 | 同上 |
-| 未确认 | 三指右滑 | 3 | 未完成 | 后续端到端测试覆盖 `unsupported_app` 或等价状态 | 中止 | 同上 |
+| 非 Chrome App，具体 App 未记录 | 三指点按 | 3 | 有候选，`tap=3` | 后续端到端测试覆盖 `unsupported_app` 或等价状态 | 通过 | 2026-07-02 重测通过；2026-07-01 曾中止一次，不作为验收记录 |
+| 非 Chrome App，具体 App 未记录 | 三指左滑 | 3 | 有候选，`left=3` | 后续端到端测试覆盖 `unsupported_app` 或等价状态 | 通过 | 2026-07-02 重测通过 |
+| 非 Chrome App，具体 App 未记录 | 三指右滑 | 3 | 有候选，`right=3` | 后续端到端测试覆盖 `unsupported_app` 或等价状态 | 通过 | 2026-07-02 重测通过，物理方向为从触控板左侧向右侧推 |
 
 ## 6. 环境覆盖矩阵
 
@@ -90,13 +90,13 @@ probe 候选行会输出累计计数，例如 `[counts tap=3 left=0 right=0 uncl
 | 场景 | 要求 | 结果 | 备注 |
 | --- | --- | --- | --- |
 | MacBook 内置触控板 | 必测，如果当前设备具备 | 已测 | 当前测试使用内置触控板 |
-| Magic Trackpad | 当前环境具备时必测，否则 `N/A` | 待测 |  |
+| Magic Trackpad | 当前环境具备时必测，否则 `N/A` | `N/A` | `system_profiler SPBluetoothDataType` 未返回蓝牙控制器信息，`system_profiler SPUSBDataType` 未返回外接触控板信息；当前测试只确认内置触控板 |
 | Chrome 普通窗口 | 必测 | 已测 | 三类主矩阵在 Chrome 普通窗口前台完成 |
-| Chrome 全屏窗口 | 必测 | 待测 |  |
-| 单显示器 | 当前环境具备时必测，否则 `N/A` | 待测 |  |
-| 双显示器 | 当前环境具备时必测，否则 `N/A` | 待测 |  |
-| Retina 外接屏 | 当前环境具备时必测，否则 `N/A` | 待测 |  |
-| 非 Retina 外接屏 | 当前环境具备时必测，否则 `N/A` | 待测 |  |
+| Chrome 全屏窗口 | 必测 | 已测 | 2026-07-02 观察通过：三指点按 3/3、三指左滑 3/3、三指右滑 3/3，`unclear=0` |
+| 单显示器 | 当前环境具备时必测，否则 `N/A` | 已确认 | 用户确认当前只有内置屏幕 |
+| 双显示器 | 当前环境具备时必测，否则 `N/A` | `N/A` | 用户确认当前只有内置屏幕 |
+| Retina 外接屏 | 当前环境具备时必测，否则 `N/A` | `N/A` | 当前无外接屏 |
+| 非 Retina 外接屏 | 当前环境具备时必测，否则 `N/A` | `N/A` | 当前无外接屏 |
 
 ## 7. macOS 系统手势冲突观察
 
@@ -104,9 +104,9 @@ probe 候选行会输出累计计数，例如 `[counts tap=3 left=0 right=0 uncl
 
 | 系统设置状态 | 手势 | 次数 | probe 观察 | 系统行为 | V1 影响 | 处理建议 |
 | --- | --- | ---: | --- | --- | --- | --- |
-| 待测 | 三指点按 | 3 | 待测 | 待测 | 待测 | 待测 |
-| 待测 | 三指左滑 | 3 | 待测 | 待测 | 待测 | 待测 |
-| 待测 | 三指右滑 | 3 | 待测 | 待测 | 待测 | 待测 |
+| `TrackpadThreeFingerDrag=1`；三指水平/垂直系统滑动和三指点按系统手势为 `0` | 三指点按 | 3 | 观察到 tap 候选；本轮输出存在额外触摸候选，不作为稳定性计数复测 | 用户未观察到 Mission Control、切桌面、窗口拖移、页面切换等系统动作 | `acceptable_with_note` | 记录当前系统设置；后续用户文档说明三指拖移开启时本轮未观察到系统动作 |
+| 同上 | 三指左滑 | 3 | 观察到 left 候选；本轮输出存在额外触摸候选，不作为稳定性计数复测 | 用户未观察到系统动作 | `acceptable_with_note` | 同上 |
+| 同上 | 三指右滑 | 3 | 观察到 right 候选；本轮输出存在额外触摸候选，不作为稳定性计数复测 | 用户未观察到系统动作 | `acceptable_with_note` | 同上 |
 
 冲突分级：
 
@@ -116,7 +116,20 @@ probe 候选行会输出累计计数，例如 `[counts tap=3 left=0 right=0 uncl
 
 ## 8. 结论
 
-当前状态：部分通过；2026-07-01 已按用户要求结束测试，待补齐非 Chrome 前台、Chrome 全屏窗口、显示器环境和系统手势冲突观察。
+当前状态：`passed_with_notes`。
+
+通过依据：
+
+- Chrome 普通窗口前台三类主手势均达到 10/10 有效识别。
+- 非 Chrome 前台三类手势均可观测到候选事件。
+- Chrome 全屏窗口三类手势均可观测到候选事件。
+- 当前只有内置单屏；外接屏和 Magic Trackpad 均按当前环境记为 `N/A`。
+- 当前系统设置下未观察到 macOS 系统动作被三指手势触发。
+
+备注：
+
+- 三指右滑必须明确为物理方向“从触控板左侧向右侧推”，不能只用浏览器前进/后退语义描述。
+- 系统手势冲突观察本轮输出存在额外触摸候选，因此只作为冲突观察，不作为稳定性主矩阵复测。
 
 正式开发前必须给出以下结论之一：
 
