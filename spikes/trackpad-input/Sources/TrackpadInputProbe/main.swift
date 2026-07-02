@@ -20,6 +20,32 @@ private struct ThreeFingerSession {
     var maxFingerCount: Int
 }
 
+private struct CandidateCounts {
+    private(set) var tap = 0
+    private(set) var swipeLeft = 0
+    private(set) var swipeRight = 0
+    private(set) var unclear = 0
+
+    mutating func record(_ candidate: GestureCandidate) {
+        switch candidate {
+        case .tap:
+            tap += 1
+        case .swipeLeft:
+            swipeLeft += 1
+        case .swipeRight:
+            swipeRight += 1
+        }
+    }
+
+    mutating func recordUnclear() {
+        unclear += 1
+    }
+
+    var summary: String {
+        "counts tap=\(tap) left=\(swipeLeft) right=\(swipeRight) unclear=\(unclear)"
+    }
+}
+
 private final class InterruptSignal {
     private let source: DispatchSourceSignal
     private var continuation: CheckedContinuation<Void, Never>?
@@ -47,6 +73,7 @@ private final class ObservationState {
     private var lastPrintedFingerCount: Int?
     private var lastSummaryAt = Date.distantPast
     private var threeFingerSession: ThreeFingerSession?
+    private var candidateCounts = CandidateCounts()
 
     func observe(_ touches: [OMSTouchData]) {
         let activeTouches = Self.activeTouches(from: touches)
@@ -108,7 +135,15 @@ private final class ObservationState {
         } else if horizontalEnough {
             printCandidate(dx < 0 ? .swipeLeft : .swipeRight, duration: duration, dx: dx, dy: dy, distance: distance)
         } else {
-            print(String(format: "[candidate:unclear] fingers=3 duration_ms=%.0f dx=%.3f dy=%.3f distance=%.3f", duration * 1000, dx, dy, distance))
+            candidateCounts.recordUnclear()
+            let line = String(
+                format: "[candidate:unclear] fingers=3 duration_ms=%.0f dx=%.3f dy=%.3f distance=%.3f",
+                duration * 1000,
+                dx,
+                dy,
+                distance
+            )
+            print("\(line) [\(candidateCounts.summary)]")
         }
     }
 
@@ -119,7 +154,16 @@ private final class ObservationState {
         dy: Float,
         distance: Float
     ) {
-        print(String(format: "[candidate:%@] duration_ms=%.0f dx=%.3f dy=%.3f distance=%.3f", candidate.rawValue, duration * 1000, dx, dy, distance))
+        candidateCounts.record(candidate)
+        let line = String(
+            format: "[candidate:%@] duration_ms=%.0f dx=%.3f dy=%.3f distance=%.3f",
+            candidate.rawValue,
+            duration * 1000,
+            dx,
+            dy,
+            distance
+        )
+        print("\(line) [\(candidateCounts.summary)]")
     }
 
     private func printSummary(fingerCount: Int, centroid: Centroid?, touches: [OMSTouchData]) {

@@ -129,19 +129,20 @@ device_status=default_multitouch_listener_started is_listening=true
 device_status=listener_stopped stopped=true
 ```
 
-尚未完成的人工稳定性验证：
+人工稳定性验证进展：
 
-- Chrome 前台三指点按 10 次稳定性。
-- Chrome 前台三指左滑 10 次稳定性。
-- Chrome 前台三指右滑 10 次稳定性。
-- 非 Chrome 前台观察结果。
-- macOS 三指系统手势冲突观察。
+- Chrome 普通窗口前台三指点按 10 次：通过，10/10 输出 `three_finger_tap`。
+- Chrome 普通窗口前台三指左滑 10 次：通过，10/10 输出 `three_finger_swipe_left`。
+- Chrome 普通窗口前台三指右滑 10 次：按物理方向“左侧向右侧推”重测后有效段通过，10/10 输出 `three_finger_swipe_right`。
+- 右滑首次测试按浏览器语义方向操作时失败，观察到大量 `three_finger_swipe_left`，说明后续文档和 UI 必须明确物理方向和产品语义映射。
+- 非 Chrome 前台观察结果：2026-07-01 曾启动观察 probe，但未按矩阵完成 3 类各 3 次测试，当前仍视为待测。
+- macOS 三指系统手势冲突观察：待测。
 
 稳定性验证记录位置：
 
 - `docs/research/trackpad-gesture-stability-matrix.md`
 
-当前结论：OpenMultitouchSupport backend 可以在本机启动并接收触控板事件，Task 5 实现已具备继续补齐规格证据的基础；但手势阈值稳定性还需要后续人工矩阵验证。矩阵完成前，不进入正式产品实现。
+当前结论：OpenMultitouchSupport backend 可以在本机启动并接收触控板事件，Chrome 普通窗口前台三类主手势在明确物理方向后均能达到 10/10 有效识别。但矩阵尚未完成非 Chrome 前台、Chrome 全屏、显示器环境和系统手势冲突观察；矩阵完成前，不进入正式产品实现。
 
 ## 网络和构建环境记录
 

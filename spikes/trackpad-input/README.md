@@ -28,5 +28,6 @@
 - `[candidate:three_finger_swipe_left]`：候选三指左滑。
 - `[candidate:three_finger_swipe_right]`：候选三指右滑。
 - `[candidate:unclear]`：三指序列存在，但位移或时长不足以稳定分类。
+- `[counts tap=... left=... right=... unclear=...]`：当前 probe 进程内候选事件累计计数，用于人工矩阵填报。
 
 probe 只向 stdout 打印观测摘要，不会把连续原始输入流写入磁盘。

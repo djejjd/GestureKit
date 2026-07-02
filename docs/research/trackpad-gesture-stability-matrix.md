@@ -19,13 +19,13 @@
 
 | 项目 | 当前记录 |
 | --- | --- |
-| 测试日期 | 待测 |
-| macOS 版本 | 待测 |
-| 设备 | 待测，填写 MacBook 内置触控板或 Magic Trackpad |
-| Chrome 版本 | 待测 |
+| 测试日期 | 2026-07-01 |
+| macOS 版本 | 26.5.1，Build 25F80 |
+| 设备 | MacBook 内置触控板，设备输出显示 `FamilyID: 109`、`Dimensions: 18 x 24` |
+| Chrome 版本 | 149.0.7827.201 |
 | OpenMultitouchSupport revision | `15c6bb0c6a2d2858559493a28ab23f7ac58648a3` |
-| 系统三指相关设置 | 待测，记录 Mission Control、App Expose、Swipe between pages、三指拖移等 |
-| 显示器环境 | 待测，记录单屏、外接屏、全屏或普通窗口 |
+| 系统三指相关设置 | 待测，尚未人工确认 Mission Control、App Expose、Swipe between pages、三指拖移等 |
+| 显示器环境 | Chrome 普通窗口已测；`system_profiler SPDisplaysDataType` 在当前 shell 只返回 GPU 摘要，显示器组合待人工确认 |
 
 ## 3. 运行命令
 
@@ -59,9 +59,11 @@ Chrome 处于前台，打开普通网页即可。本矩阵只看 probe 是否输
 
 | 手势 | 次数 | 期望候选 | 成功次数 | 误识别次数 | 未识别次数 | 结论 | 备注 |
 | --- | ---: | --- | ---: | ---: | ---: | --- | --- |
-| 三指点按 | 10 | `three_finger_tap` | 待测 | 待测 | 待测 | 待测 | 记录是否容易被识别成 `unclear` |
-| 三指左滑 | 10 | `three_finger_swipe_left` | 待测 | 待测 | 待测 | 待测 | 记录 dx、duration 是否稳定 |
-| 三指右滑 | 10 | `three_finger_swipe_right` | 待测 | 待测 | 待测 | 待测 | 记录 dx、duration 是否稳定 |
+| 三指点按 | 10 | `three_finger_tap` | 10 | 0 | 0 | 通过 | 有效 10 次全部输出 `three_finger_tap`，计数从 `tap=1` 到 `tap=10` |
+| 三指左滑 | 10 | `three_finger_swipe_left` | 10 | 0 | 0 | 通过 | 有效 10 次全部输出 `three_finger_swipe_left`，计数从 `left=1` 到 `left=10` |
+| 三指右滑 | 10 | `three_finger_swipe_right` | 10 | 0 | 0 | 通过但需备注 | 首次按浏览器语义方向操作失败，差分为 `right=1`、`left=9`、`tap=5`、`unclear=1`；重测按物理方向“左侧向右侧推”后，有效段从 `right=1` 到 `right=10` 连续通过。重测开始前存在 `tap=3 left=2` 预备误触，不计入有效 10 次 |
+
+probe 候选行会输出累计计数，例如 `[counts tap=3 left=0 right=0 unclear=1]`。每组测试应优先使用累计计数填表。
 
 硬性通过标准：
 
@@ -77,9 +79,9 @@ Chrome 处于前台，打开普通网页即可。本矩阵只看 probe 是否输
 
 | 前台 App | 手势 | 次数 | probe 是否有候选 | 产品动作验收 | 结论 | 备注 |
 | --- | --- | ---: | --- | --- | --- | --- |
-| 待测 | 三指点按 | 3 | 待测 | 后续端到端测试覆盖 `unsupported_app` 或等价状态 | 待测 |  |
-| 待测 | 三指左滑 | 3 | 待测 | 后续端到端测试覆盖 `unsupported_app` 或等价状态 | 待测 |  |
-| 待测 | 三指右滑 | 3 | 待测 | 后续端到端测试覆盖 `unsupported_app` 或等价状态 | 待测 |  |
+| 未确认 | 三指点按 | 3 | 未完成 | 后续端到端测试覆盖 `unsupported_app` 或等价状态 | 中止 | 2026-07-01 启动过非 Chrome 观察 probe，但未按 3 类各 3 次矩阵完成，不能作为有效验收记录 |
+| 未确认 | 三指左滑 | 3 | 未完成 | 后续端到端测试覆盖 `unsupported_app` 或等价状态 | 中止 | 同上 |
+| 未确认 | 三指右滑 | 3 | 未完成 | 后续端到端测试覆盖 `unsupported_app` 或等价状态 | 中止 | 同上 |
 
 ## 6. 环境覆盖矩阵
 
@@ -87,9 +89,9 @@ Chrome 处于前台，打开普通网页即可。本矩阵只看 probe 是否输
 
 | 场景 | 要求 | 结果 | 备注 |
 | --- | --- | --- | --- |
-| MacBook 内置触控板 | 必测，如果当前设备具备 | 待测 |  |
+| MacBook 内置触控板 | 必测，如果当前设备具备 | 已测 | 当前测试使用内置触控板 |
 | Magic Trackpad | 当前环境具备时必测，否则 `N/A` | 待测 |  |
-| Chrome 普通窗口 | 必测 | 待测 |  |
+| Chrome 普通窗口 | 必测 | 已测 | 三类主矩阵在 Chrome 普通窗口前台完成 |
 | Chrome 全屏窗口 | 必测 | 待测 |  |
 | 单显示器 | 当前环境具备时必测，否则 `N/A` | 待测 |  |
 | 双显示器 | 当前环境具备时必测，否则 `N/A` | 待测 |  |
@@ -114,7 +116,7 @@ Chrome 处于前台，打开普通网页即可。本矩阵只看 probe 是否输
 
 ## 8. 结论
 
-当前状态：待测。
+当前状态：部分通过；2026-07-01 已按用户要求结束测试，待补齐非 Chrome 前台、Chrome 全屏窗口、显示器环境和系统手势冲突观察。
 
 正式开发前必须给出以下结论之一：
 
