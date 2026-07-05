@@ -1219,7 +1219,7 @@ git commit -m "feat: add chrome action executor"
 - Create: `extensions/chrome/tests/pointerTracker.test.ts`
 - Modify: `extensions/chrome/tests/linkResolver.test.ts`
 
-- [ ] **Step 1: 补齐 tab 右边界测试**
+- [x] **Step 1: 补齐 tab 右边界测试**
 
 在 `extensions/chrome/tests/actionExecutor.test.ts` 增加：
 
@@ -1237,7 +1237,7 @@ it("does not wrap on right edge", async () => {
 });
 ```
 
-- [ ] **Step 2: 补齐 pointer 新鲜度测试**
+- [x] **Step 2: 补齐 pointer 新鲜度测试**
 
 创建 `extensions/chrome/tests/pointerTracker.test.ts`：
 
@@ -1268,7 +1268,7 @@ describe("pointerTracker", () => {
 });
 ```
 
-- [ ] **Step 3: 补齐链接识别范围测试**
+- [x] **Step 3: 补齐链接识别范围测试**
 
 在 `extensions/chrome/tests/linkResolver.test.ts` 增加：
 
@@ -1293,7 +1293,7 @@ it("rejects file links", () => {
 });
 ```
 
-- [ ] **Step 4: 运行测试和构建并提交**
+- [x] **Step 4: 运行测试和构建并提交**
 
 Run:
 

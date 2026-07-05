@@ -34,4 +34,23 @@ describe("resolveLinkAtPoint", () => {
 
     expect(result).toEqual({ status: "unsupported_url_scheme" });
   });
+
+  it("returns link for child element inside anchor", () => {
+    document.body.innerHTML = `<a id="target" href="/image"><img id="child" alt="preview"></a>`;
+    const child = document.getElementById("child") as HTMLImageElement;
+    document.elementFromPoint = () => child;
+
+    expect(resolveLinkAtPoint(1, 1)).toEqual({
+      status: "success",
+      url: "http://localhost:3000/image"
+    });
+  });
+
+  it("rejects file links", () => {
+    document.body.innerHTML = `<a id="target" href="file:///tmp/a.txt">File</a>`;
+    const anchor = document.getElementById("target") as HTMLAnchorElement;
+    document.elementFromPoint = () => anchor;
+
+    expect(resolveLinkAtPoint(1, 1)).toEqual({ status: "unsupported_url_scheme" });
+  });
 });

@@ -80,4 +80,16 @@ describe("executeGestureAction", () => {
     expect(result.status).toBe("success");
     expect(api.tabs.update).toHaveBeenCalledWith(22, { active: true });
   });
+
+  it("does not wrap on right edge", async () => {
+    const api = makeChromeApi([
+      { id: 20, index: 0, windowId: 7 },
+      { id: 21, index: 1, active: true, windowId: 7 }
+    ]);
+
+    const result = await executeGestureAction(api, { action: "activate_right_tab" });
+
+    expect(result.status).toBe("edge_reached");
+    expect(api.tabs.update).not.toHaveBeenCalled();
+  });
 });
