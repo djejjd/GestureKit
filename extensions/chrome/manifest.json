@@ -1,11 +1,11 @@
 {
   "manifest_version": 3,
-  "name": "GestureKit Spike",
+  "name": "GestureKit",
   "version": "0.1.0",
-  "permissions": ["nativeMessaging", "storage"],
+  "permissions": ["nativeMessaging", "storage", "tabs"],
   "host_permissions": ["<all_urls>"],
   "background": {
-    "service_worker": "dist/background/nativePort.js",
+    "service_worker": "dist/background/background.js",
     "type": "module"
   },
   "content_scripts": [

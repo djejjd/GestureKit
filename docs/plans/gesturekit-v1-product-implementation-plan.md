@@ -1323,7 +1323,7 @@ git commit -m "test: cover chrome tab and pointer boundaries"
 - Modify: `extensions/chrome/manifest.json`
 - Create: `extensions/chrome/tests/nativePortManager.test.ts`
 
-- [ ] **Step 1: 写入 native port 调度测试**
+- [x] **Step 1: 写入 native port 调度测试**
 
 创建 `extensions/chrome/tests/nativePortManager.test.ts`：
 
@@ -1395,7 +1395,7 @@ describe("createNativePortManager", () => {
 });
 ```
 
-- [ ] **Step 2: 实现 native port manager**
+- [x] **Step 2: 实现 native port manager**
 
 创建 `extensions/chrome/src/background/nativePortManager.ts`：
 
@@ -1464,7 +1464,7 @@ function actionResult(id: string, action: ActionResultMessage["payload"]["action
 }
 ```
 
-- [ ] **Step 3: 新建 background 入口**
+- [x] **Step 3: 新建 background 入口**
 
 创建 `extensions/chrome/src/background/background.ts`，负责实际 `connectNative()`：
 
@@ -1510,7 +1510,7 @@ port.onDisconnect.addListener(() => {
 });
 ```
 
-- [ ] **Step 4: 调整 build 和 manifest**
+- [x] **Step 4: 调整 build 和 manifest**
 
 `extensions/chrome/scripts/build.mjs` 的 background entry 改成 `src/background/background.ts`，outfile 保持 `dist/background/background.js`。
 
@@ -1537,7 +1537,7 @@ port.onDisconnect.addListener(() => {
 }
 ```
 
-- [ ] **Step 5: 运行测试和构建并提交**
+- [x] **Step 5: 运行测试和构建并提交**
 
 Run:
 

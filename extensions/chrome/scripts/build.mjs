@@ -2,10 +2,10 @@ import { build } from "esbuild";
 
 await Promise.all([
   build({
-    entryPoints: ["src/background/nativePort.ts"],
+    entryPoints: ["src/background/background.ts"],
     bundle: true,
     format: "esm",
-    outfile: "dist/background/nativePort.js",
+    outfile: "dist/background/background.js",
     sourcemap: false
   }),
   build({
