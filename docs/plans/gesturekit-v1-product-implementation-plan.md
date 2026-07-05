@@ -680,7 +680,7 @@ git commit -m "feat: add v1 rule engine"
 - Create: `Tests/GestureKitCoreTests/GestureRecognizerTests.swift`
 - Modify: `spikes/trackpad-input/Sources/TrackpadInputProbe/main.swift`
 
-- [ ] **Step 1: 写入失败测试**
+- [x] **Step 1: 写入失败测试**
 
 创建 `Tests/GestureKitCoreTests/GestureRecognizerTests.swift`：
 
@@ -736,7 +736,7 @@ private extension TouchSample {
 }
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 Run:
 
@@ -746,7 +746,7 @@ swift test --filter GestureRecognizerTests
 
 Expected: 编译失败，提示找不到 `GestureRecognizer` 或 `TouchFrame`。
 
-- [ ] **Step 3: 实现输入样本模型**
+- [x] **Step 3: 实现输入样本模型**
 
 创建 `Sources/GestureKitCore/Gestures/TouchSample.swift`：
 
@@ -783,7 +783,7 @@ public struct RecognizedGesture: Equatable, Sendable {
 }
 ```
 
-- [ ] **Step 4: 定义 TouchBackend 抽象**
+- [x] **Step 4: 定义 TouchBackend 抽象**
 
 创建 `Sources/GestureKitCore/Gestures/TouchBackend.swift`：
 
@@ -797,7 +797,7 @@ public protocol TouchBackend {
 
 此协议是业务层能看到的唯一触控板输入边界。`OpenMultitouchSupport` 只能出现在 App target 或 spike target 中，不能被 `RuleEngine`、`SettingsStore`、协议模型或 Chrome 边界引用。
 
-- [ ] **Step 5: 实现识别器**
+- [x] **Step 5: 实现识别器**
 
 创建 `Sources/GestureKitCore/Gestures/GestureRecognizer.swift`：
 
@@ -865,7 +865,7 @@ public struct GestureRecognizer: Sendable {
 }
 ```
 
-- [ ] **Step 6: 调整 probe 复用识别器**
+- [x] **Step 6: 调整 probe 复用识别器**
 
 修改 `spikes/trackpad-input/Sources/TrackpadInputProbe/main.swift`：
 
@@ -888,7 +888,7 @@ import OpenMultitouchSupport
 
 验收时用人工矩阵中的三类手势重新抽样 1 次，确认输出格式没有破坏现有记录方法。
 
-- [ ] **Step 7: 运行测试和构建**
+- [x] **Step 7: 运行测试和构建**
 
 Run:
 
@@ -899,7 +899,7 @@ swift build
 
 Expected: 两个命令退出码为 0。
 
-- [ ] **Step 8: 提交**
+- [x] **Step 8: 提交**
 
 ```bash
 git add Sources/GestureKitCore/Gestures Tests/GestureKitCoreTests/GestureRecognizerTests.swift spikes/trackpad-input/Sources/TrackpadInputProbe/main.swift

@@ -37,6 +37,7 @@ let package = Package(
         .executableTarget(
             name: "TrackpadInputProbe",
             dependencies: [
+                "GestureKitCore",
                 .product(name: "OpenMultitouchSupport", package: "OpenMultiTouchSupport")
             ],
             path: "spikes/trackpad-input/Sources/TrackpadInputProbe"

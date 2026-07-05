@@ -1,23 +1,12 @@
 import Dispatch
 import Foundation
+import GestureKitCore
 import OpenMultitouchSupport
 
 private enum GestureCandidate: String {
     case tap = "three_finger_tap"
     case swipeLeft = "three_finger_swipe_left"
     case swipeRight = "three_finger_swipe_right"
-}
-
-private struct Centroid {
-    let x: Float
-    let y: Float
-}
-
-private struct ThreeFingerSession {
-    let startedAt: Date
-    let startCentroid: Centroid
-    var latestCentroid: Centroid
-    var maxFingerCount: Int
 }
 
 private struct CandidateCounts {
@@ -72,7 +61,8 @@ private final class InterruptSignal {
 private final class ObservationState {
     private var lastPrintedFingerCount: Int?
     private var lastSummaryAt = Date.distantPast
-    private var threeFingerSession: ThreeFingerSession?
+    private var recognizer = GestureRecognizer()
+    private var isThreeFingerSessionActive = false
     private var candidateCounts = CandidateCounts()
 
     func observe(_ touches: [OMSTouchData]) {
@@ -84,7 +74,16 @@ private final class ObservationState {
             printSummary(fingerCount: fingerCount, centroid: centroid, touches: activeTouches)
         }
 
-        updateThreeFingerSession(fingerCount: fingerCount, centroid: centroid)
+        let frame = TouchFrame.frame(time: Date().timeIntervalSinceReferenceDate, activeTouches: Self.samples(from: activeTouches))
+        if let recognized = recognizer.observe(frame) {
+            isThreeFingerSessionActive = false
+            printRecognizedGesture(recognized)
+        } else if fingerCount == 3, let centroid, !isThreeFingerSessionActive {
+            isThreeFingerSessionActive = true
+            print(String(format: "[candidate:start] fingers=3 centroid=(%.3f, %.3f)", centroid.x, centroid.y))
+        } else if fingerCount != 3 {
+            isThreeFingerSessionActive = false
+        }
     }
 
     private func shouldPrintSummary(fingerCount: Int) -> Bool {
@@ -100,47 +99,22 @@ private final class ObservationState {
         return false
     }
 
-    private func updateThreeFingerSession(fingerCount: Int, centroid: Centroid?) {
-        if fingerCount == 3, let centroid {
-            if var session = threeFingerSession {
-                session.latestCentroid = centroid
-                session.maxFingerCount = max(session.maxFingerCount, fingerCount)
-                threeFingerSession = session
-            } else {
-                threeFingerSession = ThreeFingerSession(
-                    startedAt: Date(),
-                    startCentroid: centroid,
-                    latestCentroid: centroid,
-                    maxFingerCount: fingerCount
-                )
-                print(String(format: "[candidate:start] fingers=3 centroid=(%.3f, %.3f)", centroid.x, centroid.y))
-            }
-            return
-        }
-
-        guard let session = threeFingerSession else { return }
-        threeFingerSession = nil
-        classify(session)
-    }
-
-    private func classify(_ session: ThreeFingerSession) {
-        let duration = Date().timeIntervalSince(session.startedAt)
-        let dx = session.latestCentroid.x - session.startCentroid.x
-        let dy = session.latestCentroid.y - session.startCentroid.y
-        let distance = hypotf(dx, dy)
-        let horizontalEnough = abs(dx) >= 0.12 && abs(dx) > abs(dy) * 1.2
-
-        if duration <= 0.45 && distance <= 0.06 {
-            printCandidate(.tap, duration: duration, dx: dx, dy: dy, distance: distance)
-        } else if horizontalEnough {
-            printCandidate(dx < 0 ? .swipeLeft : .swipeRight, duration: duration, dx: dx, dy: dy, distance: distance)
-        } else {
+    private func printRecognizedGesture(_ recognized: RecognizedGesture) {
+        let distance = hypotf(recognized.dx, recognized.dy)
+        switch recognized.gesture {
+        case .threeFingerTap:
+            printCandidate(.tap, recognized: recognized, distance: distance)
+        case .threeFingerSwipeLeft:
+            printCandidate(.swipeLeft, recognized: recognized, distance: distance)
+        case .threeFingerSwipeRight:
+            printCandidate(.swipeRight, recognized: recognized, distance: distance)
+        case nil:
             candidateCounts.recordUnclear()
             let line = String(
-                format: "[candidate:unclear] fingers=3 duration_ms=%.0f dx=%.3f dy=%.3f distance=%.3f",
-                duration * 1000,
-                dx,
-                dy,
+                format: "[candidate:unclear] fingers=3 duration_ms=%d dx=%.3f dy=%.3f distance=%.3f",
+                recognized.durationMs,
+                recognized.dx,
+                recognized.dy,
                 distance
             )
             print("\(line) [\(candidateCounts.summary)]")
@@ -149,24 +123,22 @@ private final class ObservationState {
 
     private func printCandidate(
         _ candidate: GestureCandidate,
-        duration: TimeInterval,
-        dx: Float,
-        dy: Float,
+        recognized: RecognizedGesture,
         distance: Float
     ) {
         candidateCounts.record(candidate)
         let line = String(
-            format: "[candidate:%@] duration_ms=%.0f dx=%.3f dy=%.3f distance=%.3f",
+            format: "[candidate:%@] duration_ms=%d dx=%.3f dy=%.3f distance=%.3f",
             candidate.rawValue,
-            duration * 1000,
-            dx,
-            dy,
+            recognized.durationMs,
+            recognized.dx,
+            recognized.dy,
             distance
         )
         print("\(line) [\(candidateCounts.summary)]")
     }
 
-    private func printSummary(fingerCount: Int, centroid: Centroid?, touches: [OMSTouchData]) {
+    private func printSummary(fingerCount: Int, centroid: (x: Float, y: Float)?, touches: [OMSTouchData]) {
         let centroidText: String
         if let centroid {
             centroidText = String(format: "(%.3f, %.3f)", centroid.x, centroid.y)
@@ -189,13 +161,19 @@ private final class ObservationState {
         }
     }
 
-    private static func centroid(of touches: [OMSTouchData]) -> Centroid? {
+    private static func samples(from touches: [OMSTouchData]) -> [TouchSample] {
+        touches.enumerated().map { index, touch in
+            TouchSample(id: Int32(index), x: touch.position.x, y: touch.position.y)
+        }
+    }
+
+    private static func centroid(of touches: [OMSTouchData]) -> (x: Float, y: Float)? {
         guard !touches.isEmpty else { return nil }
         let total = touches.reduce((x: Float(0), y: Float(0))) { partial, touch in
             (partial.x + touch.position.x, partial.y + touch.position.y)
         }
         let count = Float(touches.count)
-        return Centroid(x: total.x / count, y: total.y / count)
+        return (x: total.x / count, y: total.y / count)
     }
 }
 
