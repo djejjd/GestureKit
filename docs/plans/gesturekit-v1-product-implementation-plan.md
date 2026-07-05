@@ -419,7 +419,7 @@ git commit -m "feat: add product core protocol models"
 - Create: `Sources/GestureKitCore/Rules/RuleEngine.swift`
 - Create: `Tests/GestureKitCoreTests/RuleEngineTests.swift`
 
-- [ ] **Step 1: 写入失败测试**
+- [x] **Step 1: 写入失败测试**
 
 创建 `Tests/GestureKitCoreTests/RuleEngineTests.swift`：
 
@@ -489,7 +489,7 @@ final class RuleEngineTests: XCTestCase {
 }
 ```
 
-- [ ] **Step 2: 运行测试确认失败**
+- [x] **Step 2: 运行测试确认失败**
 
 Run:
 
@@ -499,7 +499,7 @@ swift test --filter RuleEngineTests
 
 Expected: 编译失败，提示找不到 `RuleEngine`、`DefaultRules` 或相关模型。
 
-- [ ] **Step 3: 实现规则模型**
+- [x] **Step 3: 实现规则模型**
 
 创建 `Sources/GestureKitCore/Rules/RuleModels.swift`：
 
@@ -587,7 +587,7 @@ public struct RuleMatch: Equatable, Sendable {
 }
 ```
 
-- [ ] **Step 4: 实现默认规则和 RuleEngine**
+- [x] **Step 4: 实现默认规则和 RuleEngine**
 
 创建 `Sources/GestureKitCore/Rules/DefaultRules.swift`：
 
@@ -652,7 +652,7 @@ public struct RuleEngine: Sendable {
 }
 ```
 
-- [ ] **Step 5: 运行测试**
+- [x] **Step 5: 运行测试**
 
 Run:
 
@@ -663,7 +663,7 @@ swift test
 
 Expected: 两个命令退出码为 0。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add Sources/GestureKitCore/Rules Tests/GestureKitCoreTests/RuleEngineTests.swift
