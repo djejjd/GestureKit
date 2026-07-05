@@ -8,6 +8,8 @@ let package = Package(
         .macOS(.v15)
     ],
     products: [
+        .library(name: "GestureKitCore", targets: ["GestureKitCore"]),
+        .executable(name: "GestureKitApp", targets: ["GestureKitApp"]),
         .executable(name: "GestureKitHost", targets: ["GestureKitHost"]),
         .executable(name: "TrackpadInputProbe", targets: ["TrackpadInputProbe"])
     ],
@@ -15,8 +17,21 @@ let package = Package(
         .package(url: "https://github.com/Kyome22/OpenMultiTouchSupport.git", branch: "main")
     ],
     targets: [
+        .target(
+            name: "GestureKitCore",
+            path: "Sources/GestureKitCore"
+        ),
+        .executableTarget(
+            name: "GestureKitApp",
+            dependencies: [
+                "GestureKitCore",
+                .product(name: "OpenMultitouchSupport", package: "OpenMultiTouchSupport")
+            ],
+            path: "apps/macos/GestureKitApp/Sources/GestureKitApp"
+        ),
         .executableTarget(
             name: "GestureKitHost",
+            dependencies: ["GestureKitCore"],
             path: "native-host/gesturekit-host/Sources/GestureKitHost"
         ),
         .executableTarget(
@@ -25,6 +40,11 @@ let package = Package(
                 .product(name: "OpenMultitouchSupport", package: "OpenMultiTouchSupport")
             ],
             path: "spikes/trackpad-input/Sources/TrackpadInputProbe"
+        ),
+        .testTarget(
+            name: "GestureKitCoreTests",
+            dependencies: ["GestureKitCore"],
+            path: "Tests/GestureKitCoreTests"
         )
     ]
 )

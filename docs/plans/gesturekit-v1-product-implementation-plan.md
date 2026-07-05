@@ -1,0 +1,2311 @@
+# GestureKit V1 产品实现计划
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** 交付 GestureKit V1 的三个正式功能：三指点按链接后台打开、三指左滑切到左侧标签页、三指右滑切到右侧标签页。
+
+**Architecture:** V1 使用 macOS App 采集触控板输入、识别手势、匹配规则，并通过本机 IPC 把动作意图交给 native host shim。Chrome MV3 extension 通过 `connectNative()` 连接 native host，负责网页链接识别和 Chrome tab 动作执行。规则、协议和执行边界必须保持可测试，不把三个动作硬编码在输入层或 Chrome API 调用层。
+
+**Tech Stack:** Swift 6.2、Swift Package Manager、AppKit、OpenMultitouchSupport、UserDefaults、Chrome Manifest V3、TypeScript、Vitest、esbuild、Chrome Native Messaging、JSON Schema。
+
+---
+
+## 1. 契约基线
+
+实现必须遵守：
+
+- `docs/product/gesturekit-v1-contract.md`
+- `docs/product/gesturekit-v1-requirements.md`
+- `docs/architecture/gesturekit-v1-technical-design.md`
+- `docs/research/trackpad-gesture-stability-matrix.md`
+- `docs/adr/0001-use-native-host-shim.md`
+- `docs/adr/0002-use-extension-last-pointer-position.md`
+- `docs/adr/0003-use-rules-engine-from-v1.md`
+
+当前手势稳定性结论是 `passed_with_notes`。实现必须保留以下说明：
+
+- 三指右滑按物理方向定义为“从触控板左侧向右侧推”。
+- 当前验证覆盖内置触控板和内置单屏；Magic Trackpad、外接屏按当前环境记为 `N/A`。
+- 当前系统设置下未观察到 macOS 系统动作冲突，但用户文档需要说明三指系统设置可能影响识别。
+
+## 2. 目标文件结构
+
+正式实现阶段新增或调整以下路径。`spikes/` 继续作为研究资料，不作为产品运行入口。
+
+```text
+Package.swift
+
+apps/macos/GestureKitApp/
+  Sources/GestureKitApp/main.swift
+  Sources/GestureKitApp/AppDelegate.swift
+  Sources/GestureKitApp/Runtime.swift
+  Sources/GestureKitApp/MultitouchSupportBackend.swift
+  Sources/GestureKitApp/LocalEventServer.swift
+
+native-host/gesturekit-host/
+  Sources/GestureKitHost/main.swift
+  Sources/GestureKitHost/NativeMessageCodec.swift
+  Sources/GestureKitHost/AppIPCClient.swift
+
+Sources/GestureKitCore/
+  AppContext/AppContext.swift
+  AppContext/AppContextResolver.swift
+  Gestures/GestureRecognizer.swift
+  Gestures/TouchBackend.swift
+  Gestures/TouchSample.swift
+  IPC/LocalIPCProtocol.swift
+  Protocol/GestureKitMessage.swift
+  Rules/DefaultRules.swift
+  Rules/RuleEngine.swift
+  Rules/RuleModels.swift
+  Settings/SettingsStore.swift
+
+Tests/GestureKitCoreTests/
+  AppContextResolverTests.swift
+  GestureRecognizerTests.swift
+  GestureKitMessageTests.swift
+  LocalIPCProtocolTests.swift
+  RuleEngineTests.swift
+  SettingsStoreTests.swift
+
+extensions/chrome/
+  manifest.json
+  scripts/build.mjs
+  src/background/actionExecutor.ts
+  src/background/background.ts
+  src/background/chromeApi.ts
+  src/background/nativePortManager.ts
+  src/content/linkResolver.ts
+  src/content/pointerTracker.ts
+  src/protocol/messages.ts
+  tests/actionExecutor.test.ts
+  tests/linkResolver.test.ts
+  tests/nativePortManager.test.ts
+  tests/pointerTracker.test.ts
+
+docs/operations/
+  gesturekit-v1-local-install.md
+  gesturekit-v1-e2e-checklist.md
+```
+
+## 3. 实施原则
+
+- 每个任务先写或补齐测试，再实现代码。
+- 每个任务完成后运行对应验证命令并提交。
+- 如果实现发现契约冲突，停止当前任务，先更新产品规格、技术设计或契约并获得确认。
+- 子 agent 适合按任务切分执行，但同一任务内不要多人同时改同一文件集合。
+- `.obsidian/` 不纳入提交。
+
+## Task 1: 产品目标和 Swift 测试骨架
+
+**Files:**
+
+- Modify: `Package.swift`
+- Create: `Sources/GestureKitCore/Protocol/GestureKitMessage.swift`
+- Create: `Tests/GestureKitCoreTests/GestureKitMessageTests.swift`
+
+- [x] **Step 1: 写入失败测试**
+
+创建 `Tests/GestureKitCoreTests/GestureKitMessageTests.swift`：
+
+```swift
+import XCTest
+@testable import GestureKitCore
+
+final class GestureKitMessageTests: XCTestCase {
+    func testGestureEventMessageEncodesContractShape() throws {
+        let message = GestureKitMessage.gestureEvent(
+            id: "event-1",
+            timestamp: 1_782_200_000_000,
+            payload: GestureEventPayload(
+                gesture: .threeFingerTap,
+                appBundleId: "com.google.Chrome",
+                confidence: 0.94
+            )
+        )
+
+        let data = try JSONEncoder.gestureKit.encode(message)
+        let json = String(decoding: data, as: UTF8.self)
+
+        XCTAssertTrue(json.contains("\"version\":1"))
+        XCTAssertTrue(json.contains("\"id\":\"event-1\""))
+        XCTAssertTrue(json.contains("\"type\":\"gesture_event\""))
+        XCTAssertTrue(json.contains("\"gesture\":\"three_finger_tap\""))
+        XCTAssertTrue(json.contains("\"appBundleId\":\"com.google.Chrome\""))
+        XCTAssertTrue(json.contains("\"error\":null"))
+    }
+
+    func testActionResultDecodesKnownFailureStatus() throws {
+        let data = Data("""
+        {"version":1,"id":"result-1","type":"action_result","timestamp":10,"payload":{"action":"activate_left_tab","status":"edge_reached","details":{"index":"0"}},"error":null}
+        """.utf8)
+
+        let message = try JSONDecoder.gestureKit.decode(GestureKitMessage.self, from: data)
+
+        XCTAssertEqual(message.id, "result-1")
+        XCTAssertEqual(message.type, .actionResult)
+        XCTAssertEqual(message.actionResultPayload?.status, .edgeReached)
+    }
+}
+```
+
+- [x] **Step 2: 运行测试确认失败**
+
+Run:
+
+```bash
+swift test --filter GestureKitMessageTests
+```
+
+Expected: 编译失败，提示找不到 `GestureKitCore` 或 `GestureKitMessage`。
+
+- [x] **Step 3: 更新 Swift package**
+
+把 `Package.swift` 调整为包含正式 App、Core library 和测试 target。保留现有 `GestureKitHost` 与 `TrackpadInputProbe`。
+
+```swift
+// swift-tools-version: 6.2
+
+import PackageDescription
+
+let package = Package(
+    name: "GestureKit",
+    platforms: [
+        .macOS(.v15)
+    ],
+    products: [
+        .library(name: "GestureKitCore", targets: ["GestureKitCore"]),
+        .executable(name: "GestureKitApp", targets: ["GestureKitApp"]),
+        .executable(name: "GestureKitHost", targets: ["GestureKitHost"]),
+        .executable(name: "TrackpadInputProbe", targets: ["TrackpadInputProbe"])
+    ],
+    dependencies: [
+        .package(url: "https://github.com/Kyome22/OpenMultiTouchSupport.git", branch: "main")
+    ],
+    targets: [
+        .target(
+            name: "GestureKitCore",
+            path: "Sources/GestureKitCore"
+        ),
+        .executableTarget(
+            name: "GestureKitApp",
+            dependencies: [
+                "GestureKitCore",
+                .product(name: "OpenMultitouchSupport", package: "OpenMultiTouchSupport")
+            ],
+            path: "apps/macos/GestureKitApp/Sources/GestureKitApp"
+        ),
+        .executableTarget(
+            name: "GestureKitHost",
+            dependencies: ["GestureKitCore"],
+            path: "native-host/gesturekit-host/Sources/GestureKitHost"
+        ),
+        .executableTarget(
+            name: "TrackpadInputProbe",
+            dependencies: [
+                .product(name: "OpenMultitouchSupport", package: "OpenMultiTouchSupport")
+            ],
+            path: "spikes/trackpad-input/Sources/TrackpadInputProbe"
+        ),
+        .testTarget(
+            name: "GestureKitCoreTests",
+            dependencies: ["GestureKitCore"],
+            path: "Tests/GestureKitCoreTests"
+        )
+    ]
+)
+```
+
+- [x] **Step 4: 实现协议模型**
+
+创建 `Sources/GestureKitCore/Protocol/GestureKitMessage.swift`：
+
+```swift
+import Foundation
+
+public enum GestureType: String, Codable, Equatable, Sendable {
+    case threeFingerTap = "three_finger_tap"
+    case threeFingerSwipeLeft = "three_finger_swipe_left"
+    case threeFingerSwipeRight = "three_finger_swipe_right"
+}
+
+public enum ActionType: String, Codable, Equatable, Sendable {
+    case openLinkBackground = "open_link_background"
+    case activateLeftTab = "activate_left_tab"
+    case activateRightTab = "activate_right_tab"
+}
+
+public enum ActionStatus: String, Codable, Equatable, Sendable {
+    case success
+    case edgeReached = "edge_reached"
+    case noRecentPointer = "no_recent_pointer"
+    case noTarget = "no_target"
+    case pageUnavailable = "page_unavailable"
+    case unsupportedURLScheme = "unsupported_url_scheme"
+    case unsupportedApp = "unsupported_app"
+    case nativeHostDisconnected = "native_host_disconnected"
+    case appUnavailable = "app_unavailable"
+    case extensionUnavailable = "extension_unavailable"
+    case gestureUnstable = "gesture_unstable"
+    case error
+}
+
+public enum MessageType: String, Codable, Equatable, Sendable {
+    case hello
+    case gestureEvent = "gesture_event"
+    case actionResult = "action_result"
+    case error
+    case heartbeat
+}
+
+public struct GestureEventPayload: Codable, Equatable, Sendable {
+    public let gesture: GestureType
+    public let appBundleId: String
+    public let confidence: Double?
+
+    public init(gesture: GestureType, appBundleId: String, confidence: Double?) {
+        self.gesture = gesture
+        self.appBundleId = appBundleId
+        self.confidence = confidence
+    }
+}
+
+public struct ActionResultPayload: Codable, Equatable, Sendable {
+    public let action: ActionType
+    public let status: ActionStatus
+    public let details: [String: String]?
+}
+
+public struct GestureKitError: Codable, Equatable, Sendable {
+    public let code: String
+    public let message: String
+}
+
+public struct GestureKitMessage: Codable, Equatable, Sendable {
+    public let version: Int
+    public let id: String
+    public let type: MessageType
+    public let timestamp: Int64
+    public let payload: Payload
+    public let error: GestureKitError?
+
+    private enum CodingKeys: String, CodingKey {
+        case version
+        case id
+        case type
+        case timestamp
+        case payload
+        case error
+    }
+
+    public enum Payload: Codable, Equatable, Sendable {
+        case gestureEvent(GestureEventPayload)
+        case actionResult(ActionResultPayload)
+        case object([String: String])
+
+        public init(from decoder: Decoder) throws {
+            let container = try decoder.singleValueContainer()
+            if let payload = try? container.decode(GestureEventPayload.self) {
+                self = .gestureEvent(payload)
+            } else if let payload = try? container.decode(ActionResultPayload.self) {
+                self = .actionResult(payload)
+            } else {
+                self = .object(try container.decode([String: String].self))
+            }
+        }
+
+        public func encode(to encoder: Encoder) throws {
+            var container = encoder.singleValueContainer()
+            switch self {
+            case .gestureEvent(let payload):
+                try container.encode(payload)
+            case .actionResult(let payload):
+                try container.encode(payload)
+            case .object(let payload):
+                try container.encode(payload)
+            }
+        }
+    }
+
+    public static func gestureEvent(id: String, timestamp: Int64, payload: GestureEventPayload) -> GestureKitMessage {
+        GestureKitMessage(version: 1, id: id, type: .gestureEvent, timestamp: timestamp, payload: .gestureEvent(payload), error: nil)
+    }
+
+    public var actionResultPayload: ActionResultPayload? {
+        guard case .actionResult(let payload) = payload else { return nil }
+        return payload
+    }
+
+    public init(
+        version: Int,
+        id: String,
+        type: MessageType,
+        timestamp: Int64,
+        payload: Payload,
+        error: GestureKitError?
+    ) {
+        self.version = version
+        self.id = id
+        self.type = type
+        self.timestamp = timestamp
+        self.payload = payload
+        self.error = error
+    }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        version = try container.decode(Int.self, forKey: .version)
+        id = try container.decode(String.self, forKey: .id)
+        type = try container.decode(MessageType.self, forKey: .type)
+        timestamp = try container.decode(Int64.self, forKey: .timestamp)
+        payload = try container.decode(Payload.self, forKey: .payload)
+        error = try container.decodeIfPresent(GestureKitError.self, forKey: .error)
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(version, forKey: .version)
+        try container.encode(id, forKey: .id)
+        try container.encode(type, forKey: .type)
+        try container.encode(timestamp, forKey: .timestamp)
+        try container.encode(payload, forKey: .payload)
+        if let error {
+            try container.encode(error, forKey: .error)
+        } else {
+            try container.encodeNil(forKey: .error)
+        }
+    }
+}
+
+public extension JSONEncoder {
+    static var gestureKit: JSONEncoder {
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.sortedKeys]
+        return encoder
+    }
+}
+
+public extension JSONDecoder {
+    static var gestureKit: JSONDecoder {
+        JSONDecoder()
+    }
+}
+```
+
+- [x] **Step 5: 运行测试和构建**
+
+Run:
+
+```bash
+swift test --filter GestureKitMessageTests
+swift build
+```
+
+Expected: 两个命令退出码为 0。
+
+- [x] **Step 6: 提交**
+
+```bash
+git add Package.swift Sources/GestureKitCore Tests/GestureKitCoreTests
+git commit -m "feat: add product core protocol models"
+```
+
+## Task 2: RuleEngine 和默认规则
+
+**Files:**
+
+- Create: `Sources/GestureKitCore/Rules/RuleModels.swift`
+- Create: `Sources/GestureKitCore/Rules/DefaultRules.swift`
+- Create: `Sources/GestureKitCore/Rules/RuleEngine.swift`
+- Create: `Tests/GestureKitCoreTests/RuleEngineTests.swift`
+
+- [ ] **Step 1: 写入失败测试**
+
+创建 `Tests/GestureKitCoreTests/RuleEngineTests.swift`：
+
+```swift
+import XCTest
+@testable import GestureKitCore
+
+final class RuleEngineTests: XCTestCase {
+    func testTapOnChromeLinkMatchesOpenLinkRule() {
+        let engine = RuleEngine(rules: DefaultRules.v1)
+        let context = RuleContext(appBundleId: "com.google.Chrome", browserKind: .chrome, elementType: .link)
+
+        let match = engine.match(gesture: .threeFingerTap, context: context)
+
+        XCTAssertEqual(match?.rule.id, "chrome-open-link-background")
+        XCTAssertEqual(match?.action.type, .openLinkBackground)
+    }
+
+    func testSwipeLeftOnChromeAnyElementMatchesLeftTabRule() {
+        let engine = RuleEngine(rules: DefaultRules.v1)
+        let context = RuleContext(appBundleId: "com.google.Chrome", browserKind: .chrome, elementType: .any)
+
+        let match = engine.match(gesture: .threeFingerSwipeLeft, context: context)
+
+        XCTAssertEqual(match?.rule.id, "chrome-activate-left-tab")
+        XCTAssertEqual(match?.action.type, .activateLeftTab)
+    }
+
+    func testUnsupportedAppDoesNotMatch() {
+        let engine = RuleEngine(rules: DefaultRules.v1)
+        let context = RuleContext(appBundleId: "com.apple.Safari", browserKind: .other, elementType: .link)
+
+        XCTAssertNil(engine.match(gesture: .threeFingerTap, context: context))
+    }
+
+    func testDisabledRuleIsIgnored() {
+        var rule = DefaultRules.v1[0]
+        rule.enabled = false
+        let engine = RuleEngine(rules: [rule])
+        let context = RuleContext(appBundleId: "com.google.Chrome", browserKind: .chrome, elementType: .link)
+
+        XCTAssertNil(engine.match(gesture: .threeFingerTap, context: context))
+    }
+
+    func testHigherPriorityWinsBeforeStableIdTieBreaker() {
+        let low = Rule(
+            id: "b-low",
+            enabled: true,
+            priority: 10,
+            scope: RuleScope(appBundleId: "com.google.Chrome", browserKind: .chrome, elementType: .link),
+            gesture: RuleGesture(type: .threeFingerTap),
+            action: RuleAction(type: .activateLeftTab)
+        )
+        let high = Rule(
+            id: "a-high",
+            enabled: true,
+            priority: 20,
+            scope: RuleScope(appBundleId: "com.google.Chrome", browserKind: .chrome, elementType: .link),
+            gesture: RuleGesture(type: .threeFingerTap),
+            action: RuleAction(type: .openLinkBackground)
+        )
+        let engine = RuleEngine(rules: [low, high])
+        let context = RuleContext(appBundleId: "com.google.Chrome", browserKind: .chrome, elementType: .link)
+
+        XCTAssertEqual(engine.match(gesture: .threeFingerTap, context: context)?.rule.id, "a-high")
+    }
+}
+```
+
+- [ ] **Step 2: 运行测试确认失败**
+
+Run:
+
+```bash
+swift test --filter RuleEngineTests
+```
+
+Expected: 编译失败，提示找不到 `RuleEngine`、`DefaultRules` 或相关模型。
+
+- [ ] **Step 3: 实现规则模型**
+
+创建 `Sources/GestureKitCore/Rules/RuleModels.swift`：
+
+```swift
+import Foundation
+
+public enum BrowserKind: String, Codable, Equatable, Sendable {
+    case chrome
+    case other
+}
+
+public enum ElementType: String, Codable, Equatable, Sendable {
+    case any
+    case link
+}
+
+public struct RuleContext: Codable, Equatable, Sendable {
+    public let appBundleId: String
+    public let browserKind: BrowserKind
+    public let elementType: ElementType
+
+    public init(appBundleId: String, browserKind: BrowserKind, elementType: ElementType) {
+        self.appBundleId = appBundleId
+        self.browserKind = browserKind
+        self.elementType = elementType
+    }
+}
+
+public struct RuleScope: Codable, Equatable, Sendable {
+    public let appBundleId: String?
+    public let browserKind: BrowserKind?
+    public let elementType: ElementType?
+
+    public init(appBundleId: String?, browserKind: BrowserKind?, elementType: ElementType?) {
+        self.appBundleId = appBundleId
+        self.browserKind = browserKind
+        self.elementType = elementType
+    }
+
+    public func matches(_ context: RuleContext) -> Bool {
+        if let appBundleId, appBundleId != context.appBundleId { return false }
+        if let browserKind, browserKind != context.browserKind { return false }
+        if let elementType, elementType != .any, elementType != context.elementType { return false }
+        return true
+    }
+
+    public var specificity: Int {
+        var value = 0
+        if appBundleId != nil { value += 10 }
+        if browserKind != nil { value += 5 }
+        if let elementType, elementType != .any { value += 3 }
+        return value
+    }
+}
+
+public struct RuleGesture: Codable, Equatable, Sendable {
+    public let type: GestureType
+}
+
+public struct RuleAction: Codable, Equatable, Sendable {
+    public let type: ActionType
+}
+
+public struct Rule: Codable, Equatable, Sendable {
+    public let id: String
+    public var enabled: Bool
+    public let priority: Int
+    public let scope: RuleScope
+    public let gesture: RuleGesture
+    public let action: RuleAction
+
+    public init(id: String, enabled: Bool, priority: Int, scope: RuleScope, gesture: RuleGesture, action: RuleAction) {
+        self.id = id
+        self.enabled = enabled
+        self.priority = priority
+        self.scope = scope
+        self.gesture = gesture
+        self.action = action
+    }
+}
+
+public struct RuleMatch: Equatable, Sendable {
+    public let rule: Rule
+    public let action: RuleAction
+}
+```
+
+- [ ] **Step 4: 实现默认规则和 RuleEngine**
+
+创建 `Sources/GestureKitCore/Rules/DefaultRules.swift`：
+
+```swift
+public enum DefaultRules {
+    public static let v1: [Rule] = [
+        Rule(
+            id: "chrome-open-link-background",
+            enabled: true,
+            priority: 100,
+            scope: RuleScope(appBundleId: "com.google.Chrome", browserKind: .chrome, elementType: .link),
+            gesture: RuleGesture(type: .threeFingerTap),
+            action: RuleAction(type: .openLinkBackground)
+        ),
+        Rule(
+            id: "chrome-activate-left-tab",
+            enabled: true,
+            priority: 90,
+            scope: RuleScope(appBundleId: "com.google.Chrome", browserKind: .chrome, elementType: .any),
+            gesture: RuleGesture(type: .threeFingerSwipeLeft),
+            action: RuleAction(type: .activateLeftTab)
+        ),
+        Rule(
+            id: "chrome-activate-right-tab",
+            enabled: true,
+            priority: 90,
+            scope: RuleScope(appBundleId: "com.google.Chrome", browserKind: .chrome, elementType: .any),
+            gesture: RuleGesture(type: .threeFingerSwipeRight),
+            action: RuleAction(type: .activateRightTab)
+        )
+    ]
+}
+```
+
+创建 `Sources/GestureKitCore/Rules/RuleEngine.swift`：
+
+```swift
+public struct RuleEngine: Sendable {
+    private let rules: [Rule]
+
+    public init(rules: [Rule]) {
+        self.rules = rules
+    }
+
+    public func match(gesture: GestureType, context: RuleContext) -> RuleMatch? {
+        rules
+            .filter { $0.enabled }
+            .filter { $0.gesture.type == gesture }
+            .filter { $0.scope.matches(context) }
+            .sorted { left, right in
+                if left.priority != right.priority {
+                    return left.priority > right.priority
+                }
+                if left.scope.specificity != right.scope.specificity {
+                    return left.scope.specificity > right.scope.specificity
+                }
+                return left.id < right.id
+            }
+            .first
+            .map { RuleMatch(rule: $0, action: $0.action) }
+    }
+}
+```
+
+- [ ] **Step 5: 运行测试**
+
+Run:
+
+```bash
+swift test --filter RuleEngineTests
+swift test
+```
+
+Expected: 两个命令退出码为 0。
+
+- [ ] **Step 6: 提交**
+
+```bash
+git add Sources/GestureKitCore/Rules Tests/GestureKitCoreTests/RuleEngineTests.swift
+git commit -m "feat: add v1 rule engine"
+```
+
+## Task 3: 手势识别核心从 spike 提取为可测模块
+
+**Files:**
+
+- Create: `Sources/GestureKitCore/Gestures/TouchSample.swift`
+- Create: `Sources/GestureKitCore/Gestures/TouchBackend.swift`
+- Create: `Sources/GestureKitCore/Gestures/GestureRecognizer.swift`
+- Create: `Tests/GestureKitCoreTests/GestureRecognizerTests.swift`
+- Modify: `spikes/trackpad-input/Sources/TrackpadInputProbe/main.swift`
+
+- [ ] **Step 1: 写入失败测试**
+
+创建 `Tests/GestureKitCoreTests/GestureRecognizerTests.swift`：
+
+```swift
+import XCTest
+@testable import GestureKitCore
+
+final class GestureRecognizerTests: XCTestCase {
+    func testThreeFingerTapIsRecognized() {
+        var recognizer = GestureRecognizer()
+
+        XCTAssertNil(recognizer.observe(.frame(time: 0.00, activeTouches: [.touch(1, 0.30, 0.40), .touch(2, 0.32, 0.40), .touch(3, 0.34, 0.40)])))
+        let event = recognizer.observe(.frame(time: 0.18, activeTouches: []))
+
+        XCTAssertEqual(event?.gesture, .threeFingerTap)
+    }
+
+    func testPhysicalLeftSwipeIsRecognized() {
+        var recognizer = GestureRecognizer()
+
+        _ = recognizer.observe(.frame(time: 0.00, activeTouches: [.touch(1, 0.70, 0.40), .touch(2, 0.72, 0.40), .touch(3, 0.74, 0.40)]))
+        _ = recognizer.observe(.frame(time: 0.20, activeTouches: [.touch(1, 0.48, 0.40), .touch(2, 0.50, 0.40), .touch(3, 0.52, 0.40)]))
+        let event = recognizer.observe(.frame(time: 0.34, activeTouches: []))
+
+        XCTAssertEqual(event?.gesture, .threeFingerSwipeLeft)
+    }
+
+    func testPhysicalRightSwipeIsRecognized() {
+        var recognizer = GestureRecognizer()
+
+        _ = recognizer.observe(.frame(time: 0.00, activeTouches: [.touch(1, 0.30, 0.40), .touch(2, 0.32, 0.40), .touch(3, 0.34, 0.40)]))
+        _ = recognizer.observe(.frame(time: 0.20, activeTouches: [.touch(1, 0.55, 0.40), .touch(2, 0.57, 0.40), .touch(3, 0.59, 0.40)]))
+        let event = recognizer.observe(.frame(time: 0.34, activeTouches: []))
+
+        XCTAssertEqual(event?.gesture, .threeFingerSwipeRight)
+    }
+
+    func testUnclearGestureIsReported() {
+        var recognizer = GestureRecognizer()
+
+        _ = recognizer.observe(.frame(time: 0.00, activeTouches: [.touch(1, 0.30, 0.30), .touch(2, 0.32, 0.32), .touch(3, 0.34, 0.34)]))
+        _ = recognizer.observe(.frame(time: 0.80, activeTouches: [.touch(1, 0.36, 0.42), .touch(2, 0.38, 0.44), .touch(3, 0.40, 0.46)]))
+        let event = recognizer.observe(.frame(time: 0.90, activeTouches: []))
+
+        XCTAssertEqual(event?.status, .gestureUnstable)
+    }
+}
+
+private extension TouchSample {
+    static func touch(_ id: Int32, _ x: Float, _ y: Float) -> TouchSample {
+        TouchSample(id: id, x: x, y: y)
+    }
+}
+```
+
+- [ ] **Step 2: 运行测试确认失败**
+
+Run:
+
+```bash
+swift test --filter GestureRecognizerTests
+```
+
+Expected: 编译失败，提示找不到 `GestureRecognizer` 或 `TouchFrame`。
+
+- [ ] **Step 3: 实现输入样本模型**
+
+创建 `Sources/GestureKitCore/Gestures/TouchSample.swift`：
+
+```swift
+import Foundation
+
+public struct TouchSample: Equatable, Sendable {
+    public let id: Int32
+    public let x: Float
+    public let y: Float
+
+    public init(id: Int32, x: Float, y: Float) {
+        self.id = id
+        self.x = x
+        self.y = y
+    }
+}
+
+public struct TouchFrame: Equatable, Sendable {
+    public let time: TimeInterval
+    public let activeTouches: [TouchSample]
+
+    public static func frame(time: TimeInterval, activeTouches: [TouchSample]) -> TouchFrame {
+        TouchFrame(time: time, activeTouches: activeTouches)
+    }
+}
+
+public struct RecognizedGesture: Equatable, Sendable {
+    public let gesture: GestureType?
+    public let status: ActionStatus
+    public let durationMs: Int
+    public let dx: Float
+    public let dy: Float
+}
+```
+
+- [ ] **Step 4: 定义 TouchBackend 抽象**
+
+创建 `Sources/GestureKitCore/Gestures/TouchBackend.swift`：
+
+```swift
+public protocol TouchBackend {
+    var frames: AsyncStream<TouchFrame> { get }
+    func start() -> Bool
+    func stop() -> Bool
+}
+```
+
+此协议是业务层能看到的唯一触控板输入边界。`OpenMultitouchSupport` 只能出现在 App target 或 spike target 中，不能被 `RuleEngine`、`SettingsStore`、协议模型或 Chrome 边界引用。
+
+- [ ] **Step 5: 实现识别器**
+
+创建 `Sources/GestureKitCore/Gestures/GestureRecognizer.swift`：
+
+```swift
+import Foundation
+
+public struct GestureRecognizer: Sendable {
+    private struct Centroid {
+        let x: Float
+        let y: Float
+    }
+
+    private struct Session {
+        let startedAt: TimeInterval
+        let startCentroid: Centroid
+        var latestCentroid: Centroid
+    }
+
+    private var session: Session?
+
+    public init() {}
+
+    public mutating func observe(_ frame: TouchFrame) -> RecognizedGesture? {
+        let fingerCount = frame.activeTouches.count
+        if fingerCount == 3, let centroid = Self.centroid(of: frame.activeTouches) {
+            if var existing = session {
+                existing.latestCentroid = centroid
+                session = existing
+            } else {
+                session = Session(startedAt: frame.time, startCentroid: centroid, latestCentroid: centroid)
+            }
+            return nil
+        }
+
+        guard let completed = session else { return nil }
+        session = nil
+        return classify(completed, endedAt: frame.time)
+    }
+
+    private func classify(_ session: Session, endedAt: TimeInterval) -> RecognizedGesture {
+        let duration = endedAt - session.startedAt
+        let dx = session.latestCentroid.x - session.startCentroid.x
+        let dy = session.latestCentroid.y - session.startCentroid.y
+        let distance = hypotf(dx, dy)
+        let durationMs = Int((duration * 1000).rounded())
+        let horizontalEnough = abs(dx) >= 0.12 && abs(dx) > abs(dy) * 1.2
+
+        if duration <= 0.45 && distance <= 0.06 {
+            return RecognizedGesture(gesture: .threeFingerTap, status: .success, durationMs: durationMs, dx: dx, dy: dy)
+        }
+        if horizontalEnough {
+            return RecognizedGesture(gesture: dx < 0 ? .threeFingerSwipeLeft : .threeFingerSwipeRight, status: .success, durationMs: durationMs, dx: dx, dy: dy)
+        }
+        return RecognizedGesture(gesture: nil, status: .gestureUnstable, durationMs: durationMs, dx: dx, dy: dy)
+    }
+
+    private static func centroid(of touches: [TouchSample]) -> Centroid? {
+        guard !touches.isEmpty else { return nil }
+        let total = touches.reduce((x: Float(0), y: Float(0))) { partial, sample in
+            (partial.x + sample.x, partial.y + sample.y)
+        }
+        let count = Float(touches.count)
+        return Centroid(x: total.x / count, y: total.y / count)
+    }
+}
+```
+
+- [ ] **Step 6: 调整 probe 复用识别器**
+
+修改 `spikes/trackpad-input/Sources/TrackpadInputProbe/main.swift`：
+
+```swift
+import Dispatch
+import Foundation
+import GestureKitCore
+import OpenMultitouchSupport
+```
+
+把 spike 内部 `GestureCandidate`、`Centroid`、`ThreeFingerSession` 和分类逻辑替换为 `GestureRecognizer`。保留现有 stdout 格式，仍输出：
+
+```text
+[candidate:three_finger_tap]
+[candidate:three_finger_swipe_left]
+[candidate:three_finger_swipe_right]
+[candidate:unclear]
+[counts tap=... left=... right=... unclear=...]
+```
+
+验收时用人工矩阵中的三类手势重新抽样 1 次，确认输出格式没有破坏现有记录方法。
+
+- [ ] **Step 7: 运行测试和构建**
+
+Run:
+
+```bash
+swift test --filter GestureRecognizerTests
+swift build
+```
+
+Expected: 两个命令退出码为 0。
+
+- [ ] **Step 8: 提交**
+
+```bash
+git add Sources/GestureKitCore/Gestures Tests/GestureKitCoreTests/GestureRecognizerTests.swift spikes/trackpad-input/Sources/TrackpadInputProbe/main.swift
+git commit -m "feat: extract gesture recognizer"
+```
+
+## Task 4: SettingsStore 和默认规则 source of truth
+
+**Files:**
+
+- Create: `Sources/GestureKitCore/Settings/SettingsStore.swift`
+- Create: `Tests/GestureKitCoreTests/SettingsStoreTests.swift`
+
+- [ ] **Step 1: 写入失败测试**
+
+创建 `Tests/GestureKitCoreTests/SettingsStoreTests.swift`：
+
+```swift
+import XCTest
+@testable import GestureKitCore
+
+final class SettingsStoreTests: XCTestCase {
+    func testEmptyStoreReturnsDefaultRules() throws {
+        let defaults = UserDefaults(suiteName: "GestureKitTests.empty")!
+        defaults.removePersistentDomain(forName: "GestureKitTests.empty")
+        let store = UserDefaultsSettingsStore(defaults: defaults)
+
+        XCTAssertEqual(try store.loadRules(), DefaultRules.v1)
+    }
+
+    func testSaveAndLoadRulesRoundTrip() throws {
+        let defaults = UserDefaults(suiteName: "GestureKitTests.roundtrip")!
+        defaults.removePersistentDomain(forName: "GestureKitTests.roundtrip")
+        let store = UserDefaultsSettingsStore(defaults: defaults)
+        var rules = DefaultRules.v1
+        rules[0].enabled = false
+
+        try store.saveRules(rules)
+
+        XCTAssertEqual(try store.loadRules(), rules)
+    }
+}
+```
+
+- [ ] **Step 2: 实现 SettingsStore**
+
+创建 `Sources/GestureKitCore/Settings/SettingsStore.swift`：
+
+```swift
+import Foundation
+
+public protocol SettingsStore {
+    func loadRules() throws -> [Rule]
+    func saveRules(_ rules: [Rule]) throws
+}
+
+public struct UserDefaultsSettingsStore: SettingsStore {
+    private let defaults: UserDefaults
+    private let rulesKey = "gesturekit.rules.v1"
+
+    public init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+    }
+
+    public func loadRules() throws -> [Rule] {
+        guard let data = defaults.data(forKey: rulesKey) else {
+            return DefaultRules.v1
+        }
+        return try JSONDecoder.gestureKit.decode([Rule].self, from: data)
+    }
+
+    public func saveRules(_ rules: [Rule]) throws {
+        let data = try JSONEncoder.gestureKit.encode(rules)
+        defaults.set(data, forKey: rulesKey)
+    }
+}
+```
+
+- [ ] **Step 3: 运行测试并提交**
+
+Run:
+
+```bash
+swift test --filter SettingsStoreTests
+swift test
+```
+
+Expected: 两个命令退出码为 0。
+
+Commit:
+
+```bash
+git add Sources/GestureKitCore/Settings Tests/GestureKitCoreTests/SettingsStoreTests.swift
+git commit -m "feat: add settings store for rules"
+```
+
+## Task 5: Chrome action executor
+
+**Files:**
+
+- Create: `extensions/chrome/src/background/chromeApi.ts`
+- Create: `extensions/chrome/src/background/actionExecutor.ts`
+- Create: `extensions/chrome/tests/actionExecutor.test.ts`
+- Modify: `extensions/chrome/src/protocol/messages.ts`
+
+- [ ] **Step 1: 写入失败测试**
+
+创建 `extensions/chrome/tests/actionExecutor.test.ts`：
+
+```ts
+import { describe, expect, it, vi } from "vitest";
+import { executeGestureAction } from "../src/background/actionExecutor";
+import type { ChromeApi } from "../src/background/chromeApi";
+
+function makeChromeApi(tabs: Array<{ id: number; index: number; active?: boolean; windowId: number }>): ChromeApi {
+  return {
+    tabs: {
+      query: vi.fn(async (queryInfo) => {
+        if (queryInfo.active) {
+          return tabs.filter((tab) => tab.active);
+        }
+        if (queryInfo.currentWindow) {
+          return tabs;
+        }
+        return tabs;
+      }),
+      create: vi.fn(async (createProperties) => ({ id: 100, index: createProperties.index ?? 0, windowId: createProperties.windowId ?? 1 })),
+      update: vi.fn(async (tabId, updateProperties) => ({ id: tabId, active: Boolean(updateProperties.active), index: 0, windowId: 1 }))
+    }
+  };
+}
+
+describe("executeGestureAction", () => {
+  it("opens http link in background next to active tab", async () => {
+    const api = makeChromeApi([{ id: 10, index: 2, active: true, windowId: 7 }]);
+
+    const result = await executeGestureAction(api, {
+      action: "open_link_background",
+      url: "https://example.com/docs"
+    });
+
+    expect(result.status).toBe("success");
+    expect(api.tabs.create).toHaveBeenCalledWith({
+      url: "https://example.com/docs",
+      active: false,
+      index: 3,
+      windowId: 7
+    });
+  });
+
+  it("rejects unsupported link scheme", async () => {
+    const api = makeChromeApi([{ id: 10, index: 2, active: true, windowId: 7 }]);
+
+    const result = await executeGestureAction(api, {
+      action: "open_link_background",
+      url: "javascript:alert(1)"
+    });
+
+    expect(result.status).toBe("unsupported_url_scheme");
+    expect(api.tabs.create).not.toHaveBeenCalled();
+  });
+
+  it("returns edge_reached on left edge", async () => {
+    const api = makeChromeApi([{ id: 10, index: 0, active: true, windowId: 7 }]);
+
+    const result = await executeGestureAction(api, { action: "activate_left_tab" });
+
+    expect(result.status).toBe("edge_reached");
+    expect(api.tabs.update).not.toHaveBeenCalled();
+  });
+
+  it("activates right tab in same window", async () => {
+    const api = makeChromeApi([
+      { id: 20, index: 0, windowId: 7 },
+      { id: 21, index: 1, active: true, windowId: 7 },
+      { id: 22, index: 2, windowId: 7 }
+    ]);
+
+    const result = await executeGestureAction(api, { action: "activate_right_tab" });
+
+    expect(result.status).toBe("success");
+    expect(api.tabs.update).toHaveBeenCalledWith(22, { active: true });
+  });
+});
+```
+
+- [ ] **Step 2: 实现 Chrome API wrapper 和 action executor**
+
+创建 `extensions/chrome/src/background/chromeApi.ts`：
+
+```ts
+export type ChromeApi = {
+  tabs: {
+    query(queryInfo: chrome.tabs.QueryInfo): Promise<chrome.tabs.Tab[]>;
+    create(createProperties: chrome.tabs.CreateProperties): Promise<chrome.tabs.Tab>;
+    update(tabId: number, updateProperties: chrome.tabs.UpdateProperties): Promise<chrome.tabs.Tab>;
+  };
+};
+
+export const chromeApi: ChromeApi = {
+  tabs: chrome.tabs
+};
+```
+
+创建 `extensions/chrome/src/background/actionExecutor.ts`：
+
+```ts
+import type { ActionStatus, ActionType } from "../protocol/messages";
+import type { ChromeApi } from "./chromeApi";
+
+type ActionIntent =
+  | { action: "open_link_background"; url: string }
+  | { action: "activate_left_tab" }
+  | { action: "activate_right_tab" };
+
+export type ActionExecutionResult = {
+  action: ActionType;
+  status: ActionStatus;
+  details?: Record<string, unknown>;
+};
+
+export async function executeGestureAction(api: ChromeApi, intent: ActionIntent): Promise<ActionExecutionResult> {
+  if (intent.action === "open_link_background") {
+    return openLinkBackground(api, intent.url);
+  }
+  if (intent.action === "activate_left_tab") {
+    return activateAdjacentTab(api, "left");
+  }
+  return activateAdjacentTab(api, "right");
+}
+
+async function openLinkBackground(api: ChromeApi, urlValue: string): Promise<ActionExecutionResult> {
+  const url = parseAllowedURL(urlValue);
+  if (!url) {
+    return { action: "open_link_background", status: "unsupported_url_scheme" };
+  }
+
+  const activeTab = await getActiveTab(api);
+  if (!activeTab?.id || activeTab.index === undefined || activeTab.windowId === undefined) {
+    return { action: "open_link_background", status: "page_unavailable" };
+  }
+
+  await api.tabs.create({
+    url: url.toString(),
+    active: false,
+    index: activeTab.index + 1,
+    windowId: activeTab.windowId
+  });
+  return { action: "open_link_background", status: "success" };
+}
+
+async function activateAdjacentTab(api: ChromeApi, direction: "left" | "right"): Promise<ActionExecutionResult> {
+  const activeTab = await getActiveTab(api);
+  const action: ActionType = direction === "left" ? "activate_left_tab" : "activate_right_tab";
+  if (!activeTab?.id || activeTab.index === undefined || activeTab.windowId === undefined) {
+    return { action, status: "page_unavailable" };
+  }
+
+  const targetIndex = direction === "left" ? activeTab.index - 1 : activeTab.index + 1;
+  if (targetIndex < 0) {
+    return { action, status: "edge_reached" };
+  }
+
+  const tabs = await api.tabs.query({ currentWindow: true });
+  const target = tabs.find((tab) => tab.windowId === activeTab.windowId && tab.index === targetIndex);
+  if (!target?.id) {
+    return { action, status: "edge_reached" };
+  }
+
+  await api.tabs.update(target.id, { active: true });
+  return { action, status: "success", details: { targetIndex } };
+}
+
+async function getActiveTab(api: ChromeApi): Promise<chrome.tabs.Tab | undefined> {
+  const [tab] = await api.tabs.query({ active: true, lastFocusedWindow: true });
+  return tab;
+}
+
+function parseAllowedURL(value: string): URL | null {
+  try {
+    const url = new URL(value);
+    return url.protocol === "http:" || url.protocol === "https:" ? url : null;
+  } catch {
+    return null;
+  }
+}
+
+```
+
+- [ ] **Step 3: 运行测试和构建**
+
+Run:
+
+```bash
+cd extensions/chrome
+npm test
+npm run build
+```
+
+Expected: 两个命令退出码为 0。
+
+- [ ] **Step 4: 提交**
+
+```bash
+git add extensions/chrome/src/background extensions/chrome/tests/actionExecutor.test.ts extensions/chrome/src/protocol/messages.ts
+git commit -m "feat: add chrome action executor"
+```
+
+## Task 6: Chrome tab 边界和链接命中补齐
+
+**Files:**
+
+- Modify: `extensions/chrome/src/background/actionExecutor.ts`
+- Modify: `extensions/chrome/src/background/chromeApi.ts`
+- Modify: `extensions/chrome/tests/actionExecutor.test.ts`
+- Modify: `extensions/chrome/src/content/pointerTracker.ts`
+- Create: `extensions/chrome/tests/pointerTracker.test.ts`
+- Modify: `extensions/chrome/tests/linkResolver.test.ts`
+
+- [ ] **Step 1: 补齐 tab 右边界测试**
+
+在 `extensions/chrome/tests/actionExecutor.test.ts` 增加：
+
+```ts
+it("does not wrap on right edge", async () => {
+  const api = makeChromeApi([
+    { id: 20, index: 0, windowId: 7 },
+    { id: 21, index: 1, active: true, windowId: 7 }
+  ]);
+
+  const result = await executeGestureAction(api, { action: "activate_right_tab" });
+
+  expect(result.status).toBe("edge_reached");
+  expect(api.tabs.update).not.toHaveBeenCalled();
+});
+```
+
+- [ ] **Step 2: 补齐 pointer 新鲜度测试**
+
+创建 `extensions/chrome/tests/pointerTracker.test.ts`：
+
+```ts
+import { beforeEach, describe, expect, it, vi } from "vitest";
+
+describe("pointerTracker", () => {
+  beforeEach(() => {
+    vi.resetModules();
+    document.body.innerHTML = `<a id="target" href="/docs">Docs</a>`;
+    document.elementFromPoint = () => document.getElementById("target");
+  });
+
+  it("returns no_recent_pointer before any pointer move", async () => {
+    const module = await import("../src/content/pointerTracker");
+
+    expect(module.resolveLinkAtLastPointer(1000)).toEqual({ status: "no_recent_pointer" });
+  });
+
+  it("resolves the last fresh pointer position", async () => {
+    const module = await import("../src/content/pointerTracker");
+    window.dispatchEvent(new PointerEvent("pointermove", { clientX: 10, clientY: 20 }));
+
+    const result = module.resolveLinkAtLastPointer(Date.now());
+
+    expect(result).toEqual({ status: "success", url: "http://localhost:3000/docs" });
+  });
+});
+```
+
+- [ ] **Step 3: 补齐链接识别范围测试**
+
+在 `extensions/chrome/tests/linkResolver.test.ts` 增加：
+
+```ts
+it("returns link for child element inside anchor", () => {
+  document.body.innerHTML = `<a id="target" href="/image"><img id="child" alt="preview"></a>`;
+  const child = document.getElementById("child") as HTMLImageElement;
+  document.elementFromPoint = () => child;
+
+  expect(resolveLinkAtPoint(1, 1)).toEqual({
+    status: "success",
+    url: "http://localhost:3000/image"
+  });
+});
+
+it("rejects file links", () => {
+  document.body.innerHTML = `<a id="target" href="file:///tmp/a.txt">File</a>`;
+  const anchor = document.getElementById("target") as HTMLAnchorElement;
+  document.elementFromPoint = () => anchor;
+
+  expect(resolveLinkAtPoint(1, 1)).toEqual({ status: "unsupported_url_scheme" });
+});
+```
+
+- [ ] **Step 4: 运行测试和构建并提交**
+
+Run:
+
+```bash
+cd extensions/chrome
+npm test
+npm run build
+```
+
+Expected: 两个命令退出码为 0。
+
+Commit:
+
+```bash
+git add extensions/chrome/src extensions/chrome/tests
+git commit -m "test: cover chrome tab and pointer boundaries"
+```
+
+## Task 7: NativePortManager 和 extension 调度
+
+**Files:**
+
+- Create: `extensions/chrome/src/background/nativePortManager.ts`
+- Create: `extensions/chrome/src/background/background.ts`
+- Modify: `extensions/chrome/src/background/nativePort.ts`
+- Modify: `extensions/chrome/scripts/build.mjs`
+- Modify: `extensions/chrome/manifest.json`
+- Create: `extensions/chrome/tests/nativePortManager.test.ts`
+
+- [ ] **Step 1: 写入 native port 调度测试**
+
+创建 `extensions/chrome/tests/nativePortManager.test.ts`：
+
+```ts
+import { describe, expect, it, vi } from "vitest";
+import { createNativePortManager } from "../src/background/nativePortManager";
+import type { GestureEventMessage } from "../src/protocol/messages";
+
+function gestureMessage(gesture: GestureEventMessage["payload"]["gesture"]): GestureEventMessage {
+  return {
+    version: 1,
+    id: "gesture-1",
+    type: "gesture_event",
+    timestamp: 10,
+    payload: { gesture, appBundleId: "com.google.Chrome", confidence: 0.9 },
+    error: null
+  };
+}
+
+describe("createNativePortManager", () => {
+  it("dispatches swipe left to action executor and posts action_result", async () => {
+    const postMessage = vi.fn();
+    const manager = createNativePortManager({
+      port: { postMessage },
+      resolveLastPointer: vi.fn(),
+      executeAction: vi.fn(async () => ({ action: "activate_left_tab", status: "success" }))
+    });
+
+    await manager.handleNativeMessage(gestureMessage("three_finger_swipe_left"));
+
+    expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      version: 1,
+      type: "action_result",
+      payload: { action: "activate_left_tab", status: "success" },
+      error: null
+    }));
+  });
+
+  it("resolves link before open_link_background", async () => {
+    const postMessage = vi.fn();
+    const executeAction = vi.fn(async () => ({ action: "open_link_background", status: "success" }));
+    const manager = createNativePortManager({
+      port: { postMessage },
+      resolveLastPointer: vi.fn(async () => ({ status: "success", url: "https://example.com" })),
+      executeAction
+    });
+
+    await manager.handleNativeMessage(gestureMessage("three_finger_tap"));
+
+    expect(executeAction).toHaveBeenCalledWith({ action: "open_link_background", url: "https://example.com" });
+  });
+
+  it("returns no_target without opening a tab", async () => {
+    const postMessage = vi.fn();
+    const executeAction = vi.fn();
+    const manager = createNativePortManager({
+      port: { postMessage },
+      resolveLastPointer: vi.fn(async () => ({ status: "no_target" })),
+      executeAction
+    });
+
+    await manager.handleNativeMessage(gestureMessage("three_finger_tap"));
+
+    expect(executeAction).not.toHaveBeenCalled();
+    expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      payload: { action: "open_link_background", status: "no_target" }
+    }));
+  });
+});
+```
+
+- [ ] **Step 2: 实现 native port manager**
+
+创建 `extensions/chrome/src/background/nativePortManager.ts`：
+
+```ts
+import type { ActionExecutionResult } from "./actionExecutor";
+import type { LinkResolveResult } from "../content/linkResolver";
+import type { ActionResultMessage, GestureEventMessage } from "../protocol/messages";
+
+type ResolveLastPointerResponse = LinkResolveResult | { status: "no_recent_pointer" };
+type PortLike = { postMessage(message: unknown): void };
+
+type Dependencies = {
+  port: PortLike;
+  resolveLastPointer(): Promise<ResolveLastPointerResponse>;
+  executeAction(intent: GestureIntent): Promise<ActionExecutionResult>;
+};
+
+type GestureIntent =
+  | { action: "open_link_background"; url: string }
+  | { action: "activate_left_tab" }
+  | { action: "activate_right_tab" };
+
+export function createNativePortManager(deps: Dependencies) {
+  return {
+    async handleNativeMessage(message: GestureEventMessage) {
+      if (message.version !== 1 || message.type !== "gesture_event") {
+        return;
+      }
+
+      if (message.payload.gesture === "three_finger_tap") {
+        const resolved = await deps.resolveLastPointer();
+        if (resolved.status !== "success") {
+          deps.port.postMessage(actionResult(message.id, "open_link_background", resolved.status));
+          return;
+        }
+        deps.port.postMessage(actionResultFromExecution(message.id, await deps.executeAction({ action: "open_link_background", url: resolved.url })));
+        return;
+      }
+
+      const intent = intentFromGesture(message.payload.gesture);
+      deps.port.postMessage(actionResultFromExecution(message.id, await deps.executeAction(intent)));
+    }
+  };
+}
+
+function intentFromGesture(gesture: GestureEventMessage["payload"]["gesture"]): GestureIntent {
+  if (gesture === "three_finger_swipe_left") {
+    return { action: "activate_left_tab" };
+  }
+  return { action: "activate_right_tab" };
+}
+
+function actionResultFromExecution(id: string, result: ActionExecutionResult): ActionResultMessage {
+  return actionResult(id, result.action, result.status, result.details);
+}
+
+function actionResult(id: string, action: ActionResultMessage["payload"]["action"], status: ActionResultMessage["payload"]["status"], details?: Record<string, unknown>): ActionResultMessage {
+  return {
+    version: 1,
+    id,
+    type: "action_result",
+    timestamp: Date.now(),
+    payload: { action, status, ...(details ? { details } : {}) },
+    error: null
+  };
+}
+```
+
+- [ ] **Step 3: 新建 background 入口**
+
+创建 `extensions/chrome/src/background/background.ts`，负责实际 `connectNative()`：
+
+```ts
+import { executeGestureAction } from "./actionExecutor";
+import { chromeApi } from "./chromeApi";
+import { createNativePortManager } from "./nativePortManager";
+
+const HOST_NAME = "com.gesturekit.host";
+
+async function resolveLastPointer() {
+  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  if (!tab?.id) {
+    return { status: "page_unavailable" as const };
+  }
+
+  try {
+    return await chrome.tabs.sendMessage(tab.id, { type: "gesturekit.resolveLastPointer" });
+  } catch {
+    return { status: "page_unavailable" as const };
+  }
+}
+
+const port = chrome.runtime.connectNative(HOST_NAME);
+const manager = createNativePortManager({
+  port,
+  resolveLastPointer,
+  executeAction: (intent) => executeGestureAction(chromeApi, intent)
+});
+
+port.onMessage.addListener((message) => {
+  void manager.handleNativeMessage(message);
+});
+
+port.onDisconnect.addListener(() => {
+  chrome.storage.local.set({
+    gesturekitLastError: {
+      status: "native_host_disconnected",
+      timestamp: Date.now(),
+      message: chrome.runtime.lastError?.message ?? "Native host disconnected"
+    }
+  });
+});
+```
+
+- [ ] **Step 4: 调整 build 和 manifest**
+
+`extensions/chrome/scripts/build.mjs` 的 background entry 改成 `src/background/background.ts`，outfile 保持 `dist/background/background.js`。
+
+`extensions/chrome/manifest.json`：
+
+```json
+{
+  "manifest_version": 3,
+  "name": "GestureKit",
+  "version": "0.1.0",
+  "permissions": ["nativeMessaging", "storage", "tabs"],
+  "host_permissions": ["<all_urls>"],
+  "background": {
+    "service_worker": "dist/background/background.js",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["dist/content/pointerTracker.js"],
+      "run_at": "document_idle"
+    }
+  ]
+}
+```
+
+- [ ] **Step 5: 运行测试和构建并提交**
+
+Run:
+
+```bash
+cd extensions/chrome
+npm test
+npm run build
+```
+
+Expected: 两个命令退出码为 0。
+
+Commit:
+
+```bash
+git add extensions/chrome
+git commit -m "feat: wire chrome native port dispatch"
+```
+
+## Task 8: AppContextResolver 和 unsupported_app 诊断
+
+**Files:**
+
+- Create: `Sources/GestureKitCore/AppContext/AppContext.swift`
+- Create: `Sources/GestureKitCore/AppContext/AppContextResolver.swift`
+- Create: `Tests/GestureKitCoreTests/AppContextResolverTests.swift`
+
+- [ ] **Step 1: 写入失败测试**
+
+创建 `Tests/GestureKitCoreTests/AppContextResolverTests.swift`：
+
+```swift
+import XCTest
+@testable import GestureKitCore
+
+final class AppContextResolverTests: XCTestCase {
+    func testChromeBundleMapsToChromeContext() {
+        let resolver = AppContextResolver(bundleIdProvider: { "com.google.Chrome" })
+
+        let context = resolver.currentContext(elementType: .link)
+
+        XCTAssertEqual(context, RuleContext(appBundleId: "com.google.Chrome", browserKind: .chrome, elementType: .link))
+    }
+
+    func testNonChromeBundleMapsToOther() {
+        let resolver = AppContextResolver(bundleIdProvider: { "com.apple.finder" })
+
+        let context = resolver.currentContext(elementType: .any)
+
+        XCTAssertEqual(context.browserKind, .other)
+        XCTAssertEqual(context.appBundleId, "com.apple.finder")
+    }
+}
+```
+
+- [ ] **Step 2: 实现 resolver**
+
+创建 `Sources/GestureKitCore/AppContext/AppContext.swift`：
+
+```swift
+public struct AppContext: Equatable, Sendable {
+    public let bundleId: String
+    public let browserKind: BrowserKind
+
+    public init(bundleId: String, browserKind: BrowserKind) {
+        self.bundleId = bundleId
+        self.browserKind = browserKind
+    }
+}
+```
+
+创建 `Sources/GestureKitCore/AppContext/AppContextResolver.swift`：
+
+```swift
+import AppKit
+
+public struct AppContextResolver {
+    private let bundleIdProvider: () -> String
+
+    public init(bundleIdProvider: @escaping () -> String = {
+        NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "unknown"
+    }) {
+        self.bundleIdProvider = bundleIdProvider
+    }
+
+    public func currentContext(elementType: ElementType) -> RuleContext {
+        let bundleId = bundleIdProvider()
+        return RuleContext(
+            appBundleId: bundleId,
+            browserKind: bundleId == "com.google.Chrome" ? .chrome : .other,
+            elementType: elementType
+        )
+    }
+}
+```
+
+- [ ] **Step 3: 运行测试并提交**
+
+Run:
+
+```bash
+swift test --filter AppContextResolverTests
+swift test
+```
+
+Expected: 两个命令退出码为 0。
+
+Commit:
+
+```bash
+git add Sources/GestureKitCore/AppContext Tests/GestureKitCoreTests/AppContextResolverTests.swift
+git commit -m "feat: add app context resolver"
+```
+
+## Task 9: App 和 native host 的本机 IPC
+
+**Files:**
+
+- Create: `Sources/GestureKitCore/IPC/LocalIPCProtocol.swift`
+- Create: `native-host/gesturekit-host/Sources/GestureKitHost/AppIPCClient.swift`
+- Modify: `native-host/gesturekit-host/Sources/GestureKitHost/main.swift`
+- Create: `Tests/GestureKitCoreTests/LocalIPCProtocolTests.swift`
+
+- [ ] **Step 1: 写入 IPC 协议测试**
+
+创建 `Tests/GestureKitCoreTests/LocalIPCProtocolTests.swift`：
+
+```swift
+import XCTest
+@testable import GestureKitCore
+
+final class LocalIPCProtocolTests: XCTestCase {
+    func testGestureEventEnvelopeEncodesAsSingleLineJSON() throws {
+        let envelope = LocalIPCEnvelope.gesture(
+            id: "ipc-1",
+            timestamp: 100,
+            gesture: .threeFingerTap,
+            appBundleId: "com.google.Chrome"
+        )
+
+        let line = try LocalIPCProtocol.encodeLine(envelope)
+
+        XCTAssertFalse(line.contains("\n"))
+        XCTAssertTrue(line.contains("\"type\":\"gesture_event\""))
+    }
+
+    func testEnvelopeDecodesFromLine() throws {
+        let line = #"{"version":1,"id":"ipc-1","type":"gesture_event","timestamp":100,"payload":{"gesture":"three_finger_tap","appBundleId":"com.google.Chrome","confidence":1},"error":null}"#
+
+        let envelope = try LocalIPCProtocol.decodeLine(line)
+
+        XCTAssertEqual(envelope.id, "ipc-1")
+        XCTAssertEqual(envelope.message.payload, .gestureEvent(GestureEventPayload(gesture: .threeFingerTap, appBundleId: "com.google.Chrome", confidence: 1)))
+    }
+}
+```
+
+- [ ] **Step 2: 实现 NDJSON IPC envelope**
+
+创建 `Sources/GestureKitCore/IPC/LocalIPCProtocol.swift`：
+
+```swift
+import Foundation
+
+public struct LocalIPCEnvelope: Codable, Equatable, Sendable {
+    public let message: GestureKitMessage
+
+    public var id: String { message.id }
+
+    public static func gesture(id: String, timestamp: Int64, gesture: GestureType, appBundleId: String) -> LocalIPCEnvelope {
+        LocalIPCEnvelope(message: .gestureEvent(
+            id: id,
+            timestamp: timestamp,
+            payload: GestureEventPayload(gesture: gesture, appBundleId: appBundleId, confidence: 1)
+        ))
+    }
+}
+
+public enum LocalIPCProtocol {
+    public static func encodeLine(_ envelope: LocalIPCEnvelope) throws -> String {
+        let data = try JSONEncoder.gestureKit.encode(envelope.message)
+        return String(decoding: data, as: UTF8.self)
+    }
+
+    public static func decodeLine(_ line: String) throws -> LocalIPCEnvelope {
+        let data = Data(line.utf8)
+        return LocalIPCEnvelope(message: try JSONDecoder.gestureKit.decode(GestureKitMessage.self, from: data))
+    }
+}
+```
+
+- [ ] **Step 3: 实现 native host IPC client**
+
+创建 `native-host/gesturekit-host/Sources/GestureKitHost/AppIPCClient.swift`，V1 使用 `127.0.0.1:17653` 的本机 TCP NDJSON 通道。端口只监听 loopback，后续开源安装文档需说明该边界。
+
+```swift
+import Foundation
+import GestureKitCore
+import Network
+
+final class AppIPCClient {
+    private let host: NWEndpoint.Host
+    private let port: NWEndpoint.Port
+
+    init(host: NWEndpoint.Host = "127.0.0.1", port: NWEndpoint.Port = 17653) {
+        self.host = host
+        self.port = port
+    }
+
+    func connect() -> NWConnection {
+        let connection = NWConnection(host: host, port: port, using: .tcp)
+        connection.start(queue: .global(qos: .userInitiated))
+        return connection
+    }
+}
+```
+
+修改 `native-host/gesturekit-host/Sources/GestureKitHost/main.swift`：保留 `--self-test`，新增 `--stdio-bridge` 路径，从 IPC 读取一行后用 `NativeMessageCodec.encode` 发给 Chrome stdout。若 App 未运行，输出 `app_unavailable` 错误消息。
+
+- [ ] **Step 4: 运行测试和 host self-test**
+
+Run:
+
+```bash
+swift test --filter LocalIPCProtocolTests
+swift run GestureKitHost --self-test
+swift build
+```
+
+Expected: 三个命令退出码为 0。
+
+- [ ] **Step 5: 提交**
+
+```bash
+git add Sources/GestureKitCore/IPC native-host/gesturekit-host/Sources/GestureKitHost Tests/GestureKitCoreTests/LocalIPCProtocolTests.swift
+git commit -m "feat: add app host ipc protocol"
+```
+
+## Task 10: GestureKitApp 运行时
+
+**Files:**
+
+- Create: `apps/macos/GestureKitApp/Sources/GestureKitApp/main.swift`
+- Create: `apps/macos/GestureKitApp/Sources/GestureKitApp/AppDelegate.swift`
+- Create: `apps/macos/GestureKitApp/Sources/GestureKitApp/MultitouchSupportBackend.swift`
+- Create: `apps/macos/GestureKitApp/Sources/GestureKitApp/Runtime.swift`
+
+- [ ] **Step 1: 创建 AppKit 入口**
+
+`apps/macos/GestureKitApp/Sources/GestureKitApp/main.swift`：
+
+```swift
+import AppKit
+
+let app = NSApplication.shared
+let delegate = AppDelegate()
+app.delegate = delegate
+app.setActivationPolicy(.accessory)
+app.run()
+```
+
+- [ ] **Step 2: 创建菜单栏 delegate**
+
+`apps/macos/GestureKitApp/Sources/GestureKitApp/AppDelegate.swift`：
+
+```swift
+import AppKit
+
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    private var statusItem: NSStatusItem?
+    private var runtime: GestureKitRuntime?
+
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        item.button?.title = "GestureKit"
+
+        let menu = NSMenu()
+        menu.addItem(NSMenuItem(title: "Status: Starting", action: nil, keyEquivalent: ""))
+        menu.addItem(NSMenuItem.separator())
+        menu.addItem(NSMenuItem(title: "Quit", action: #selector(quit), keyEquivalent: "q"))
+        item.menu = menu
+        statusItem = item
+
+        runtime = GestureKitRuntime(statusHandler: { [weak item] status in
+            item?.button?.title = status
+        })
+        runtime?.start()
+    }
+
+    @objc private func quit() {
+        runtime?.stop()
+        NSApplication.shared.terminate(nil)
+    }
+}
+```
+
+- [ ] **Step 3: 创建 OpenMultitouchSupport backend**
+
+`apps/macos/GestureKitApp/Sources/GestureKitApp/MultitouchSupportBackend.swift`：
+
+```swift
+import Foundation
+import GestureKitCore
+import OpenMultitouchSupport
+
+final class MultitouchSupportBackend: TouchBackend {
+    var frames: AsyncStream<TouchFrame> {
+        AsyncStream { continuation in
+            let task = Task {
+                for await touchData in OMSManager.shared.touchDataStream {
+                    let frame = TouchFrame(
+                        time: Date().timeIntervalSince1970,
+                        activeTouches: touchData.compactMap(Self.touchSample)
+                    )
+                    continuation.yield(frame)
+                }
+            }
+
+            continuation.onTermination = { _ in
+                task.cancel()
+            }
+        }
+    }
+
+    func start() -> Bool {
+        OMSManager.shared.startListening()
+    }
+
+    func stop() -> Bool {
+        OMSManager.shared.stopListening()
+    }
+
+    private static func touchSample(_ touch: OMSTouchData) -> TouchSample? {
+        switch touch.state {
+        case .starting, .making, .touching, .breaking:
+            return TouchSample(id: touch.id, x: touch.position.x, y: touch.position.y)
+        case .notTouching, .hovering, .lingering, .leaving:
+            return nil
+        }
+    }
+}
+```
+
+- [ ] **Step 4: 创建运行时骨架**
+
+`apps/macos/GestureKitApp/Sources/GestureKitApp/Runtime.swift`：
+
+```swift
+import Foundation
+import GestureKitCore
+
+final class GestureKitRuntime {
+    private let statusHandler: (String) -> Void
+    private var recognizer = GestureRecognizer()
+    private let ruleEngine: RuleEngine
+    private let appContextResolver = AppContextResolver()
+    private let touchBackend: any TouchBackend
+    private let settingsStore: any SettingsStore
+
+    init(
+        statusHandler: @escaping (String) -> Void,
+        touchBackend: any TouchBackend = MultitouchSupportBackend(),
+        settingsStore: any SettingsStore = UserDefaultsSettingsStore()
+    ) {
+        self.statusHandler = statusHandler
+        self.touchBackend = touchBackend
+        self.settingsStore = settingsStore
+        self.ruleEngine = RuleEngine(rules: (try? settingsStore.loadRules()) ?? DefaultRules.v1)
+    }
+
+    func start() {
+        statusHandler("GestureKit: On")
+        startTouchListening()
+    }
+
+    func stop() {
+        _ = touchBackend.stop()
+        statusHandler("GestureKit: Off")
+    }
+
+    private func startTouchListening() {
+        Task {
+            for await frame in touchBackend.frames {
+                guard let event = recognizer.observe(frame), let gesture = event.gesture else { continue }
+                handle(gesture)
+            }
+        }
+
+        guard touchBackend.start() else {
+            statusHandler("GestureKit: Input Error")
+            return
+        }
+    }
+
+    private func handle(_ gesture: GestureType) {
+        let elementType: ElementType = gesture == .threeFingerTap ? .link : .any
+        let context = appContextResolver.currentContext(elementType: elementType)
+        guard ruleEngine.match(gesture: gesture, context: context) != nil else {
+            statusHandler(context.browserKind == .chrome ? "GestureKit: No Rule" : "GestureKit: Unsupported App")
+            return
+        }
+        statusHandler("GestureKit: \(gesture.rawValue)")
+    }
+}
+```
+
+- [ ] **Step 5: 运行构建**
+
+Run:
+
+```bash
+swift build
+```
+
+Expected: 退出码为 0。
+
+- [ ] **Step 6: 手动冒烟**
+
+Run:
+
+```bash
+swift run GestureKitApp
+```
+
+Expected:
+
+- 菜单栏出现 `GestureKit` 或 `GestureKit: On`。
+- 三指手势时菜单栏状态更新。
+- 非 Chrome 前台时不发送 Chrome 动作，并显示 `Unsupported App` 或等价状态。
+
+- [ ] **Step 7: 提交**
+
+```bash
+git add apps/macos/GestureKitApp
+git commit -m "feat: add gesturekit menu app runtime"
+```
+
+## Task 11: App IPC server 到 native host 转发
+
+**Files:**
+
+- Modify: `apps/macos/GestureKitApp/Sources/GestureKitApp/Runtime.swift`
+- Create: `apps/macos/GestureKitApp/Sources/GestureKitApp/LocalEventServer.swift`
+- Modify: `native-host/gesturekit-host/Sources/GestureKitHost/main.swift`
+
+- [ ] **Step 1: 创建本机事件服务器**
+
+创建 `apps/macos/GestureKitApp/Sources/GestureKitApp/LocalEventServer.swift`：
+
+```swift
+import Foundation
+import GestureKitCore
+import Network
+
+final class LocalEventServer {
+    private let listener: NWListener
+    private var connections: [NWConnection] = []
+
+    init(port: NWEndpoint.Port = 17653) throws {
+        listener = try NWListener(using: .tcp, on: port)
+    }
+
+    func start() {
+        listener.newConnectionHandler = { [weak self] connection in
+            self?.connections.append(connection)
+            connection.start(queue: .global(qos: .userInitiated))
+        }
+        listener.start(queue: .global(qos: .userInitiated))
+    }
+
+    func stop() {
+        connections.forEach { $0.cancel() }
+        listener.cancel()
+    }
+
+    func publish(_ envelope: LocalIPCEnvelope) {
+        guard let line = try? LocalIPCProtocol.encodeLine(envelope) else { return }
+        let data = Data((line + "\n").utf8)
+
+        connections.forEach { connection in
+            connection.send(content: data, completion: .contentProcessed { _ in })
+        }
+    }
+}
+```
+
+- [ ] **Step 2: Runtime 发布事件**
+
+在 `GestureKitRuntime` 中新增：
+
+```swift
+private var eventServer: LocalEventServer?
+```
+
+`start()` 中启动：
+
+```swift
+do {
+    let server = try LocalEventServer()
+    server.start()
+    eventServer = server
+} catch {
+    statusHandler("GestureKit: IPC Error")
+}
+```
+
+`stop()` 中停止：
+
+```swift
+eventServer?.stop()
+eventServer = nil
+```
+
+`handle(_:)` 中匹配到规则后发布：
+
+```swift
+let envelope = LocalIPCEnvelope.gesture(
+    id: UUID().uuidString,
+    timestamp: Int64(Date().timeIntervalSince1970 * 1000),
+    gesture: gesture,
+    appBundleId: context.appBundleId
+)
+eventServer?.publish(envelope)
+```
+
+- [ ] **Step 3: native host 持续转发**
+
+修改 `GestureKitHost` 的正常运行路径：
+
+- 连接 `127.0.0.1:17653`。
+- 每收到一行 NDJSON，就转为 Chrome Native Messaging length-prefixed frame 写到 stdout。
+- stdin 收到 `action_result` 时打印诊断到 stderr，或转发给 App IPC 的结果通道。
+- 连接失败时向 stdout 写一条 `error` 消息，`payload.status` 映射为 `app_unavailable`。
+
+- [ ] **Step 4: 运行验证**
+
+Run:
+
+```bash
+swift build
+swift run GestureKitHost --self-test
+```
+
+Expected: 两个命令退出码为 0。
+
+Manual:
+
+```bash
+swift run GestureKitApp
+```
+
+另开终端：
+
+```bash
+swift run GestureKitHost
+```
+
+Expected: 对 Chrome Native Messaging framed stdout 可用十六进制工具观察到 frame 长度前缀和 JSON payload。
+
+- [ ] **Step 5: 提交**
+
+```bash
+git add apps/macos/GestureKitApp native-host/gesturekit-host/Sources/GestureKitHost
+git commit -m "feat: bridge app gestures to native host"
+```
+
+## Task 12: 安装文档和端到端验收清单
+
+**Files:**
+
+- Create: `docs/operations/gesturekit-v1-local-install.md`
+- Create: `docs/operations/gesturekit-v1-e2e-checklist.md`
+- Modify: `spikes/native-messaging/host-manifest/com.gesturekit.host.json`
+- Modify: `README.md`
+
+- [ ] **Step 1: 编写本地安装文档**
+
+创建 `docs/operations/gesturekit-v1-local-install.md`：
+
+```markdown
+# GestureKit V1 本地安装说明
+
+## 1. 构建
+
+```bash
+swift build
+cd extensions/chrome
+npm install
+npm run build
+```
+
+## 2. 加载 Chrome 扩展
+
+1. 打开 `chrome://extensions`。
+2. 开启 Developer mode。
+3. 选择 Load unpacked。
+4. 选择 `extensions/chrome`。
+5. 记录扩展 ID。
+
+## 3. 安装 native host manifest
+
+把 `spikes/native-messaging/host-manifest/com.gesturekit.host.json` 中的 `allowed_origins` 改为实际扩展 ID：
+
+```json
+["chrome-extension://<extension-id>/"]
+```
+
+复制 manifest 到：
+
+```bash
+mkdir -p "$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts"
+cp spikes/native-messaging/host-manifest/com.gesturekit.host.json "$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.gesturekit.host.json"
+```
+
+## 4. 启动
+
+```bash
+swift run GestureKitApp
+```
+
+## 5. 权限和限制
+
+- V1 使用私有 `MultitouchSupport.framework`，不适合 Mac App Store。
+- V1 当前验证环境是内置触控板和内置单屏。
+- 如果 macOS 系统三指手势吞掉输入，需要关闭冲突手势或重新运行手势矩阵。
+```
+
+- [ ] **Step 2: 编写端到端清单**
+
+创建 `docs/operations/gesturekit-v1-e2e-checklist.md`：
+
+```markdown
+# GestureKit V1 端到端验收清单
+
+## 环境
+
+- macOS: 记录实际版本。
+- Chrome Stable: 记录实际版本。
+- 输入设备: 内置触控板或 Magic Trackpad。
+- 显示器: 记录内置屏或外接屏组合。
+
+## 必测功能
+
+- [ ] Chrome 普通网页中，鼠标停在普通 `<a href>` 链接上，三指点按后在当前 tab 右侧后台打开新 tab。
+- [ ] 新 tab `active=false`，当前 tab 不失焦。
+- [ ] 鼠标停在非链接区域，三指点按返回 `no_target`，不打开页面。
+- [ ] `javascript:`、`file:` 或 `mailto:` 链接返回 `unsupported_url_scheme`。
+- [ ] 多 tab 中间位置三指左滑，切到左侧相邻 tab。
+- [ ] 多 tab 中间位置三指右滑，切到右侧相邻 tab。
+- [ ] 最左侧 tab 三指左滑返回 `edge_reached`，不 wrap。
+- [ ] 最右侧 tab 三指右滑返回 `edge_reached`，不 wrap。
+- [ ] 非 Chrome 前台三指手势返回或记录 `unsupported_app`，不执行 Chrome 动作。
+- [ ] `chrome://extensions` 或不可注入页面返回 `page_unavailable`。
+- [ ] 关闭 GestureKitApp 后，extension 记录 `app_unavailable` 或 `native_host_disconnected`。
+
+## 必跑命令
+
+```bash
+swift test
+swift build
+swift run GestureKitHost --self-test
+cd extensions/chrome
+npm test
+npm run build
+```
+```
+
+- [ ] **Step 3: 更新 README**
+
+在 `README.md` 增加 V1 本地运行入口：
+
+```markdown
+## V1 本地运行
+
+正式产品实现计划见：
+
+- `docs/plans/gesturekit-v1-product-implementation-plan.md`
+
+本地安装和端到端验收见：
+
+- `docs/operations/gesturekit-v1-local-install.md`
+- `docs/operations/gesturekit-v1-e2e-checklist.md`
+```
+
+- [ ] **Step 4: 运行文档和构建校验**
+
+Run:
+
+```bash
+git diff --check
+swift build
+cd extensions/chrome
+npm test
+npm run build
+```
+
+Expected: 所有命令退出码为 0。
+
+- [ ] **Step 5: 提交**
+
+```bash
+git add docs/operations README.md spikes/native-messaging/host-manifest/com.gesturekit.host.json
+git commit -m "docs: add v1 local install and e2e checklist"
+```
+
+## Task 13: 最终集成审核
+
+**Files:**
+
+- Modify only if review finds contract violations in existing implementation.
+
+- [ ] **Step 1: 全量验证**
+
+Run:
+
+```bash
+git diff --check
+swift test
+swift build
+swift run GestureKitHost --self-test
+cd extensions/chrome
+npm test
+npm run build
+```
+
+Expected: 所有命令退出码为 0。
+
+- [ ] **Step 2: 人工端到端验收**
+
+按 `docs/operations/gesturekit-v1-e2e-checklist.md` 完成清单，并把结果追加到同一文档的“执行记录”小节。
+
+- [ ] **Step 3: 子 agent 审核**
+
+启动只读审核 agent，审核范围：
+
+- 是否满足 `docs/product/gesturekit-v1-contract.md`。
+- 是否满足 `docs/product/gesturekit-v1-requirements.md`。
+- 是否遵守 RuleEngine、native host shim、content script last pointer 三条 ADR。
+- 是否有 Critical 或 Important 阻塞。
+- 是否误把 V1 非目标作为当前实现范围。
+
+- [ ] **Step 4: 修复审核阻塞项**
+
+只修复 Critical 和 Important。Minor 记录为后续事项，除非它影响 V1 三个核心功能。
+
+- [ ] **Step 5: 最终提交**
+
+Run:
+
+```bash
+git status --short
+git log --oneline -5
+```
+
+Expected:
+
+- 只有预期文件处于 staged 或 clean。
+- `.obsidian/` 不在提交中。
+
+Commit message:
+
+```bash
+git commit -m "feat: implement gesturekit v1"
+```
+
+## 4. 计划自检
+
+- 规格覆盖：三指点按链接、左滑、右滑、边界失败、非 Chrome、不可注入页面、native host 断开、规则匹配、协议、隐私和手动验收均有任务映射。
+- 架构覆盖：macOS App、native host shim、Chrome MV3 extension、RuleEngine、SettingsStore、TouchBackend 相关边界均保留。
+- 测试覆盖：Swift 单元测试、Chrome Vitest、host self-test、build、人工端到端清单均列为验收命令。
+- 非目标控制：多浏览器、完整规则编辑器、复杂 iframe、closed shadow DOM、Mac App Store、Chrome Web Store 不进入本计划。
+- 文档语言：项目叙述中文优先，API、命令、协议字段保留原文。
