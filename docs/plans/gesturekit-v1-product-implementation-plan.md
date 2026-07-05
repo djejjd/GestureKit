@@ -913,7 +913,7 @@ git commit -m "feat: extract gesture recognizer"
 - Create: `Sources/GestureKitCore/Settings/SettingsStore.swift`
 - Create: `Tests/GestureKitCoreTests/SettingsStoreTests.swift`
 
-- [ ] **Step 1: 写入失败测试**
+- [x] **Step 1: 写入失败测试**
 
 创建 `Tests/GestureKitCoreTests/SettingsStoreTests.swift`：
 
@@ -944,7 +944,7 @@ final class SettingsStoreTests: XCTestCase {
 }
 ```
 
-- [ ] **Step 2: 实现 SettingsStore**
+- [x] **Step 2: 实现 SettingsStore**
 
 创建 `Sources/GestureKitCore/Settings/SettingsStore.swift`：
 
@@ -978,7 +978,7 @@ public struct UserDefaultsSettingsStore: SettingsStore {
 }
 ```
 
-- [ ] **Step 3: 运行测试并提交**
+- [x] **Step 3: 运行测试并提交**
 
 Run:
 
