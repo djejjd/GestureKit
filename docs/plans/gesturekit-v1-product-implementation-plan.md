@@ -1005,7 +1005,7 @@ git commit -m "feat: add settings store for rules"
 - Create: `extensions/chrome/tests/actionExecutor.test.ts`
 - Modify: `extensions/chrome/src/protocol/messages.ts`
 
-- [ ] **Step 1: 写入失败测试**
+- [x] **Step 1: 写入失败测试**
 
 创建 `extensions/chrome/tests/actionExecutor.test.ts`：
 
@@ -1086,7 +1086,7 @@ describe("executeGestureAction", () => {
 });
 ```
 
-- [ ] **Step 2: 实现 Chrome API wrapper 和 action executor**
+- [x] **Step 2: 实现 Chrome API wrapper 和 action executor**
 
 创建 `extensions/chrome/src/background/chromeApi.ts`：
 
@@ -1189,7 +1189,7 @@ function parseAllowedURL(value: string): URL | null {
 
 ```
 
-- [ ] **Step 3: 运行测试和构建**
+- [x] **Step 3: 运行测试和构建**
 
 Run:
 
@@ -1201,7 +1201,7 @@ npm run build
 
 Expected: 两个命令退出码为 0。
 
-- [ ] **Step 4: 提交**
+- [x] **Step 4: 提交**
 
 ```bash
 git add extensions/chrome/src/background extensions/chrome/tests/actionExecutor.test.ts extensions/chrome/src/protocol/messages.ts
