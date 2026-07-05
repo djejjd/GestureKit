@@ -1564,7 +1564,7 @@ git commit -m "feat: wire chrome native port dispatch"
 - Create: `Sources/GestureKitCore/AppContext/AppContextResolver.swift`
 - Create: `Tests/GestureKitCoreTests/AppContextResolverTests.swift`
 
-- [ ] **Step 1: 写入失败测试**
+- [x] **Step 1: 写入失败测试**
 
 创建 `Tests/GestureKitCoreTests/AppContextResolverTests.swift`：
 
@@ -1592,7 +1592,7 @@ final class AppContextResolverTests: XCTestCase {
 }
 ```
 
-- [ ] **Step 2: 实现 resolver**
+- [x] **Step 2: 实现 resolver**
 
 创建 `Sources/GestureKitCore/AppContext/AppContext.swift`：
 
@@ -1633,7 +1633,7 @@ public struct AppContextResolver {
 }
 ```
 
-- [ ] **Step 3: 运行测试并提交**
+- [x] **Step 3: 运行测试并提交**
 
 Run:
 
