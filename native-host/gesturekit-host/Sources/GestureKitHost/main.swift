@@ -1,4 +1,6 @@
 import Foundation
+import GestureKitCore
+import Network
 
 enum GestureKitHostSelfTest {
     static func run() throws {
@@ -45,6 +47,11 @@ if CommandLine.arguments.contains("--self-test") {
     }
 }
 
+if CommandLine.arguments.contains("--stdio-bridge") {
+    runStdioBridge()
+    exit(0)
+}
+
 func makeHostHelloResponse() -> Data {
     Data("""
 {"version":1,"id":"host-hello","type":"hello","timestamp":0,"payload":{"host":"GestureKitHost"},"error":null}
@@ -52,3 +59,53 @@ func makeHostHelloResponse() -> Data {
 }
 
 FileHandle.standardOutput.write(NativeMessageCodec.encode(makeHostHelloResponse()))
+
+func runStdioBridge() {
+    let client = AppIPCClient()
+    let connection = client.connect()
+    let semaphore = DispatchSemaphore(value: 0)
+    let output = BridgeOutput()
+
+    connection.stateUpdateHandler = { state in
+        if case .failed = state {
+            output.set(makeAppUnavailableResponse())
+            semaphore.signal()
+        }
+    }
+
+    connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { data, _, _, error in
+        if let data, !data.isEmpty {
+            output.set(data)
+        } else if error != nil {
+            output.set(makeAppUnavailableResponse())
+        }
+        semaphore.signal()
+    }
+
+    _ = semaphore.wait(timeout: .now() + 2)
+    connection.cancel()
+    FileHandle.standardOutput.write(NativeMessageCodec.encode(output.get() ?? makeAppUnavailableResponse()))
+}
+
+func makeAppUnavailableResponse() -> Data {
+    Data("""
+{"version":1,"id":"app-unavailable","type":"action_result","timestamp":0,"payload":{"action":"open_link_background","status":"app_unavailable"},"error":null}
+""".utf8)
+}
+
+private final class BridgeOutput: @unchecked Sendable {
+    private let lock = NSLock()
+    private var data: Data?
+
+    func set(_ data: Data) {
+        lock.lock()
+        self.data = data
+        lock.unlock()
+    }
+
+    func get() -> Data? {
+        lock.lock()
+        defer { lock.unlock() }
+        return data
+    }
+}

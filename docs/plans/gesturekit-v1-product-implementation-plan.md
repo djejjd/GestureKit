@@ -1660,7 +1660,7 @@ git commit -m "feat: add app context resolver"
 - Modify: `native-host/gesturekit-host/Sources/GestureKitHost/main.swift`
 - Create: `Tests/GestureKitCoreTests/LocalIPCProtocolTests.swift`
 
-- [ ] **Step 1: 写入 IPC 协议测试**
+- [x] **Step 1: 写入 IPC 协议测试**
 
 创建 `Tests/GestureKitCoreTests/LocalIPCProtocolTests.swift`：
 
@@ -1694,7 +1694,7 @@ final class LocalIPCProtocolTests: XCTestCase {
 }
 ```
 
-- [ ] **Step 2: 实现 NDJSON IPC envelope**
+- [x] **Step 2: 实现 NDJSON IPC envelope**
 
 创建 `Sources/GestureKitCore/IPC/LocalIPCProtocol.swift`：
 
@@ -1728,7 +1728,7 @@ public enum LocalIPCProtocol {
 }
 ```
 
-- [ ] **Step 3: 实现 native host IPC client**
+- [x] **Step 3: 实现 native host IPC client**
 
 创建 `native-host/gesturekit-host/Sources/GestureKitHost/AppIPCClient.swift`，V1 使用 `127.0.0.1:17653` 的本机 TCP NDJSON 通道。端口只监听 loopback，后续开源安装文档需说明该边界。
 
@@ -1756,7 +1756,7 @@ final class AppIPCClient {
 
 修改 `native-host/gesturekit-host/Sources/GestureKitHost/main.swift`：保留 `--self-test`，新增 `--stdio-bridge` 路径，从 IPC 读取一行后用 `NativeMessageCodec.encode` 发给 Chrome stdout。若 App 未运行，输出 `app_unavailable` 错误消息。
 
-- [ ] **Step 4: 运行测试和 host self-test**
+- [x] **Step 4: 运行测试和 host self-test**
 
 Run:
 
@@ -1768,7 +1768,7 @@ swift build
 
 Expected: 三个命令退出码为 0。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add Sources/GestureKitCore/IPC native-host/gesturekit-host/Sources/GestureKitHost Tests/GestureKitCoreTests/LocalIPCProtocolTests.swift
