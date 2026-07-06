@@ -1969,7 +1969,7 @@ Expected:
 - 三指手势时菜单栏状态更新。
 - 非 Chrome 前台时不发送 Chrome 动作，并显示 `Unsupported App` 或等价状态。
 
-- [ ] **Step 7: 提交**
+- [x] **Step 7: 提交**
 
 ```bash
 git add apps/macos/GestureKitApp
@@ -2100,7 +2100,7 @@ swift run GestureKitHost
 
 Expected: 对 Chrome Native Messaging framed stdout 可用十六进制工具观察到 frame 长度前缀和 JSON payload。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add apps/macos/GestureKitApp native-host/gesturekit-host/Sources/GestureKitHost
