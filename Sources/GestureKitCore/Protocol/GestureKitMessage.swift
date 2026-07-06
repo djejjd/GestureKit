@@ -10,6 +10,7 @@ public enum ActionType: String, Codable, Equatable, Sendable {
     case openLinkBackground = "open_link_background"
     case activateLeftTab = "activate_left_tab"
     case activateRightTab = "activate_right_tab"
+    case closeTab = "close_tab"
 }
 
 public enum ActionStatus: String, Codable, Equatable, Sendable {
@@ -39,11 +40,13 @@ public struct GestureEventPayload: Codable, Equatable, Sendable {
     public let gesture: GestureType
     public let appBundleId: String
     public let confidence: Double?
+    public let touchX: Double?
 
-    public init(gesture: GestureType, appBundleId: String, confidence: Double?) {
+    public init(gesture: GestureType, appBundleId: String, confidence: Double?, touchX: Double? = nil) {
         self.gesture = gesture
         self.appBundleId = appBundleId
         self.confidence = confidence
+        self.touchX = touchX
     }
 }
 

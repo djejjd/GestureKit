@@ -39,15 +39,40 @@ public struct GestureRecognizer: Sendable {
         let dy = session.latestCentroid.y - session.startCentroid.y
         let distance = hypotf(dx, dy)
         let durationMs = Int((duration * 1000).rounded())
-        let horizontalEnough = abs(dx) >= 0.12 && abs(dx) > abs(dy) * 1.2
+        let isQuickFlick = duration >= 0.06 && duration <= 0.35
+        let horizontalEnough = abs(dx) >= 0.11 && abs(dx) >= abs(dy) * 1.8
 
         if duration <= 0.45 && distance <= 0.06 {
-            return RecognizedGesture(gesture: .threeFingerTap, status: .success, durationMs: durationMs, dx: dx, dy: dy)
+            return RecognizedGesture(
+                gesture: .threeFingerTap,
+                status: .success,
+                durationMs: durationMs,
+                dx: dx,
+                dy: dy,
+                centroidX: session.startCentroid.x,
+                centroidY: session.startCentroid.y
+            )
         }
-        if horizontalEnough {
-            return RecognizedGesture(gesture: dx < 0 ? .threeFingerSwipeLeft : .threeFingerSwipeRight, status: .success, durationMs: durationMs, dx: dx, dy: dy)
+        if isQuickFlick && horizontalEnough {
+            return RecognizedGesture(
+                gesture: dx < 0 ? .threeFingerSwipeLeft : .threeFingerSwipeRight,
+                status: .success,
+                durationMs: durationMs,
+                dx: dx,
+                dy: dy,
+                centroidX: session.startCentroid.x,
+                centroidY: session.startCentroid.y
+            )
         }
-        return RecognizedGesture(gesture: nil, status: .gestureUnstable, durationMs: durationMs, dx: dx, dy: dy)
+        return RecognizedGesture(
+            gesture: nil,
+            status: .gestureUnstable,
+            durationMs: durationMs,
+            dx: dx,
+            dy: dy,
+            centroidX: session.startCentroid.x,
+            centroidY: session.startCentroid.y
+        )
     }
 
     private static func centroid(of touches: [TouchSample]) -> Centroid? {

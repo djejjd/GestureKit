@@ -32,12 +32,24 @@ public struct RecognizedGesture: Equatable, Sendable {
     public let durationMs: Int
     public let dx: Float
     public let dy: Float
+    public let centroidX: Float?
+    public let centroidY: Float?
 
-    public init(gesture: GestureType?, status: ActionStatus, durationMs: Int, dx: Float, dy: Float) {
+    public init(
+        gesture: GestureType?,
+        status: ActionStatus,
+        durationMs: Int,
+        dx: Float,
+        dy: Float,
+        centroidX: Float? = nil,
+        centroidY: Float? = nil
+    ) {
         self.gesture = gesture
         self.status = status
         self.durationMs = durationMs
         self.dx = dx
         self.dy = dy
+        self.centroidX = centroidX
+        self.centroidY = centroidY
     }
 }

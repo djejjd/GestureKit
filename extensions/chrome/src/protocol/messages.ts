@@ -6,7 +6,8 @@ export type GestureType =
 export type ActionType =
   | "open_link_background"
   | "activate_left_tab"
-  | "activate_right_tab";
+  | "activate_right_tab"
+  | "close_tab";
 
 export type ActionStatus =
   | "success"
@@ -40,6 +41,7 @@ export type GestureEventMessage = GestureKitMessage<
     gesture: GestureType;
     appBundleId: string;
     confidence?: number;
+    touchX?: number;
   }
 >;
 

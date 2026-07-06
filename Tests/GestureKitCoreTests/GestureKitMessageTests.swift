@@ -9,7 +9,8 @@ final class GestureKitMessageTests: XCTestCase {
             payload: GestureEventPayload(
                 gesture: .threeFingerTap,
                 appBundleId: "com.google.Chrome",
-                confidence: 0.94
+                confidence: 0.94,
+                touchX: 0.25
             )
         )
 
@@ -21,6 +22,7 @@ final class GestureKitMessageTests: XCTestCase {
         XCTAssertTrue(json.contains("\"type\":\"gesture_event\""))
         XCTAssertTrue(json.contains("\"gesture\":\"three_finger_tap\""))
         XCTAssertTrue(json.contains("\"appBundleId\":\"com.google.Chrome\""))
+        XCTAssertTrue(json.contains("\"touchX\":0.25"))
         XCTAssertTrue(json.contains("\"error\":null"))
     }
 

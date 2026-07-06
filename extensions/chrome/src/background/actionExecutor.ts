@@ -4,7 +4,8 @@ import type { ChromeApi } from "./chromeApi";
 type ActionIntent =
   | { action: "open_link_background"; url: string }
   | { action: "activate_left_tab" }
-  | { action: "activate_right_tab" };
+  | { action: "activate_right_tab" }
+  | { action: "close_tab" };
 
 export type ActionExecutionResult = {
   action: ActionType;
@@ -19,7 +20,10 @@ export async function executeGestureAction(api: ChromeApi, intent: ActionIntent)
   if (intent.action === "activate_left_tab") {
     return activateAdjacentTab(api, "left");
   }
-  return activateAdjacentTab(api, "right");
+  if (intent.action === "activate_right_tab") {
+    return activateAdjacentTab(api, "right");
+  }
+  return closeActiveTab(api);
 }
 
 async function openLinkBackground(api: ChromeApi, urlValue: string): Promise<ActionExecutionResult> {
@@ -35,7 +39,7 @@ async function openLinkBackground(api: ChromeApi, urlValue: string): Promise<Act
 
   await api.tabs.create({
     url: url.toString(),
-    active: false,
+    active: true,
     index: activeTab.index + 1,
     windowId: activeTab.windowId
   });
@@ -49,24 +53,42 @@ async function activateAdjacentTab(api: ChromeApi, direction: "left" | "right"):
     return { action, status: "page_unavailable" };
   }
 
-  const targetIndex = direction === "left" ? activeTab.index - 1 : activeTab.index + 1;
-  if (targetIndex < 0) {
+  const tabs = (await api.tabs.query({ currentWindow: true }))
+    .filter((tab) => tab.windowId === activeTab.windowId && tab.id !== undefined && tab.index !== undefined)
+    .sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
+  if (tabs.length === 0) {
     return { action, status: "edge_reached" };
   }
 
-  const tabs = await api.tabs.query({ currentWindow: true });
-  const target = tabs.find((tab) => tab.windowId === activeTab.windowId && tab.index === targetIndex);
+  const currentPosition = tabs.findIndex((tab) => tab.id === activeTab.id);
+  if (currentPosition < 0) {
+    return { action, status: "page_unavailable" };
+  }
+
+  const offset = direction === "left" ? -1 : 1;
+  const targetPosition = (currentPosition + offset + tabs.length) % tabs.length;
+  const target = tabs[targetPosition];
   if (!target?.id) {
     return { action, status: "edge_reached" };
   }
 
   await api.tabs.update(target.id, { active: true });
-  return { action, status: "success", details: { targetIndex } };
+  return { action, status: "success", details: { targetIndex: target.index } };
 }
 
 async function getActiveTab(api: ChromeApi): Promise<chrome.tabs.Tab | undefined> {
   const [tab] = await api.tabs.query({ active: true, lastFocusedWindow: true });
   return tab;
+}
+
+async function closeActiveTab(api: ChromeApi): Promise<ActionExecutionResult> {
+  const activeTab = await getActiveTab(api);
+  if (!activeTab?.id) {
+    return { action: "close_tab", status: "page_unavailable" };
+  }
+
+  await api.tabs.remove(activeTab.id);
+  return { action: "close_tab", status: "success" };
 }
 
 function parseAllowedURL(value: string): URL | null {

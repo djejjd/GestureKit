@@ -1,4 +1,5 @@
 .DS_Store
+.obsidian/
 .build/
 DerivedData/
 *.xcodeproj/project.xcworkspace/xcuserdata/
@@ -6,6 +7,7 @@ DerivedData/
 node_modules/
 dist/
 coverage/
+*.log
 .env
 .env.*
 !.env.example

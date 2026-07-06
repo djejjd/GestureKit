@@ -9,6 +9,7 @@ final class GestureRecognizerTests: XCTestCase {
         let event = recognizer.observe(.frame(time: 0.18, activeTouches: []))
 
         XCTAssertEqual(event?.gesture, .threeFingerTap)
+        XCTAssertEqual(event?.centroidX ?? -1, 0.32, accuracy: 0.001)
     }
 
     func testPhysicalLeftSwipeIsRecognized() {
@@ -38,6 +39,17 @@ final class GestureRecognizerTests: XCTestCase {
         _ = recognizer.observe(.frame(time: 0.80, activeTouches: [.touch(1, 0.36, 0.42), .touch(2, 0.38, 0.44), .touch(3, 0.40, 0.46)]))
         let event = recognizer.observe(.frame(time: 0.90, activeTouches: []))
 
+        XCTAssertEqual(event?.status, .gestureUnstable)
+    }
+
+    func testSlowHorizontalSwipeIsReportedUnstable() {
+        var recognizer = GestureRecognizer()
+
+        _ = recognizer.observe(.frame(time: 0.00, activeTouches: [.touch(1, 0.70, 0.40), .touch(2, 0.72, 0.40), .touch(3, 0.74, 0.40)]))
+        _ = recognizer.observe(.frame(time: 0.80, activeTouches: [.touch(1, 0.42, 0.40), .touch(2, 0.44, 0.40), .touch(3, 0.46, 0.40)]))
+        let event = recognizer.observe(.frame(time: 0.95, activeTouches: []))
+
+        XCTAssertNil(event?.gesture)
         XCTAssertEqual(event?.status, .gestureUnstable)
     }
 }

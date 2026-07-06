@@ -9,11 +9,17 @@ public struct LocalIPCEnvelope: Codable, Equatable, Sendable {
         self.message = message
     }
 
-    public static func gesture(id: String, timestamp: Int64, gesture: GestureType, appBundleId: String) -> LocalIPCEnvelope {
+    public static func gesture(
+        id: String,
+        timestamp: Int64,
+        gesture: GestureType,
+        appBundleId: String,
+        touchX: Double? = nil
+    ) -> LocalIPCEnvelope {
         LocalIPCEnvelope(message: .gestureEvent(
             id: id,
             timestamp: timestamp,
-            payload: GestureEventPayload(gesture: gesture, appBundleId: appBundleId, confidence: 1)
+            payload: GestureEventPayload(gesture: gesture, appBundleId: appBundleId, confidence: 1, touchX: touchX)
         ))
     }
 }

@@ -11,7 +11,10 @@ async function resolveLastPointer() {
   }
 
   try {
-    return await chrome.tabs.sendMessage(tab.id, { type: "gesturekit.resolveLastPointer" });
+    return await chrome.tabs.sendMessage(tab.id, {
+      type: "gesturekit.resolveLastPointer",
+      consumeNextClick: true
+    });
   } catch {
     return { status: "page_unavailable" as const };
   }

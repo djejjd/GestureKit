@@ -46,6 +46,11 @@ let package = Package(
             name: "GestureKitCoreTests",
             dependencies: ["GestureKitCore"],
             path: "Tests/GestureKitCoreTests"
+        ),
+        .testTarget(
+            name: "GestureKitAppTests",
+            dependencies: ["GestureKitApp"],
+            path: "Tests/GestureKitAppTests"
         )
     ]
 )

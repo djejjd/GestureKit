@@ -44,6 +44,20 @@ cp spikes/native-messaging/host-manifest/com.gesturekit.host.json "$HOME/Library
 swift run GestureKitApp
 ```
 
+需要分析手势识别不稳定时使用详细日志：
+
+```bash
+GESTUREKIT_DEBUG=1 swift run GestureKitApp
+```
+
+运行时会在终端打印启动/停止摘要、影响执行的错误和警告，并保存一份受限本地日志：
+
+```text
+~/Library/Logs/GestureKit/GestureKitApp.log
+```
+
+日志不记录每一帧触控板输入；本地文件默认记录启动、手势完成结果、IPC 发布、连接数、错误和警告。成功手势默认不逐条打印到终端。日志单文件约 1 MB，最多保留 3 个文件，避免无限写入。
+
 ## 5. 权限和限制
 
 - V1 使用私有 `MultitouchSupport.framework`，不适合 Mac App Store。
