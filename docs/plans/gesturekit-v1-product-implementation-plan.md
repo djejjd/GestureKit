@@ -2252,7 +2252,7 @@ git commit -m "docs: add v1 local install and e2e checklist"
 
 - Modify only if review finds contract violations in existing implementation.
 
-- [ ] **Step 1: 全量验证**
+- [x] **Step 1: 全量验证**
 
 Run:
 
@@ -2267,6 +2267,8 @@ npm run build
 ```
 
 Expected: 所有命令退出码为 0。
+
+2026-07-06 自动检查：`git diff --check`、`swift test`、`swift build`、`swift run GestureKitHost --self-test`、`npm test`、`npm run build` 退出码均为 0。
 
 - [ ] **Step 2: 人工端到端验收**
 
