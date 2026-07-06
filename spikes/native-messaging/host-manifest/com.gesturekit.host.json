@@ -1,6 +1,6 @@
 {
   "name": "com.gesturekit.host",
-  "description": "GestureKit Native Messaging Host Spike",
+  "description": "GestureKit Native Messaging Host",
   "path": "/absolute/path/to/GestureKit/.build/debug/GestureKitHost",
   "type": "stdio",
   "allowed_origins": [

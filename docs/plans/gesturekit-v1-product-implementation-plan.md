@@ -2116,7 +2116,7 @@ git commit -m "feat: bridge app gestures to native host"
 - Modify: `spikes/native-messaging/host-manifest/com.gesturekit.host.json`
 - Modify: `README.md`
 
-- [ ] **Step 1: 编写本地安装文档**
+- [x] **Step 1: 编写本地安装文档**
 
 创建 `docs/operations/gesturekit-v1-local-install.md`：
 
@@ -2168,7 +2168,7 @@ swift run GestureKitApp
 - 如果 macOS 系统三指手势吞掉输入，需要关闭冲突手势或重新运行手势矩阵。
 ```
 
-- [ ] **Step 2: 编写端到端清单**
+- [x] **Step 2: 编写端到端清单**
 
 创建 `docs/operations/gesturekit-v1-e2e-checklist.md`：
 
@@ -2208,7 +2208,7 @@ npm run build
 ```
 ```
 
-- [ ] **Step 3: 更新 README**
+- [x] **Step 3: 更新 README**
 
 在 `README.md` 增加 V1 本地运行入口：
 
@@ -2225,7 +2225,7 @@ npm run build
 - `docs/operations/gesturekit-v1-e2e-checklist.md`
 ```
 
-- [ ] **Step 4: 运行文档和构建校验**
+- [x] **Step 4: 运行文档和构建校验**
 
 Run:
 
@@ -2239,7 +2239,7 @@ npm run build
 
 Expected: 所有命令退出码为 0。
 
-- [ ] **Step 5: 提交**
+- [x] **Step 5: 提交**
 
 ```bash
 git add docs/operations README.md spikes/native-messaging/host-manifest/com.gesturekit.host.json
