@@ -12,8 +12,6 @@ final class AppIPCClient {
     }
 
     func connect() -> NWConnection {
-        let connection = NWConnection(host: host, port: port, using: .tcp)
-        connection.start(queue: .global(qos: .userInitiated))
-        return connection
+        NWConnection(host: host, port: port, using: .tcp)
     }
 }

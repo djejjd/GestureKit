@@ -1984,7 +1984,7 @@ git commit -m "feat: add gesturekit menu app runtime"
 - Create: `apps/macos/GestureKitApp/Sources/GestureKitApp/LocalEventServer.swift`
 - Modify: `native-host/gesturekit-host/Sources/GestureKitHost/main.swift`
 
-- [ ] **Step 1: 创建本机事件服务器**
+- [x] **Step 1: 创建本机事件服务器**
 
 创建 `apps/macos/GestureKitApp/Sources/GestureKitApp/LocalEventServer.swift`：
 
@@ -2025,7 +2025,7 @@ final class LocalEventServer {
 }
 ```
 
-- [ ] **Step 2: Runtime 发布事件**
+- [x] **Step 2: Runtime 发布事件**
 
 在 `GestureKitRuntime` 中新增：
 
@@ -2064,7 +2064,7 @@ let envelope = LocalIPCEnvelope.gesture(
 eventServer?.publish(envelope)
 ```
 
-- [ ] **Step 3: native host 持续转发**
+- [x] **Step 3: native host 持续转发**
 
 修改 `GestureKitHost` 的正常运行路径：
 
@@ -2083,6 +2083,8 @@ swift run GestureKitHost --self-test
 ```
 
 Expected: 两个命令退出码为 0。
+
+2026-07-06 自动检查：`swift build`、`swift run GestureKitHost --self-test`、`swift test` 退出码均为 0；App 与 Host 并行运行后的十六进制 frame 观察仍需人工执行。
 
 Manual:
 

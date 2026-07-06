@@ -58,33 +58,12 @@ func makeHostHelloResponse() -> Data {
 """.utf8)
 }
 
-FileHandle.standardOutput.write(NativeMessageCodec.encode(makeHostHelloResponse()))
+runStdioBridge()
 
 func runStdioBridge() {
-    let client = AppIPCClient()
-    let connection = client.connect()
-    let semaphore = DispatchSemaphore(value: 0)
-    let output = BridgeOutput()
-
-    connection.stateUpdateHandler = { state in
-        if case .failed = state {
-            output.set(makeAppUnavailableResponse())
-            semaphore.signal()
-        }
-    }
-
-    connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { data, _, _, error in
-        if let data, !data.isEmpty {
-            output.set(data)
-        } else if error != nil {
-            output.set(makeAppUnavailableResponse())
-        }
-        semaphore.signal()
-    }
-
-    _ = semaphore.wait(timeout: .now() + 2)
-    connection.cancel()
-    FileHandle.standardOutput.write(NativeMessageCodec.encode(output.get() ?? makeAppUnavailableResponse()))
+    let bridge = AppToChromeBridge(connection: AppIPCClient().connect())
+    bridge.start()
+    bridge.wait()
 }
 
 func makeAppUnavailableResponse() -> Data {
@@ -93,19 +72,83 @@ func makeAppUnavailableResponse() -> Data {
 """.utf8)
 }
 
-private final class BridgeOutput: @unchecked Sendable {
+private final class AppToChromeBridge: @unchecked Sendable {
+    private let connection: NWConnection
+    private let done = DispatchSemaphore(value: 0)
     private let lock = NSLock()
-    private var data: Data?
+    private var buffer = Data()
+    private var hasWrittenFrame = false
 
-    func set(_ data: Data) {
-        lock.lock()
-        self.data = data
-        lock.unlock()
+    init(connection: NWConnection) {
+        self.connection = connection
     }
 
-    func get() -> Data? {
+    func start() {
+        connection.stateUpdateHandler = { state in
+            if case .failed = state {
+                self.writeFrame(makeAppUnavailableResponse())
+                self.done.signal()
+            } else if case .cancelled = state {
+                self.done.signal()
+            }
+        }
+
+        receiveNext()
+        connection.start(queue: .global(qos: .userInitiated))
+    }
+
+    func wait() {
+        _ = done.wait(timeout: .distantFuture)
+    }
+
+    private func receiveNext() {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { data, _, isComplete, error in
+            if let data, !data.isEmpty {
+                self.consume(data)
+            }
+            if error != nil {
+                if !self.hasWrittenFrame {
+                    self.writeFrame(makeAppUnavailableResponse())
+                }
+                self.done.signal()
+                return
+            }
+            if isComplete {
+                self.done.signal()
+                return
+            }
+            self.receiveNext()
+        }
+    }
+
+    private func consume(_ data: Data) {
         lock.lock()
-        defer { lock.unlock() }
-        return data
+        buffer.append(data)
+        let lines = drainLines()
+        lock.unlock()
+
+        lines.forEach { line in
+            writeFrame(line)
+        }
+    }
+
+    private func drainLines() -> [Data] {
+        var lines: [Data] = []
+        while let newlineIndex = buffer.firstIndex(of: 10) {
+            let line = buffer[..<newlineIndex]
+            if !line.isEmpty {
+                lines.append(Data(line))
+            }
+            buffer.removeSubrange(...newlineIndex)
+        }
+        return lines
+    }
+
+    private func writeFrame(_ payload: Data) {
+        lock.lock()
+        hasWrittenFrame = true
+        lock.unlock()
+
+        FileHandle.standardOutput.write(NativeMessageCodec.encode(payload))
     }
 }

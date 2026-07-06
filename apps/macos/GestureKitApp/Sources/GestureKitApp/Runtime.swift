@@ -10,6 +10,7 @@ final class GestureKitRuntime {
     private let touchBackend: any TouchBackend
     private let settingsStore: any SettingsStore
     private var listeningTask: Task<Void, Never>?
+    private var eventServer: LocalEventServer?
 
     init(
         statusHandler: @escaping (String) -> Void,
@@ -23,6 +24,14 @@ final class GestureKitRuntime {
     }
 
     func start() {
+        do {
+            let server = try LocalEventServer()
+            server.start()
+            eventServer = server
+        } catch {
+            statusHandler("GestureKit: IPC Error")
+        }
+
         statusHandler("GestureKit: On")
         startTouchListening()
     }
@@ -30,6 +39,8 @@ final class GestureKitRuntime {
     func stop() {
         listeningTask?.cancel()
         listeningTask = nil
+        eventServer?.stop()
+        eventServer = nil
         _ = touchBackend.stop()
         statusHandler("GestureKit: Off")
     }
@@ -56,6 +67,13 @@ final class GestureKitRuntime {
             statusHandler(context.browserKind == .chrome ? "GestureKit: No Rule" : "GestureKit: Unsupported App")
             return
         }
+        let envelope = LocalIPCEnvelope.gesture(
+            id: UUID().uuidString,
+            timestamp: Int64(Date().timeIntervalSince1970 * 1000),
+            gesture: gesture,
+            appBundleId: context.appBundleId
+        )
+        eventServer?.publish(envelope)
         statusHandler("GestureKit: \(gesture.rawValue)")
     }
 }
