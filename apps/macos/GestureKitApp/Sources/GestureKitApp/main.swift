@@ -1,3 +1,7 @@
-import Foundation
+import AppKit
 
-print("GestureKitApp placeholder")
+let app = NSApplication.shared
+let delegate = AppDelegate()
+app.delegate = delegate
+app.setActivationPolicy(.accessory)
+app.run()

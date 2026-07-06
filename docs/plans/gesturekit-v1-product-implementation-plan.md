@@ -1784,7 +1784,7 @@ git commit -m "feat: add app host ipc protocol"
 - Create: `apps/macos/GestureKitApp/Sources/GestureKitApp/MultitouchSupportBackend.swift`
 - Create: `apps/macos/GestureKitApp/Sources/GestureKitApp/Runtime.swift`
 
-- [ ] **Step 1: 创建 AppKit 入口**
+- [x] **Step 1: 创建 AppKit 入口**
 
 `apps/macos/GestureKitApp/Sources/GestureKitApp/main.swift`：
 
@@ -1798,7 +1798,7 @@ app.setActivationPolicy(.accessory)
 app.run()
 ```
 
-- [ ] **Step 2: 创建菜单栏 delegate**
+- [x] **Step 2: 创建菜单栏 delegate**
 
 `apps/macos/GestureKitApp/Sources/GestureKitApp/AppDelegate.swift`：
 
@@ -1833,7 +1833,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 }
 ```
 
-- [ ] **Step 3: 创建 OpenMultitouchSupport backend**
+- [x] **Step 3: 创建 OpenMultitouchSupport backend**
 
 `apps/macos/GestureKitApp/Sources/GestureKitApp/MultitouchSupportBackend.swift`：
 
@@ -1880,7 +1880,7 @@ final class MultitouchSupportBackend: TouchBackend {
 }
 ```
 
-- [ ] **Step 4: 创建运行时骨架**
+- [x] **Step 4: 创建运行时骨架**
 
 `apps/macos/GestureKitApp/Sources/GestureKitApp/Runtime.swift`：
 
@@ -1943,7 +1943,7 @@ final class GestureKitRuntime {
 }
 ```
 
-- [ ] **Step 5: 运行构建**
+- [x] **Step 5: 运行构建**
 
 Run:
 
@@ -1960,6 +1960,8 @@ Run:
 ```bash
 swift run GestureKitApp
 ```
+
+2026-07-06 自动检查：已执行 3 秒有界启动，命令退出码为 0；菜单栏可见性和三指手势状态更新仍需人工观察。
 
 Expected:
 

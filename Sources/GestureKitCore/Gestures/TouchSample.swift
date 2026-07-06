@@ -16,6 +16,11 @@ public struct TouchFrame: Equatable, Sendable {
     public let time: TimeInterval
     public let activeTouches: [TouchSample]
 
+    public init(time: TimeInterval, activeTouches: [TouchSample]) {
+        self.time = time
+        self.activeTouches = activeTouches
+    }
+
     public static func frame(time: TimeInterval, activeTouches: [TouchSample]) -> TouchFrame {
         TouchFrame(time: time, activeTouches: activeTouches)
     }
