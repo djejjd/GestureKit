@@ -18,6 +18,14 @@
             <option value="efficient">高效模式</option>
           </select>
         </label>
+        <label>
+          轻扫灵敏度
+          <select id="swipeSensitivity">
+            <option value="robust">稳健</option>
+            <option value="standard">标准</option>
+            <option value="sensitive">灵敏</option>
+          </select>
+        </label>
       </section>
 
       <section>
@@ -64,6 +72,7 @@
       <section class="status">
         <div class="row"><span>Native host</span><strong id="nativeStatus">未连接</strong></div>
         <div class="row"><span>GestureKit App</span><strong id="appStatus">未连接</strong></div>
+        <div class="row"><span>灵敏度同步</span><strong id="settingsSyncStatus">待同步</strong></div>
         <div class="row"><span>最近结果</span><strong id="lastResult">暂无</strong></div>
       </section>
 

@@ -52,6 +52,38 @@ final class GestureRecognizerTests: XCTestCase {
         XCTAssertEqual(event?.gesture, .threeFingerSwipeRight)
     }
 
+    func testRobustSwipeSettingsRequireMoreDeliberateMovement() {
+        var recognizer = GestureRecognizer(settings: .robust)
+
+        _ = recognizer.observe(.frame(time: 0.00, activeTouches: [.touch(1, 0.30, 0.40), .touch(2, 0.32, 0.40), .touch(3, 0.34, 0.40)]))
+        _ = recognizer.observe(.frame(time: 0.16, activeTouches: [.touch(1, 0.40, 0.40), .touch(2, 0.42, 0.40), .touch(3, 0.44, 0.40)]))
+        let event = recognizer.observe(.frame(time: 0.26, activeTouches: []))
+
+        XCTAssertNil(event?.gesture)
+        XCTAssertEqual(event?.status, .gestureUnstable)
+    }
+
+    func testSensitiveSwipeSettingsAllowShorterMovement() {
+        var recognizer = GestureRecognizer(settings: .sensitive)
+
+        _ = recognizer.observe(.frame(time: 0.00, activeTouches: [.touch(1, 0.30, 0.40), .touch(2, 0.32, 0.40), .touch(3, 0.34, 0.40)]))
+        _ = recognizer.observe(.frame(time: 0.16, activeTouches: [.touch(1, 0.38, 0.40), .touch(2, 0.40, 0.40), .touch(3, 0.42, 0.40)]))
+        let event = recognizer.observe(.frame(time: 0.26, activeTouches: []))
+
+        XCTAssertEqual(event?.gesture, .threeFingerSwipeRight)
+    }
+
+    func testGestureRecognizerCanUpdateSwipeSettings() {
+        var recognizer = GestureRecognizer(settings: .robust)
+
+        recognizer.updateSettings(.sensitive)
+        _ = recognizer.observe(.frame(time: 0.00, activeTouches: [.touch(1, 0.30, 0.40), .touch(2, 0.32, 0.40), .touch(3, 0.34, 0.40)]))
+        _ = recognizer.observe(.frame(time: 0.16, activeTouches: [.touch(1, 0.38, 0.40), .touch(2, 0.40, 0.40), .touch(3, 0.42, 0.40)]))
+        let event = recognizer.observe(.frame(time: 0.26, activeTouches: []))
+
+        XCTAssertEqual(event?.gesture, .threeFingerSwipeRight)
+    }
+
     func testUnclearGestureIsReported() {
         var recognizer = GestureRecognizer()
 

@@ -25,6 +25,7 @@ describe("gesture settings", () => {
   it("uses safe mode as the default", () => {
     expect(GESTURE_SETTINGS_PRESETS.safe).toMatchObject({
       mode: "safe",
+      swipeSensitivity: "robust",
       edgeTapEnabled: true,
       doubleTapCloseEnabled: true,
       flickSwitchEnabled: true,
@@ -49,11 +50,21 @@ describe("gesture settings", () => {
 
     expect(normalized).toMatchObject({
       mode: "efficient",
+      swipeSensitivity: "sensitive",
       doubleTapCloseEnabled: false,
       leftEdgeMax: 0.38,
       rightEdgeMin: 0.62,
       cooldownMs: 80
     });
+  });
+
+  it("keeps an explicit swipe sensitivity when valid", () => {
+    const normalized = normalizeGestureSettings({
+      mode: "safe",
+      swipeSensitivity: "standard"
+    });
+
+    expect(normalized.swipeSensitivity).toBe("standard");
   });
 
   it("falls back to safe settings when storage is empty", async () => {

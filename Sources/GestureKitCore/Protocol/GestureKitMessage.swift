@@ -32,6 +32,8 @@ public enum MessageType: String, Codable, Equatable, Sendable {
     case hello
     case gestureEvent = "gesture_event"
     case actionResult = "action_result"
+    case settingsUpdate = "settings_update"
+    case settingsAck = "settings_ack"
     case error
     case heartbeat
 }
@@ -61,6 +63,50 @@ public struct ActionResultPayload: Codable, Equatable, Sendable {
         self.action = action
         self.status = status
         self.details = details
+    }
+}
+
+public struct SettingsUpdatePayload: Codable, Equatable, Sendable {
+    public let swipeSensitivity: SwipeSensitivity
+    public let swipeMinDistance: Float
+    public let swipeHorizontalRatio: Float
+    public let swipeMinDurationMs: Int
+    public let swipeMaxDurationMs: Int
+
+    public init(
+        swipeSensitivity: SwipeSensitivity,
+        swipeMinDistance: Float,
+        swipeHorizontalRatio: Float,
+        swipeMinDurationMs: Int,
+        swipeMaxDurationMs: Int
+    ) {
+        self.swipeSensitivity = swipeSensitivity
+        self.swipeMinDistance = swipeMinDistance
+        self.swipeHorizontalRatio = swipeHorizontalRatio
+        self.swipeMinDurationMs = swipeMinDurationMs
+        self.swipeMaxDurationMs = swipeMaxDurationMs
+    }
+
+    public var recognitionSettings: GestureRecognitionSettings {
+        GestureRecognitionSettings(
+            swipeSensitivity: swipeSensitivity,
+            swipeMinDistance: swipeMinDistance,
+            swipeHorizontalRatio: swipeHorizontalRatio,
+            swipeMinDurationMs: swipeMinDurationMs,
+            swipeMaxDurationMs: swipeMaxDurationMs
+        )
+    }
+}
+
+public struct SettingsAckPayload: Codable, Equatable, Sendable {
+    public let applied: Bool
+    public let swipeSensitivity: SwipeSensitivity
+    public let message: String?
+
+    public init(applied: Bool, swipeSensitivity: SwipeSensitivity, message: String? = nil) {
+        self.applied = applied
+        self.swipeSensitivity = swipeSensitivity
+        self.message = message
     }
 }
 
@@ -94,6 +140,8 @@ public struct GestureKitMessage: Codable, Equatable, Sendable {
     public enum Payload: Codable, Equatable, Sendable {
         case gestureEvent(GestureEventPayload)
         case actionResult(ActionResultPayload)
+        case settingsUpdate(SettingsUpdatePayload)
+        case settingsAck(SettingsAckPayload)
         case object([String: String])
 
         public init(from decoder: Decoder) throws {
@@ -102,6 +150,10 @@ public struct GestureKitMessage: Codable, Equatable, Sendable {
                 self = .gestureEvent(payload)
             } else if let payload = try? container.decode(ActionResultPayload.self) {
                 self = .actionResult(payload)
+            } else if let payload = try? container.decode(SettingsUpdatePayload.self) {
+                self = .settingsUpdate(payload)
+            } else if let payload = try? container.decode(SettingsAckPayload.self) {
+                self = .settingsAck(payload)
             } else {
                 self = .object(try container.decode([String: String].self))
             }
@@ -114,6 +166,10 @@ public struct GestureKitMessage: Codable, Equatable, Sendable {
                 try container.encode(payload)
             case .actionResult(let payload):
                 try container.encode(payload)
+            case .settingsUpdate(let payload):
+                try container.encode(payload)
+            case .settingsAck(let payload):
+                try container.encode(payload)
             case .object(let payload):
                 try container.encode(payload)
             }
@@ -124,8 +180,22 @@ public struct GestureKitMessage: Codable, Equatable, Sendable {
         GestureKitMessage(version: 1, id: id, type: .gestureEvent, timestamp: timestamp, payload: .gestureEvent(payload), error: nil)
     }
 
+    public static func settingsAck(id: String, timestamp: Int64, payload: SettingsAckPayload) -> GestureKitMessage {
+        GestureKitMessage(version: 1, id: id, type: .settingsAck, timestamp: timestamp, payload: .settingsAck(payload), error: nil)
+    }
+
     public var actionResultPayload: ActionResultPayload? {
         guard case .actionResult(let payload) = payload else { return nil }
+        return payload
+    }
+
+    public var settingsUpdatePayload: SettingsUpdatePayload? {
+        guard case .settingsUpdate(let payload) = payload else { return nil }
+        return payload
+    }
+
+    public var settingsAckPayload: SettingsAckPayload? {
+        guard case .settingsAck(let payload) = payload else { return nil }
         return payload
     }
 

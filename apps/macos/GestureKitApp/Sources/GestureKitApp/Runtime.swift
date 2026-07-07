@@ -28,7 +28,11 @@ final class GestureKitRuntime {
 
     func start() {
         do {
-            let server = try LocalEventServer(logger: logger)
+            let server = try LocalEventServer(logger: logger) { [weak self] envelope in
+                Task { @MainActor [weak self] in
+                    self?.handleIPCEnvelope(envelope)
+                }
+            }
             server.start()
             eventServer = server
         } catch {
@@ -107,6 +111,32 @@ final class GestureKitRuntime {
             logger.info("gesture_published gesture=\(gesture.rawValue) appBundleId=\(context.appBundleId) connections=\(connectionCount)")
         }
         statusHandler("GestureKit: \(gesture.rawValue)")
+    }
+
+    func applySettingsUpdate(_ payload: SettingsUpdatePayload) -> SettingsAckPayload {
+        recognizer.updateSettings(payload.recognitionSettings)
+        logger.info(
+            "settings_applied swipeSensitivity=\(payload.swipeSensitivity.rawValue) swipeMinDistance=\(payload.swipeMinDistance)",
+            rateLimitKey: "settings_applied"
+        )
+        return SettingsAckPayload(applied: true, swipeSensitivity: payload.swipeSensitivity)
+    }
+
+    func observeForTesting(_ frame: TouchFrame) -> RecognizedGesture? {
+        recognizer.observe(frame)
+    }
+
+    private func handleIPCEnvelope(_ envelope: LocalIPCEnvelope) {
+        guard let payload = envelope.message.settingsUpdatePayload else {
+            return
+        }
+        let ack = applySettingsUpdate(payload)
+        let ackEnvelope = LocalIPCEnvelope(message: .settingsAck(
+            id: envelope.id,
+            timestamp: Int64(Date().timeIntervalSince1970 * 1000),
+            payload: ack
+        ))
+        _ = eventServer?.publish(ackEnvelope)
     }
 
     private func gestureMetrics(_ prefix: String, event: RecognizedGesture) -> String {

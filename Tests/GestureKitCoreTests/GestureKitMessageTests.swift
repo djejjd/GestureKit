@@ -39,4 +39,30 @@ final class GestureKitMessageTests: XCTestCase {
         XCTAssertEqual(message.type, .actionResult)
         XCTAssertEqual(message.actionResultPayload?.status, .edgeReached)
     }
+
+    func testSettingsUpdateDecodesSwipeSensitivity() throws {
+        let data = Data("""
+        {"version":1,"id":"settings-1","type":"settings_update","timestamp":10,"payload":{"swipeSensitivity":"sensitive","swipeMinDistance":0.075,"swipeHorizontalRatio":1.25,"swipeMinDurationMs":50,"swipeMaxDurationMs":480},"error":null}
+        """.utf8)
+
+        let message = try JSONDecoder.gestureKit.decode(GestureKitMessage.self, from: data)
+
+        XCTAssertEqual(message.type, .settingsUpdate)
+        XCTAssertEqual(message.settingsUpdatePayload?.swipeSensitivity, .sensitive)
+        XCTAssertEqual(message.settingsUpdatePayload?.recognitionSettings, .sensitive)
+    }
+
+    func testSettingsAckEncodesAppliedSensitivity() throws {
+        let message = GestureKitMessage.settingsAck(
+            id: "settings-ack-1",
+            timestamp: 20,
+            payload: SettingsAckPayload(applied: true, swipeSensitivity: .standard)
+        )
+
+        let json = String(decoding: try JSONEncoder.gestureKit.encode(message), as: UTF8.self)
+
+        XCTAssertTrue(json.contains("\"type\":\"settings_ack\""))
+        XCTAssertTrue(json.contains("\"applied\":true"))
+        XCTAssertTrue(json.contains("\"swipeSensitivity\":\"standard\""))
+    }
 }

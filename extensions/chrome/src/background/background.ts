@@ -1,7 +1,13 @@
 import { executeGestureAction } from "./actionExecutor";
 import { chromeApi } from "./chromeApi";
 import { createNativePortManager } from "./nativePortManager";
-import { loadGestureSettings } from "../settings/gestureSettings";
+import { GESTURE_SETTINGS_STORAGE_KEY, loadGestureSettings } from "../settings/gestureSettings";
+import {
+  createSettingsUpdateMessage,
+  isSettingsAckMessage,
+  SETTINGS_SYNC_STATUS_STORAGE_KEY,
+  settingsSyncStatusFromAck
+} from "./settingsSync";
 
 const HOST_NAME = "com.gesturekit.host";
 const STATUS_STORAGE_KEY = "gesturekitStatus";
@@ -49,9 +55,28 @@ const manager = createNativePortManager({
   }
 });
 
+async function syncGestureSettings() {
+  const settings = await loadGestureSettings(chrome.storage.local);
+  port.postMessage(createSettingsUpdateMessage(settings));
+}
+
 port.onMessage.addListener((message) => {
+  if (isSettingsAckMessage(message)) {
+    void chrome.storage.local.set({
+      [SETTINGS_SYNC_STATUS_STORAGE_KEY]: settingsSyncStatusFromAck(message)
+    });
+    return;
+  }
   void manager.handleNativeMessage(message);
 });
+
+chrome.storage.onChanged.addListener((changes, areaName) => {
+  if (areaName === "local" && changes[GESTURE_SETTINGS_STORAGE_KEY]) {
+    void syncGestureSettings();
+  }
+});
+
+void syncGestureSettings();
 
 port.onDisconnect.addListener(() => {
   chrome.storage.local.set({

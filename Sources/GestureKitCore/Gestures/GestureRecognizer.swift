@@ -13,8 +13,16 @@ public struct GestureRecognizer: Sendable {
     }
 
     private var session: Session?
+    private var settings: GestureRecognitionSettings
 
-    public init() {}
+    public init(settings: GestureRecognitionSettings = .standard) {
+        self.settings = settings
+    }
+
+    public mutating func updateSettings(_ settings: GestureRecognitionSettings) {
+        self.settings = settings
+        session = nil
+    }
 
     public mutating func observe(_ frame: TouchFrame) -> RecognizedGesture? {
         let fingerCount = frame.activeTouches.count
@@ -39,8 +47,11 @@ public struct GestureRecognizer: Sendable {
         let dy = session.latestCentroid.y - session.startCentroid.y
         let distance = hypotf(dx, dy)
         let durationMs = Int((duration * 1000).rounded())
-        let isQuickFlick = duration >= 0.06 && duration <= 0.42
-        let horizontalEnough = abs(dx) >= 0.09 && abs(dx) >= abs(dy) * 1.5
+        let minSwipeDuration = Double(settings.swipeMinDurationMs) / 1000
+        let maxSwipeDuration = Double(settings.swipeMaxDurationMs) / 1000
+        let isQuickFlick = duration >= minSwipeDuration && duration <= maxSwipeDuration
+        let horizontalEnough = abs(dx) >= settings.swipeMinDistance
+            && abs(dx) >= abs(dy) * settings.swipeHorizontalRatio
 
         if duration <= 0.45 && distance <= 0.06 {
             return RecognizedGesture(

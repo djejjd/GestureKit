@@ -8,6 +8,11 @@ function setupDom() {
       <option value="safe">安全模式</option>
       <option value="efficient">高效模式</option>
     </select>
+    <select id="swipeSensitivity">
+      <option value="robust">稳健</option>
+      <option value="standard">标准</option>
+      <option value="sensitive">灵敏</option>
+    </select>
     <input id="edgeTapEnabled" type="checkbox" />
     <input id="doubleTapCloseEnabled" type="checkbox" />
     <input id="flickSwitchEnabled" type="checkbox" />
@@ -19,6 +24,7 @@ function setupDom() {
     <output id="cooldownMsValue"></output>
     <div id="nativeStatus"></div>
     <div id="appStatus"></div>
+    <div id="settingsSyncStatus"></div>
     <div id="lastResult"></div>
     <button id="resetDefaults"></button>
   `;
@@ -57,16 +63,22 @@ describe("gesture settings popup", () => {
       {
         nativeConnected: true,
         appConnected: false,
-        lastResult: "gesture_unstable"
+        lastResult: "gesture_unstable",
+        settingsSync: {
+          applied: true,
+          swipeSensitivity: "sensitive"
+        }
       }
     );
 
     await initializeGestureSettingsPopup(document, storage);
 
     expect((document.querySelector("#mode") as HTMLSelectElement).value).toBe("efficient");
+    expect((document.querySelector("#swipeSensitivity") as HTMLSelectElement).value).toBe("sensitive");
     expect((document.querySelector("#doubleTapCloseEnabled") as HTMLInputElement).checked).toBe(false);
     expect(document.querySelector("#nativeStatus")?.textContent).toBe("已连接");
     expect(document.querySelector("#appStatus")?.textContent).toBe("未连接");
+    expect(document.querySelector("#settingsSyncStatus")?.textContent).toBe("已应用 sensitive");
     expect(document.querySelector("#lastResult")?.textContent).toBe("gesture_unstable");
   });
 
@@ -83,6 +95,7 @@ describe("gesture settings popup", () => {
     expect(storage.set).toHaveBeenCalledWith({
       [GESTURE_SETTINGS_STORAGE_KEY]: expect.objectContaining({
         mode: "efficient",
+        swipeSensitivity: "sensitive",
         leftEdgeMax: 0.38,
         rightEdgeMin: 0.62
       })
@@ -106,6 +119,23 @@ describe("gesture settings popup", () => {
       [GESTURE_SETTINGS_STORAGE_KEY]: expect.objectContaining({
         edgeTapEnabled: false,
         cooldownMs: 180
+      })
+    });
+  });
+
+  it("saves swipe sensitivity changes", async () => {
+    const storage = storageWith(GESTURE_SETTINGS_PRESETS.safe);
+    await initializeGestureSettingsPopup(document, storage);
+
+    const sensitivity = document.querySelector("#swipeSensitivity") as HTMLSelectElement;
+    sensitivity.value = "standard";
+    sensitivity.dispatchEvent(new Event("change"));
+    await flushPromises();
+
+    expect(storage.set).toHaveBeenLastCalledWith({
+      [GESTURE_SETTINGS_STORAGE_KEY]: expect.objectContaining({
+        mode: "safe",
+        swipeSensitivity: "standard"
       })
     });
   });

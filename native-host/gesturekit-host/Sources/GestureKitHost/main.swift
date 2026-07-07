@@ -94,6 +94,7 @@ private final class AppToChromeBridge: @unchecked Sendable {
         }
 
         receiveNext()
+        startStdinReader()
         connection.start(queue: .global(qos: .userInitiated))
     }
 
@@ -150,5 +151,48 @@ private final class AppToChromeBridge: @unchecked Sendable {
         lock.unlock()
 
         FileHandle.standardOutput.write(NativeMessageCodec.encode(payload))
+    }
+
+    private func startStdinReader() {
+        DispatchQueue.global(qos: .userInitiated).async {
+            while true {
+                guard let payload = self.readNativeMessagePayload() else {
+                    self.done.signal()
+                    return
+                }
+                self.sendToApp(payload)
+            }
+        }
+    }
+
+    private func readNativeMessagePayload() -> Data? {
+        let header = FileHandle.standardInput.readData(ofLength: 4)
+        guard header.count == 4 else { return nil }
+        let bytes = Array(header)
+        let length =
+            UInt32(bytes[0]) |
+            UInt32(bytes[1]) << 8 |
+            UInt32(bytes[2]) << 16 |
+            UInt32(bytes[3]) << 24
+        guard length > 0, length <= 1024 * 1024 else {
+            fputs("GestureKitHost invalid native message length=\(length)\n", stderr)
+            return nil
+        }
+        let payload = FileHandle.standardInput.readData(ofLength: Int(length))
+        guard payload.count == Int(length) else {
+            fputs("GestureKitHost truncated native message expected=\(length) actual=\(payload.count)\n", stderr)
+            return nil
+        }
+        return payload
+    }
+
+    private func sendToApp(_ payload: Data) {
+        var line = payload
+        line.append(10)
+        connection.send(content: line, completion: .contentProcessed { error in
+            if let error {
+                fputs("GestureKitHost app send failed: \(error)\n", stderr)
+            }
+        })
     }
 }

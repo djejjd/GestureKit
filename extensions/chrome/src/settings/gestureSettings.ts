@@ -1,7 +1,9 @@
 export type GestureSettingsMode = "safe" | "efficient";
+export type SwipeSensitivity = "robust" | "standard" | "sensitive";
 
 export type GestureSettings = {
   mode: GestureSettingsMode;
+  swipeSensitivity: SwipeSensitivity;
   edgeTapEnabled: boolean;
   doubleTapCloseEnabled: boolean;
   flickSwitchEnabled: boolean;
@@ -28,6 +30,7 @@ export const GESTURE_SETTINGS_STORAGE_KEY = "gesturekitGestureSettings";
 export const GESTURE_SETTINGS_PRESETS: Record<GestureSettingsMode, GestureSettings> = {
   safe: {
     mode: "safe",
+    swipeSensitivity: "robust",
     edgeTapEnabled: true,
     doubleTapCloseEnabled: true,
     flickSwitchEnabled: true,
@@ -41,6 +44,7 @@ export const GESTURE_SETTINGS_PRESETS: Record<GestureSettingsMode, GestureSettin
   },
   efficient: {
     mode: "efficient",
+    swipeSensitivity: "sensitive",
     edgeTapEnabled: true,
     doubleTapCloseEnabled: true,
     flickSwitchEnabled: true,
@@ -91,6 +95,7 @@ export function normalizeGestureSettings(input: GestureSettingsInput | unknown):
 
   return {
     mode,
+    swipeSensitivity: isSwipeSensitivity(merged.swipeSensitivity) ? merged.swipeSensitivity : preset.swipeSensitivity,
     edgeTapEnabled: typeof merged.edgeTapEnabled === "boolean" ? merged.edgeTapEnabled : preset.edgeTapEnabled,
     doubleTapCloseEnabled: typeof merged.doubleTapCloseEnabled === "boolean"
       ? merged.doubleTapCloseEnabled
@@ -130,4 +135,8 @@ function clampNumber(value: unknown, fallback: number, min: number, max: number)
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function isSwipeSensitivity(value: unknown): value is SwipeSensitivity {
+  return value === "robust" || value === "standard" || value === "sensitive";
 }

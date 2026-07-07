@@ -6,6 +6,7 @@ import {
   type GestureSettingsMode,
   type GestureSettingsStorage
 } from "../settings/gestureSettings";
+import { SETTINGS_SYNC_STATUS_STORAGE_KEY, type SettingsSyncStatus } from "../background/settingsSync";
 import "./popup.css";
 
 type PopupStorage = GestureSettingsStorage & {
@@ -16,6 +17,7 @@ type PopupStatus = {
   nativeConnected?: boolean;
   appConnected?: boolean;
   lastResult?: string;
+  settingsSync?: SettingsSyncStatus;
 };
 
 const STATUS_STORAGE_KEY = "gesturekitStatus";
@@ -23,10 +25,10 @@ const STATUS_STORAGE_KEY = "gesturekitStatus";
 export async function initializeGestureSettingsPopup(doc: Document, storage: PopupStorage): Promise<void> {
   const [settings, statusResult] = await Promise.all([
     loadGestureSettings(storage),
-    storage.get(STATUS_STORAGE_KEY)
+    storage.get([STATUS_STORAGE_KEY, SETTINGS_SYNC_STATUS_STORAGE_KEY])
   ]);
   renderSettings(doc, settings);
-  renderStatus(doc, statusResult[STATUS_STORAGE_KEY]);
+  renderStatus(doc, statusResult[STATUS_STORAGE_KEY], statusResult[SETTINGS_SYNC_STATUS_STORAGE_KEY]);
   bindEvents(doc, storage);
 }
 
@@ -40,6 +42,7 @@ function bindEvents(doc: Document, storage: PopupStorage) {
     "#edgeTapEnabled",
     "#doubleTapCloseEnabled",
     "#flickSwitchEnabled",
+    "#swipeSensitivity",
     "#edgeWidth",
     "#doubleTapSpeed",
     "#cooldownMs"
@@ -67,6 +70,7 @@ async function saveAndRender(doc: Document, storage: PopupStorage, settings: Ges
 
 function renderSettings(doc: Document, settings: GestureSettings) {
   select(doc, "#mode").value = settings.mode;
+  select(doc, "#swipeSensitivity").value = settings.swipeSensitivity;
   checkbox(doc, "#edgeTapEnabled").checked = settings.edgeTapEnabled;
   checkbox(doc, "#doubleTapCloseEnabled").checked = settings.doubleTapCloseEnabled;
   checkbox(doc, "#flickSwitchEnabled").checked = settings.flickSwitchEnabled;
@@ -82,10 +86,18 @@ function renderSettings(doc: Document, settings: GestureSettings) {
   output(doc, "#cooldownMsValue").textContent = `${settings.cooldownMs}ms`;
 }
 
-function renderStatus(doc: Document, value: unknown) {
+function renderStatus(doc: Document, value: unknown, syncValue: unknown) {
   const status = isPopupStatus(value) ? value : {};
+  const settingsSync = isSettingsSyncStatus(syncValue)
+    ? syncValue
+    : isSettingsSyncStatus(status.settingsSync)
+      ? status.settingsSync
+      : null;
   element(doc, "#nativeStatus").textContent = status.nativeConnected ? "已连接" : "未连接";
   element(doc, "#appStatus").textContent = status.appConnected ? "在线" : "未连接";
+  element(doc, "#settingsSyncStatus").textContent = settingsSync
+    ? `${settingsSync.applied ? "已应用" : "未应用"} ${settingsSync.swipeSensitivity}`
+    : "待同步";
   element(doc, "#lastResult").textContent = status.lastResult ?? "暂无";
 }
 
@@ -97,6 +109,7 @@ function readSettings(doc: Document): GestureSettings {
   const cooldownMs = Number(input(doc, "#cooldownMs").value);
   return {
     ...preset,
+    swipeSensitivity: readSwipeSensitivity(doc),
     edgeTapEnabled: checkbox(doc, "#edgeTapEnabled").checked,
     doubleTapCloseEnabled: checkbox(doc, "#doubleTapCloseEnabled").checked,
     flickSwitchEnabled: checkbox(doc, "#flickSwitchEnabled").checked,
@@ -105,6 +118,14 @@ function readSettings(doc: Document): GestureSettings {
     doubleTapMaxMs,
     cooldownMs
   };
+}
+
+function readSwipeSensitivity(doc: Document) {
+  const value = select(doc, "#swipeSensitivity").value;
+  if (value === "standard" || value === "sensitive") {
+    return value;
+  }
+  return "robust";
 }
 
 function select(doc: Document, selector: string): HTMLSelectElement {
@@ -133,6 +154,12 @@ function element(doc: Document, selector: string): HTMLElement {
 
 function isPopupStatus(value: unknown): value is PopupStatus {
   return typeof value === "object" && value !== null;
+}
+
+function isSettingsSyncStatus(value: unknown): value is SettingsSyncStatus {
+  return typeof value === "object" && value !== null &&
+    "applied" in value &&
+    "swipeSensitivity" in value;
 }
 
 declare const chrome: { storage?: { local?: PopupStorage } } | undefined;

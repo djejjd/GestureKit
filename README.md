@@ -21,7 +21,7 @@ English version: [English](#english)
 
 标签页切换只作用于当前 Chrome 窗口。到达最左或最右标签页时会循环切换。
 
-三指点按会过滤异常短触和动作后的短暂抖动。左/右切 tab 只认触控板边缘区域，中间单点不执行动作，中间双点才关闭 tab。左右轻扫只识别短促的 flick，当前允许约 `60ms-420ms` 的短促横向动作。慢速三指拖动会被判为不稳定手势，以减少 Chrome 页面文本被拖选的情况。
+三指点按会过滤异常短触和动作后的短暂抖动。左/右切 tab 只认触控板边缘区域，中间单点不执行动作，中间双点才关闭 tab。左右轻扫只识别短促的 flick，默认约 `60ms-420ms` 的短促横向动作；可在扩展 popup 中切换稳健、标准、灵敏三档。慢速三指拖动会被判为不稳定手势，以减少 Chrome 页面文本被拖选的情况。
 
 ## 扩展设置
 
@@ -30,10 +30,10 @@ English version: [English](#english)
 - `安全模式`：默认模式，边缘区域更窄，双击关闭更严格，动作冷却更长。
 - `高效模式`：响应更快，边缘区域更宽，双击窗口更宽，动作冷却更短。
 - 可单独开关边缘点按切 tab、中间双击关闭 tab、快速轻扫切 tab。
-- 可调整边缘区域宽度、双击速度和动作冷却。
-- 面板会显示 Native host、GestureKit App 和最近动作结果。
+- 可调整轻扫灵敏度、边缘区域宽度、双击速度和动作冷却。
+- 面板会显示 Native host、GestureKit App、灵敏度同步状态和最近动作结果。
 
-设置保存在 Chrome 扩展的 `chrome.storage.local` 中，修改后立即影响后续手势。安全模式和高效模式目前只影响扩展侧动作阈值；三指轻扫能否被识别仍由 Swift App 内置阈值控制。重新构建扩展后，需要在 `chrome://extensions` 刷新 GestureKit 扩展。
+设置保存在 Chrome 扩展的 `chrome.storage.local` 中，修改后立即影响后续手势。安全模式默认使用稳健轻扫，高效模式默认使用灵敏轻扫；自定义轻扫灵敏度会通过 Native Messaging host 同步到 Swift App 的原生识别层，popup 中会显示最近一次应用状态。重新构建扩展后，需要在 `chrome://extensions` 刷新 GestureKit 扩展。
 
 ## 工作方式
 
@@ -124,7 +124,7 @@ npm run build
 
 ## 后续方向
 
-- 把三指轻扫灵敏度做成可配置，并同步到 Swift App 的原生识别层。
+- 增加灵敏度细粒度参数和自动推荐：根据最近失败原因提示切换稳健、标准或灵敏。
 - 增加 popup 诊断：最近 10 次手势、忽略原因和一键复制诊断信息。
 - 将 `GestureKitApp` 从终端运行形态升级为菜单栏 App。
 - 增加恢复刚关闭标签页、复制当前链接等浏览器动作。
@@ -172,7 +172,7 @@ Current gestures:
 - Three-finger double-tap on empty space in the center area: close the current tab.
 - Three-finger quick flick left/right: switch tabs.
 
-The Chrome extension popup provides safe/efficient presets, gesture toggles, edge width, double-tap speed, cooldown controls, and a small connection/status summary. Swipe recognition sensitivity is currently fixed in the Swift app and is planned as a future configurable setting.
+The Chrome extension popup provides safe/efficient presets, gesture toggles, swipe sensitivity, edge width, double-tap speed, cooldown controls, and a small connection/status summary. Swipe sensitivity is synced through the native host and applied by the Swift app.
 
 Build and test:
 

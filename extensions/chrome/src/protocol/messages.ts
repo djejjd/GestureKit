@@ -54,3 +54,25 @@ export type ActionResultMessage = GestureKitMessage<
     details?: Record<string, unknown>;
   }
 >;
+
+export type SwipeSensitivity = "robust" | "standard" | "sensitive";
+
+export type SettingsUpdateMessage = GestureKitMessage<
+  "settings_update",
+  {
+    swipeSensitivity: SwipeSensitivity;
+    swipeMinDistance: number;
+    swipeHorizontalRatio: number;
+    swipeMinDurationMs: number;
+    swipeMaxDurationMs: number;
+  }
+>;
+
+export type SettingsAckMessage = GestureKitMessage<
+  "settings_ack",
+  {
+    applied: boolean;
+    swipeSensitivity: SwipeSensitivity;
+    message?: string;
+  }
+>;

@@ -85,7 +85,7 @@ V1 当前运行约束：
 - 前台 App 是 Google Chrome Stable，bundle id 为 `com.google.Chrome`。
 - 当前 Chrome 窗口存在活跃标签页。
 - 当前 Chrome 窗口至少存在一个标签页。
-- 手势必须是短促的水平轻扫，建议时长约 60ms-420ms；慢速拖动不触发标签切换。
+- 手势必须是短促的水平轻扫，默认标准档建议时长约 60ms-420ms；慢速拖动不触发标签切换。用户可通过扩展 popup 在稳健、标准、灵敏三档之间切换。
 
 动作结果：
 
@@ -104,7 +104,7 @@ V1 当前运行约束：
 - 前台 App 是 Google Chrome Stable，bundle id 为 `com.google.Chrome`。
 - 当前 Chrome 窗口存在活跃标签页。
 - 当前 Chrome 窗口至少存在一个标签页。
-- 手势必须是短促的水平轻扫，建议时长约 60ms-420ms；慢速拖动不触发标签切换。
+- 手势必须是短促的水平轻扫，默认标准档建议时长约 60ms-420ms；慢速拖动不触发标签切换。用户可通过扩展 popup 在稳健、标准、灵敏三档之间切换。
 
 动作结果：
 
@@ -125,10 +125,10 @@ V1 允许 Chrome 扩展保存本地手感配置，用于调节扩展侧动作执
 - `安全模式`：默认模式，边缘区域更窄，双击关闭更严格，动作冷却更长。
 - `高效模式`：响应更快，边缘区域更宽，双击窗口更宽，动作冷却更短。
 - 开关：边缘点按切 tab、中间双击关闭 tab、快速轻扫切 tab。
-- 参数：边缘区域宽度、双击速度、动作冷却。
-- 状态：Native host 连接状态、GestureKit App 连接状态、最近动作结果。
+- 参数：轻扫灵敏度、边缘区域宽度、双击速度、动作冷却。
+- 状态：Native host 连接状态、GestureKit App 连接状态、轻扫灵敏度同步状态、最近动作结果。
 
-配置必须保存在 Chrome extension 的 `chrome.storage.local`。修改后影响后续手势，不要求影响已经进入执行中的手势。
+配置必须保存在 Chrome extension 的 `chrome.storage.local`。修改后影响后续手势，不要求影响已经进入执行中的手势。轻扫灵敏度通过 `settings_update` 消息同步给 GestureKit App，App 应用后通过 `settings_ack` 回传状态。
 
 ## 4. 规则雏形
 

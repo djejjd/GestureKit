@@ -119,7 +119,7 @@ Native host shim 是 Chrome Native Messaging host。它只负责桥接，不负�
 - 校验消息版本、类型和请求 ID。
 - 连接 GestureKit App 的本地 IPC。
 - 将 App 侧事件转发给 Chrome 扩展。
-- 将 Chrome 扩展的执行结果和错误回传给 App。
+- 将 Chrome 扩展的执行结果、错误和手感设置回传给 App。
 
 V1 推荐使用单独 shim，而不是让主 App 直接作为 native host。这样主 App 生命周期不被 Chrome 启停影响，Chrome 侧崩溃或断连也不会带走手势采集进程。
 
@@ -172,6 +172,8 @@ V1 消息类型：
 - `hello`：连接握手。
 - `gesture_event`：native host 转发 App 侧手势事件。
 - `action_result`：扩展回传动作执行结果。
+- `settings_update`：扩展下发轻扫灵敏度及识别阈值。
+- `settings_ack`：GestureKit App 回传轻扫灵敏度是否已应用。
 - `error`：协议、权限或执行错误。
 - `heartbeat`：可选心跳，用于诊断连接状态。
 
@@ -342,11 +344,12 @@ Chrome `chrome.storage.local` 只保存：
 
 - 扩展侧连接状态。
 - 最近诊断信息。
-- 扩展侧手感配置：安全/高效模式、边缘区域宽度、双击速度、动作冷却和手势开关。
+- 扩展侧手感配置：安全/高效模式、轻扫灵敏度、边缘区域宽度、双击速度、动作冷却和手势开关。
+- 最近一次轻扫灵敏度同步状态。
 - content script 的局部缓存。
 - 必要的页面上下文缓存。
 
-V1 不允许 Chrome 扩展单独编辑规则或绑定任意动作，避免双写和同步冲突。
+V1 不允许 Chrome 扩展单独编辑规则或绑定任意动作，避免双写和同步冲突。扩展可以通过 `settings_update` 调节 GestureKit App 的轻扫识别阈值；该路径只影响手势稳定性，不影响规则匹配结果。
 
 ## 8. Chrome 动作语义
 

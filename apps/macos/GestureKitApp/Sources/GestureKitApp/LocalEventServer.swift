@@ -7,10 +7,16 @@ final class LocalEventServer: @unchecked Sendable {
     private let lock = NSLock()
     private var connections: [NWConnection] = []
     private let logger: GestureKitLogger
+    private let onMessage: @Sendable (LocalIPCEnvelope) -> Void
 
-    init(port: NWEndpoint.Port = 17653, logger: GestureKitLogger) throws {
+    init(
+        port: NWEndpoint.Port = 17653,
+        logger: GestureKitLogger,
+        onMessage: @escaping @Sendable (LocalIPCEnvelope) -> Void = { _ in }
+    ) throws {
         listener = try NWListener(using: .tcp, on: port)
         self.logger = logger
+        self.onMessage = onMessage
     }
 
     func start() {
@@ -68,6 +74,44 @@ final class LocalEventServer: @unchecked Sendable {
         lock.lock()
         connections.append(connection)
         lock.unlock()
+        receiveNext(from: connection, buffer: Data())
+    }
+
+    private func receiveNext(from connection: NWConnection, buffer: Data) {
+        connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { [weak self, weak connection] data, _, isComplete, error in
+            guard let self, let connection else { return }
+            var nextBuffer = buffer
+            if let data, !data.isEmpty {
+                nextBuffer.append(data)
+                nextBuffer = self.consumeIncomingBuffer(nextBuffer)
+            }
+            if let error {
+                self.logger.warn("ipc_client_receive_failed error=\"\(error)\"", rateLimitKey: "ipc_client_receive_failed")
+                self.remove(connection)
+                return
+            }
+            if isComplete {
+                self.remove(connection)
+                return
+            }
+            self.receiveNext(from: connection, buffer: nextBuffer)
+        }
+    }
+
+    private func consumeIncomingBuffer(_ buffer: Data) -> Data {
+        var remaining = buffer
+        while let newlineIndex = remaining.firstIndex(of: 10) {
+            let lineData = remaining[..<newlineIndex]
+            if !lineData.isEmpty, let line = String(data: lineData, encoding: .utf8) {
+                do {
+                    onMessage(try LocalIPCProtocol.decodeLine(line))
+                } catch {
+                    logger.warn("ipc_message_decode_failed error=\"\(error)\"", rateLimitKey: "ipc_message_decode_failed")
+                }
+            }
+            remaining.removeSubrange(...newlineIndex)
+        }
+        return remaining
     }
 
     private func snapshotConnections() -> [NWConnection] {
