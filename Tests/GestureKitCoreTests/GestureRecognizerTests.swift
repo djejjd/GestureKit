@@ -61,6 +61,18 @@ final class GestureRecognizerTests: XCTestCase {
 
         XCTAssertNil(event?.gesture)
         XCTAssertEqual(event?.status, .gestureUnstable)
+        XCTAssertEqual(event?.reason, .distanceTooShort)
+    }
+
+    func testUnstableSwipeCarriesThresholdsForDiagnostics() {
+        var recognizer = GestureRecognizer(settings: .standard)
+
+        _ = recognizer.observe(.frame(time: 0.00, activeTouches: [.touch(1, 0.30, 0.40), .touch(2, 0.32, 0.40), .touch(3, 0.34, 0.40)]))
+        _ = recognizer.observe(.frame(time: 0.16, activeTouches: [.touch(1, 0.37, 0.40), .touch(2, 0.39, 0.40), .touch(3, 0.41, 0.40)]))
+        let event = recognizer.observe(.frame(time: 0.26, activeTouches: []))
+
+        XCTAssertEqual(event?.reason, .distanceTooShort)
+        XCTAssertEqual(event?.thresholds, .standard)
     }
 
     func testSensitiveSwipeSettingsAllowShorterMovement() {

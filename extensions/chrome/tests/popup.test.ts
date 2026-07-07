@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GESTURE_SETTINGS_PRESETS, GESTURE_SETTINGS_STORAGE_KEY } from "../src/settings/gestureSettings";
 import { initializeGestureSettingsPopup } from "../src/popup/popup";
+import { DIAGNOSTICS_STORAGE_KEY, type GestureDiagnosticEntry } from "../src/diagnostics/diagnostics";
 
 function setupDom() {
   document.body.innerHTML = `
@@ -26,12 +27,28 @@ function setupDom() {
     <div id="appStatus"></div>
     <div id="settingsSyncStatus"></div>
     <div id="lastResult"></div>
+    <div id="swipeSuccessRate"></div>
+    <div id="mainFailureReason"></div>
+    <div id="diagnosticsSuggestion"></div>
+    <button id="diagnosticsToggle" aria-expanded="false"></button>
+    <div id="diagnosticsPanel" hidden>
+      <div id="diagnosticsList"></div>
+    </div>
+    <button id="copyDiagnostics"></button>
+    <button id="clearDiagnostics"></button>
     <button id="resetDefaults"></button>
   `;
 }
 
-function storageWith(value: unknown = GESTURE_SETTINGS_PRESETS.safe, status: unknown = undefined) {
-  const state: Record<string, unknown> = { [GESTURE_SETTINGS_STORAGE_KEY]: value };
+function storageWith(
+  value: unknown = GESTURE_SETTINGS_PRESETS.safe,
+  status: unknown = undefined,
+  diagnostics: GestureDiagnosticEntry[] = []
+) {
+  const state: Record<string, unknown> = {
+    [GESTURE_SETTINGS_STORAGE_KEY]: value,
+    [DIAGNOSTICS_STORAGE_KEY]: diagnostics
+  };
   if (status !== undefined) {
     state.gesturekitStatus = status;
   }
@@ -55,6 +72,12 @@ async function flushPromises() {
 describe("gesture settings popup", () => {
   beforeEach(() => {
     setupDom();
+    Object.defineProperty(navigator, "clipboard", {
+      configurable: true,
+      value: {
+        writeText: vi.fn(async () => {})
+      }
+    });
   });
 
   it("renders stored settings and status", async () => {
@@ -80,6 +103,61 @@ describe("gesture settings popup", () => {
     expect(document.querySelector("#appStatus")?.textContent).toBe("未连接");
     expect(document.querySelector("#settingsSyncStatus")?.textContent).toBe("已应用 sensitive");
     expect(document.querySelector("#lastResult")?.textContent).toBe("gesture_unstable");
+  });
+
+  it("renders diagnostics summary while keeping settings controls", async () => {
+    const storage = storageWith(GESTURE_SETTINGS_PRESETS.safe, undefined, [
+      swipeDiagnostic("diag-1", "success"),
+      swipeDiagnostic("diag-2", "gesture_unstable"),
+      swipeDiagnostic("diag-3", "gesture_unstable")
+    ]);
+
+    await initializeGestureSettingsPopup(document, storage);
+
+    expect(document.querySelector("#mode")).toBeInstanceOf(HTMLSelectElement);
+    expect(document.querySelector("#swipeSensitivity")).toBeInstanceOf(HTMLSelectElement);
+    expect(document.querySelector("#swipeSuccessRate")?.textContent).toBe("1 / 3");
+    expect(document.querySelector("#mainFailureReason")?.textContent).toBe("横向距离不足");
+    expect(document.querySelector("#diagnosticsSuggestion")?.textContent).toBe("可以尝试“灵敏”");
+  });
+
+  it("expands recent diagnostics", async () => {
+    const storage = storageWith(GESTURE_SETTINGS_PRESETS.safe, undefined, [
+      swipeDiagnostic("diag-1", "gesture_unstable")
+    ]);
+    await initializeGestureSettingsPopup(document, storage);
+
+    (document.querySelector("#diagnosticsToggle") as HTMLButtonElement).click();
+
+    expect((document.querySelector("#diagnosticsToggle") as HTMLButtonElement).getAttribute("aria-expanded")).toBe("true");
+    expect((document.querySelector("#diagnosticsPanel") as HTMLElement).hidden).toBe(false);
+    expect(document.querySelector("#diagnosticsList")?.textContent).toContain("右轻扫");
+    expect(document.querySelector("#diagnosticsList")?.textContent).toContain("横向距离不足");
+  });
+
+  it("copies diagnostics text", async () => {
+    const storage = storageWith(GESTURE_SETTINGS_PRESETS.safe, undefined, [
+      swipeDiagnostic("diag-1", "gesture_unstable")
+    ]);
+    await initializeGestureSettingsPopup(document, storage);
+
+    (document.querySelector("#copyDiagnostics") as HTMLButtonElement).click();
+    await flushPromises();
+
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expect.stringContaining("GestureKit Diagnostics"));
+  });
+
+  it("clears diagnostics", async () => {
+    const storage = storageWith(GESTURE_SETTINGS_PRESETS.safe, undefined, [
+      swipeDiagnostic("diag-1", "gesture_unstable")
+    ]);
+    await initializeGestureSettingsPopup(document, storage);
+
+    (document.querySelector("#clearDiagnostics") as HTMLButtonElement).click();
+    await flushPromises();
+
+    expect(storage.set).toHaveBeenLastCalledWith({ [DIAGNOSTICS_STORAGE_KEY]: [] });
+    expect(document.querySelector("#swipeSuccessRate")?.textContent).toBe("暂无");
   });
 
   it("applies a preset when mode changes", async () => {
@@ -153,3 +231,29 @@ describe("gesture settings popup", () => {
     });
   });
 });
+
+function swipeDiagnostic(id: string, status: "success" | "gesture_unstable"): GestureDiagnosticEntry {
+  return {
+    id,
+    timestamp: 1_782_200_000_000,
+    source: "app",
+    kind: "gesture",
+    gesture: "three_finger_swipe_right",
+    action: "activate_right_tab",
+    status,
+    reason: status === "success" ? "success" : "distance_too_short",
+    swipeSensitivity: "standard",
+    dx: status === "success" ? 0.126 : 0.073,
+    dy: 0.012,
+    distance: status === "success" ? 0.127 : 0.074,
+    durationMs: 164,
+    horizontalRatio: 6.08,
+    thresholds: {
+      swipeSensitivity: "standard",
+      swipeMinDistance: 0.09,
+      swipeHorizontalRatio: 1.5,
+      swipeMinDurationMs: 60,
+      swipeMaxDurationMs: 420
+    }
+  };
+}

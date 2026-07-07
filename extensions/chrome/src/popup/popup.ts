@@ -7,6 +7,15 @@ import {
   type GestureSettingsStorage
 } from "../settings/gestureSettings";
 import { SETTINGS_SYNC_STATUS_STORAGE_KEY, type SettingsSyncStatus } from "../background/settingsSync";
+import {
+  clearDiagnostics,
+  DIAGNOSTICS_STORAGE_KEY,
+  formatDiagnosticsForClipboard,
+  normalizeDiagnostics,
+  reasonLabel,
+  summarizeDiagnostics,
+  type GestureDiagnosticEntry
+} from "../diagnostics/diagnostics";
 import "./popup.css";
 
 type PopupStorage = GestureSettingsStorage & {
@@ -25,14 +34,24 @@ const STATUS_STORAGE_KEY = "gesturekitStatus";
 export async function initializeGestureSettingsPopup(doc: Document, storage: PopupStorage): Promise<void> {
   const [settings, statusResult] = await Promise.all([
     loadGestureSettings(storage),
-    storage.get([STATUS_STORAGE_KEY, SETTINGS_SYNC_STATUS_STORAGE_KEY])
+    storage.get([STATUS_STORAGE_KEY, SETTINGS_SYNC_STATUS_STORAGE_KEY, DIAGNOSTICS_STORAGE_KEY])
   ]);
+  let diagnostics = normalizeDiagnostics(statusResult[DIAGNOSTICS_STORAGE_KEY]);
   renderSettings(doc, settings);
   renderStatus(doc, statusResult[STATUS_STORAGE_KEY], statusResult[SETTINGS_SYNC_STATUS_STORAGE_KEY]);
-  bindEvents(doc, storage);
+  renderDiagnostics(doc, diagnostics);
+  bindEvents(doc, storage, () => diagnostics, (next) => {
+    diagnostics = next;
+    renderDiagnostics(doc, diagnostics);
+  });
 }
 
-function bindEvents(doc: Document, storage: PopupStorage) {
+function bindEvents(
+  doc: Document,
+  storage: PopupStorage,
+  getDiagnostics: () => GestureDiagnosticEntry[],
+  setDiagnostics: (diagnostics: GestureDiagnosticEntry[]) => void
+) {
   select(doc, "#mode").addEventListener("change", () => {
     const mode = select(doc, "#mode").value === "efficient" ? "efficient" : "safe";
     void saveAndRender(doc, storage, GESTURE_SETTINGS_PRESETS[mode]);
@@ -60,6 +79,22 @@ function bindEvents(doc: Document, storage: PopupStorage) {
 
   element(doc, "#resetDefaults").addEventListener("click", () => {
     void saveAndRender(doc, storage, GESTURE_SETTINGS_PRESETS.safe);
+  });
+
+  element(doc, "#diagnosticsToggle").addEventListener("click", () => {
+    const panel = element(doc, "#diagnosticsPanel");
+    const toggle = element(doc, "#diagnosticsToggle");
+    const expanded = toggle.getAttribute("aria-expanded") === "true";
+    toggle.setAttribute("aria-expanded", String(!expanded));
+    panel.hidden = expanded;
+  });
+
+  element(doc, "#copyDiagnostics").addEventListener("click", () => {
+    void navigator.clipboard?.writeText(formatDiagnosticsForClipboard(getDiagnostics()));
+  });
+
+  element(doc, "#clearDiagnostics").addEventListener("click", () => {
+    void clearDiagnostics(storage).then(() => setDiagnostics([]));
   });
 }
 
@@ -101,6 +136,40 @@ function renderStatus(doc: Document, value: unknown, syncValue: unknown) {
   element(doc, "#lastResult").textContent = status.lastResult ?? "暂无";
 }
 
+function renderDiagnostics(doc: Document, diagnostics: GestureDiagnosticEntry[]) {
+  const summary = summarizeDiagnostics(diagnostics);
+  element(doc, "#swipeSuccessRate").textContent = summary.swipeSuccessText;
+  element(doc, "#mainFailureReason").textContent = summary.mainFailureReason;
+  element(doc, "#diagnosticsSuggestion").textContent = summary.suggestion;
+  element(doc, "#diagnosticsList").replaceChildren(...diagnostics.slice(-10).reverse().map((entry) => diagnosticRow(doc, entry)));
+}
+
+function diagnosticRow(doc: Document, entry: GestureDiagnosticEntry): HTMLElement {
+  const row = doc.createElement("div");
+  row.className = `diagnostic diagnostic-${entry.reason === "success" ? "success" : "warning"}`;
+
+  const title = doc.createElement("div");
+  title.className = "diagnostic-title";
+  title.textContent = `${formatTime(entry.timestamp)}  ${gestureLabel(entry.gesture)}  ${entry.reason === "success" ? "成功" : "失败"}`;
+
+  const reason = doc.createElement("div");
+  reason.className = "diagnostic-reason";
+  reason.textContent = entry.reason === "success" ? actionLabel(entry.action) : reasonLabel(entry.reason);
+
+  const metrics = doc.createElement("div");
+  metrics.className = "diagnostic-metrics";
+  metrics.textContent = [
+    typeof entry.dx === "number" ? `dx ${entry.dx.toFixed(3)}` : null,
+    typeof entry.dy === "number" ? `dy ${entry.dy.toFixed(3)}` : null,
+    typeof entry.durationMs === "number" ? `${entry.durationMs}ms` : null,
+    entry.swipeSensitivity ?? null,
+    entry.thresholds ? `阈值 ${entry.thresholds.swipeMinDistance.toFixed(3)}` : null
+  ].filter(Boolean).join("  ");
+
+  row.append(title, reason, metrics);
+  return row;
+}
+
 function readSettings(doc: Document): GestureSettings {
   const mode: GestureSettingsMode = select(doc, "#mode").value === "efficient" ? "efficient" : "safe";
   const preset = GESTURE_SETTINGS_PRESETS[mode];
@@ -126,6 +195,44 @@ function readSwipeSensitivity(doc: Document) {
     return value;
   }
   return "robust";
+}
+
+function gestureLabel(gesture: GestureDiagnosticEntry["gesture"]): string {
+  if (gesture === "three_finger_swipe_left") {
+    return "左轻扫";
+  }
+  if (gesture === "three_finger_swipe_right") {
+    return "右轻扫";
+  }
+  if (gesture === "three_finger_tap") {
+    return "点按";
+  }
+  return "事件";
+}
+
+function actionLabel(action: GestureDiagnosticEntry["action"]): string {
+  if (action === "open_link_background") {
+    return "打开链接并切换到新标签页";
+  }
+  if (action === "activate_left_tab") {
+    return "切换到左侧标签页";
+  }
+  if (action === "activate_right_tab") {
+    return "切换到右侧标签页";
+  }
+  if (action === "close_tab") {
+    return "关闭当前标签页";
+  }
+  return "已记录";
+}
+
+function formatTime(timestamp: number): string {
+  return new Date(timestamp).toLocaleTimeString("zh-CN", {
+    hour12: false,
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit"
+  });
 }
 
 function select(doc: Document, selector: string): HTMLSelectElement {

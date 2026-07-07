@@ -76,3 +76,46 @@ export type SettingsAckMessage = GestureKitMessage<
     message?: string;
   }
 >;
+
+export type DiagnosticSource = "app" | "host" | "extension";
+export type DiagnosticEventKind = "gesture" | "action" | "connection" | "settings";
+export type DiagnosticReason =
+  | "success"
+  | "distance_too_short"
+  | "too_slow"
+  | "too_fast"
+  | "horizontal_ratio_too_low"
+  | "cooldown"
+  | "not_chrome"
+  | "native_host_disconnected"
+  | "page_unavailable"
+  | "no_target"
+  | "unknown";
+
+export type GestureRecognitionThresholds = {
+  swipeSensitivity: SwipeSensitivity;
+  swipeMinDistance: number;
+  swipeHorizontalRatio: number;
+  swipeMinDurationMs: number;
+  swipeMaxDurationMs: number;
+};
+
+export type DiagnosticEventMessage = GestureKitMessage<
+  "diagnostic_event",
+  {
+    source: DiagnosticSource;
+    kind: DiagnosticEventKind;
+    gesture?: GestureType;
+    action?: ActionType;
+    status?: ActionStatus;
+    reason: DiagnosticReason;
+    swipeSensitivity?: SwipeSensitivity;
+    dx?: number;
+    dy?: number;
+    distance?: number;
+    durationMs?: number;
+    horizontalRatio?: number;
+    thresholds?: GestureRecognitionThresholds;
+    message?: string;
+  }
+>;

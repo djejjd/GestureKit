@@ -36,6 +36,34 @@ final class RuntimeSettingsTests: XCTestCase {
         XCTAssertEqual(ack.swipeSensitivity, .sensitive)
         XCTAssertEqual(event?.gesture, .threeFingerSwipeRight)
     }
+
+    func testUnstableSwipePublishesDiagnosticEvent() {
+        var diagnostics: [LocalIPCEnvelope] = []
+        let runtime = GestureKitRuntime(
+            statusHandler: { _ in },
+            touchBackend: StubTouchBackend(),
+            settingsStore: StubSettingsStore(),
+            logger: GestureKitLogger(terminalWriter: { _ in }),
+            diagnosticSink: { diagnostics.append($0) }
+        )
+
+        _ = runtime.processFrameForTesting(.frame(time: 0.00, activeTouches: [
+            .touch(1, 0.30, 0.40),
+            .touch(2, 0.32, 0.40),
+            .touch(3, 0.34, 0.40)
+        ]))
+        _ = runtime.processFrameForTesting(.frame(time: 0.16, activeTouches: [
+            .touch(1, 0.37, 0.40),
+            .touch(2, 0.39, 0.40),
+            .touch(3, 0.41, 0.40)
+        ]))
+        _ = runtime.processFrameForTesting(.frame(time: 0.26, activeTouches: []))
+
+        XCTAssertEqual(diagnostics.count, 1)
+        XCTAssertEqual(diagnostics.first?.message.diagnosticEventPayload?.status, .gestureUnstable)
+        XCTAssertEqual(diagnostics.first?.message.diagnosticEventPayload?.reason, .distanceTooShort)
+        XCTAssertEqual(diagnostics.first?.message.diagnosticEventPayload?.thresholds?.swipeSensitivity, .standard)
+    }
 }
 
 private final class StubTouchBackend: TouchBackend {

@@ -59,6 +59,13 @@ button {
   font-weight: 600;
 }
 
+.inline-button {
+  width: auto;
+  min-height: 26px;
+  padding: 0 10px;
+  font-size: 12px;
+}
+
 input[type="range"] {
   width: 100%;
 }
@@ -78,4 +85,42 @@ output {
   display: grid;
   gap: 6px;
   color: #3f4650;
+}
+
+.diagnostics {
+  display: grid;
+  gap: 8px;
+  color: #3f4650;
+}
+
+.actions {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+#diagnosticsList {
+  display: grid;
+  gap: 8px;
+  max-height: 220px;
+  overflow: auto;
+}
+
+.diagnostic {
+  padding: 8px;
+  border: 1px solid #d8dde3;
+  border-radius: 6px;
+  background: #fff;
+}
+
+.diagnostic-title {
+  color: #15171a;
+  font-weight: 650;
+}
+
+.diagnostic-reason,
+.diagnostic-metrics {
+  margin-top: 3px;
+  color: #58606b;
+  font-size: 12px;
 }

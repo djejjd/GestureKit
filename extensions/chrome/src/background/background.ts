@@ -8,6 +8,12 @@ import {
   SETTINGS_SYNC_STATUS_STORAGE_KEY,
   settingsSyncStatusFromAck
 } from "./settingsSync";
+import {
+  appendDiagnostic,
+  diagnosticEntryFromMessage,
+  diagnosticFromActionResult,
+  isDiagnosticEventMessage
+} from "../diagnostics/diagnostics";
 
 const HOST_NAME = "com.gesturekit.host";
 const STATUS_STORAGE_KEY = "gesturekitStatus";
@@ -44,6 +50,10 @@ const manager = createNativePortManager({
   executeAction: (intent) => executeGestureAction(chromeApi, intent),
   getSettings: () => loadGestureSettings(chrome.storage.local),
   onActionResult: (message) => {
+    void appendDiagnostic(
+      chrome.storage.local,
+      diagnosticFromActionResult(message.id, message.timestamp, message.payload.action, message.payload.status)
+    );
     void chrome.storage.local.set({
       [STATUS_STORAGE_KEY]: {
         nativeConnected: true,
@@ -67,6 +77,10 @@ port.onMessage.addListener((message) => {
     });
     return;
   }
+  if (isDiagnosticEventMessage(message)) {
+    void appendDiagnostic(chrome.storage.local, diagnosticEntryFromMessage(message));
+    return;
+  }
   void manager.handleNativeMessage(message);
 });
 
@@ -79,16 +93,26 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 void syncGestureSettings();
 
 port.onDisconnect.addListener(() => {
+  const timestamp = Date.now();
+  void appendDiagnostic(chrome.storage.local, {
+    id: `connection-${timestamp}`,
+    timestamp,
+    source: "extension",
+    kind: "connection",
+    status: "native_host_disconnected",
+    reason: "native_host_disconnected",
+    message: chrome.runtime.lastError?.message ?? "Native host disconnected"
+  });
   chrome.storage.local.set({
     [STATUS_STORAGE_KEY]: {
       nativeConnected: false,
       appConnected: false,
       lastResult: "native_host_disconnected",
-      timestamp: Date.now()
+      timestamp
     },
     gesturekitLastError: {
       status: "native_host_disconnected",
-      timestamp: Date.now(),
+      timestamp,
       message: chrome.runtime.lastError?.message ?? "Native host disconnected"
     }
   });

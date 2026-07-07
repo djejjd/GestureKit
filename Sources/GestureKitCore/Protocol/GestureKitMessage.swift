@@ -34,8 +34,36 @@ public enum MessageType: String, Codable, Equatable, Sendable {
     case actionResult = "action_result"
     case settingsUpdate = "settings_update"
     case settingsAck = "settings_ack"
+    case diagnosticEvent = "diagnostic_event"
     case error
     case heartbeat
+}
+
+public enum DiagnosticSource: String, Codable, Equatable, Sendable {
+    case app
+    case host
+    case extensionSource = "extension"
+}
+
+public enum DiagnosticEventKind: String, Codable, Equatable, Sendable {
+    case gesture
+    case action
+    case connection
+    case settings
+}
+
+public enum GestureFailureReason: String, Codable, Equatable, Sendable {
+    case success
+    case distanceTooShort = "distance_too_short"
+    case tooSlow = "too_slow"
+    case tooFast = "too_fast"
+    case horizontalRatioTooLow = "horizontal_ratio_too_low"
+    case cooldown
+    case notChrome = "not_chrome"
+    case nativeHostDisconnected = "native_host_disconnected"
+    case pageUnavailable = "page_unavailable"
+    case noTarget = "no_target"
+    case unknown
 }
 
 public struct GestureEventPayload: Codable, Equatable, Sendable {
@@ -110,6 +138,55 @@ public struct SettingsAckPayload: Codable, Equatable, Sendable {
     }
 }
 
+public struct DiagnosticEventPayload: Codable, Equatable, Sendable {
+    public let source: DiagnosticSource
+    public let kind: DiagnosticEventKind
+    public let gesture: GestureType?
+    public let action: ActionType?
+    public let status: ActionStatus?
+    public let reason: GestureFailureReason
+    public let swipeSensitivity: SwipeSensitivity?
+    public let dx: Double?
+    public let dy: Double?
+    public let distance: Double?
+    public let durationMs: Int?
+    public let horizontalRatio: Double?
+    public let thresholds: GestureRecognitionSettings?
+    public let message: String?
+
+    public init(
+        source: DiagnosticSource,
+        kind: DiagnosticEventKind,
+        gesture: GestureType?,
+        action: ActionType?,
+        status: ActionStatus?,
+        reason: GestureFailureReason,
+        swipeSensitivity: SwipeSensitivity?,
+        dx: Double?,
+        dy: Double?,
+        distance: Double?,
+        durationMs: Int?,
+        horizontalRatio: Double?,
+        thresholds: GestureRecognitionSettings?,
+        message: String?
+    ) {
+        self.source = source
+        self.kind = kind
+        self.gesture = gesture
+        self.action = action
+        self.status = status
+        self.reason = reason
+        self.swipeSensitivity = swipeSensitivity
+        self.dx = dx
+        self.dy = dy
+        self.distance = distance
+        self.durationMs = durationMs
+        self.horizontalRatio = horizontalRatio
+        self.thresholds = thresholds
+        self.message = message
+    }
+}
+
 public struct GestureKitError: Codable, Equatable, Sendable {
     public let code: String
     public let message: String
@@ -142,6 +219,7 @@ public struct GestureKitMessage: Codable, Equatable, Sendable {
         case actionResult(ActionResultPayload)
         case settingsUpdate(SettingsUpdatePayload)
         case settingsAck(SettingsAckPayload)
+        case diagnosticEvent(DiagnosticEventPayload)
         case object([String: String])
 
         public init(from decoder: Decoder) throws {
@@ -154,6 +232,8 @@ public struct GestureKitMessage: Codable, Equatable, Sendable {
                 self = .settingsUpdate(payload)
             } else if let payload = try? container.decode(SettingsAckPayload.self) {
                 self = .settingsAck(payload)
+            } else if let payload = try? container.decode(DiagnosticEventPayload.self) {
+                self = .diagnosticEvent(payload)
             } else {
                 self = .object(try container.decode([String: String].self))
             }
@@ -170,6 +250,8 @@ public struct GestureKitMessage: Codable, Equatable, Sendable {
                 try container.encode(payload)
             case .settingsAck(let payload):
                 try container.encode(payload)
+            case .diagnosticEvent(let payload):
+                try container.encode(payload)
             case .object(let payload):
                 try container.encode(payload)
             }
@@ -184,6 +266,10 @@ public struct GestureKitMessage: Codable, Equatable, Sendable {
         GestureKitMessage(version: 1, id: id, type: .settingsAck, timestamp: timestamp, payload: .settingsAck(payload), error: nil)
     }
 
+    public static func diagnosticEvent(id: String, timestamp: Int64, payload: DiagnosticEventPayload) -> GestureKitMessage {
+        GestureKitMessage(version: 1, id: id, type: .diagnosticEvent, timestamp: timestamp, payload: .diagnosticEvent(payload), error: nil)
+    }
+
     public var actionResultPayload: ActionResultPayload? {
         guard case .actionResult(let payload) = payload else { return nil }
         return payload
@@ -196,6 +282,11 @@ public struct GestureKitMessage: Codable, Equatable, Sendable {
 
     public var settingsAckPayload: SettingsAckPayload? {
         guard case .settingsAck(let payload) = payload else { return nil }
+        return payload
+    }
+
+    public var diagnosticEventPayload: DiagnosticEventPayload? {
+        guard case .diagnosticEvent(let payload) = payload else { return nil }
         return payload
     }
 
@@ -221,7 +312,20 @@ public struct GestureKitMessage: Codable, Equatable, Sendable {
         id = try container.decode(String.self, forKey: .id)
         type = try container.decode(MessageType.self, forKey: .type)
         timestamp = try container.decode(Int64.self, forKey: .timestamp)
-        payload = try container.decode(Payload.self, forKey: .payload)
+        switch type {
+        case .gestureEvent:
+            payload = .gestureEvent(try container.decode(GestureEventPayload.self, forKey: .payload))
+        case .actionResult:
+            payload = .actionResult(try container.decode(ActionResultPayload.self, forKey: .payload))
+        case .settingsUpdate:
+            payload = .settingsUpdate(try container.decode(SettingsUpdatePayload.self, forKey: .payload))
+        case .settingsAck:
+            payload = .settingsAck(try container.decode(SettingsAckPayload.self, forKey: .payload))
+        case .diagnosticEvent:
+            payload = .diagnosticEvent(try container.decode(DiagnosticEventPayload.self, forKey: .payload))
+        case .hello, .error, .heartbeat:
+            payload = try container.decode(Payload.self, forKey: .payload)
+        }
         error = try container.decodeIfPresent(GestureKitError.self, forKey: .error)
     }
 

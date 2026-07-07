@@ -29,26 +29,32 @@ public struct TouchFrame: Equatable, Sendable {
 public struct RecognizedGesture: Equatable, Sendable {
     public let gesture: GestureType?
     public let status: ActionStatus
+    public let reason: GestureFailureReason
     public let durationMs: Int
     public let dx: Float
     public let dy: Float
+    public let thresholds: GestureRecognitionSettings?
     public let centroidX: Float?
     public let centroidY: Float?
 
     public init(
         gesture: GestureType?,
         status: ActionStatus,
+        reason: GestureFailureReason = .success,
         durationMs: Int,
         dx: Float,
         dy: Float,
+        thresholds: GestureRecognitionSettings? = nil,
         centroidX: Float? = nil,
         centroidY: Float? = nil
     ) {
         self.gesture = gesture
         self.status = status
+        self.reason = reason
         self.durationMs = durationMs
         self.dx = dx
         self.dy = dy
+        self.thresholds = thresholds
         self.centroidX = centroidX
         self.centroidY = centroidY
     }

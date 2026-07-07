@@ -57,9 +57,11 @@ public struct GestureRecognizer: Sendable {
             return RecognizedGesture(
                 gesture: .threeFingerTap,
                 status: .success,
+                reason: .success,
                 durationMs: durationMs,
                 dx: dx,
                 dy: dy,
+                thresholds: settings,
                 centroidX: session.startCentroid.x,
                 centroidY: session.startCentroid.y
             )
@@ -68,9 +70,11 @@ public struct GestureRecognizer: Sendable {
             return RecognizedGesture(
                 gesture: dx < 0 ? .threeFingerSwipeLeft : .threeFingerSwipeRight,
                 status: .success,
+                reason: .success,
                 durationMs: durationMs,
                 dx: dx,
                 dy: dy,
+                thresholds: settings,
                 centroidX: session.startCentroid.x,
                 centroidY: session.startCentroid.y
             )
@@ -78,12 +82,32 @@ public struct GestureRecognizer: Sendable {
         return RecognizedGesture(
             gesture: nil,
             status: .gestureUnstable,
+            reason: failureReason(duration: duration, dx: dx, dy: dy),
             durationMs: durationMs,
             dx: dx,
             dy: dy,
+            thresholds: settings,
             centroidX: session.startCentroid.x,
             centroidY: session.startCentroid.y
         )
+    }
+
+    private func failureReason(duration: TimeInterval, dx: Float, dy: Float) -> GestureFailureReason {
+        let minSwipeDuration = Double(settings.swipeMinDurationMs) / 1000
+        let maxSwipeDuration = Double(settings.swipeMaxDurationMs) / 1000
+        if duration < minSwipeDuration {
+            return .tooFast
+        }
+        if duration > maxSwipeDuration {
+            return .tooSlow
+        }
+        if abs(dx) < settings.swipeMinDistance {
+            return .distanceTooShort
+        }
+        if abs(dx) < abs(dy) * settings.swipeHorizontalRatio {
+            return .horizontalRatioTooLow
+        }
+        return .unknown
     }
 
     private static func centroid(of touches: [TouchSample]) -> Centroid? {

@@ -76,6 +76,23 @@
         <div class="row"><span>最近结果</span><strong id="lastResult">暂无</strong></div>
       </section>
 
+      <section class="diagnostics">
+        <div class="row">
+          <span>轻扫表现</span>
+          <button id="diagnosticsToggle" class="inline-button" type="button" aria-expanded="false">展开</button>
+        </div>
+        <div class="row"><span>最近轻扫成功率</span><strong id="swipeSuccessRate">暂无</strong></div>
+        <div class="row"><span>主要失败原因</span><strong id="mainFailureReason">暂无</strong></div>
+        <div class="row"><span>建议</span><strong id="diagnosticsSuggestion">继续观察</strong></div>
+        <div id="diagnosticsPanel" hidden>
+          <div id="diagnosticsList"></div>
+        </div>
+        <div class="actions">
+          <button id="copyDiagnostics" type="button">复制诊断</button>
+          <button id="clearDiagnostics" type="button">清空诊断</button>
+        </div>
+      </section>
+
       <section>
         <button id="resetDefaults" type="button">恢复安全模式默认值</button>
       </section>

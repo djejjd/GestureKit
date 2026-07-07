@@ -10,6 +10,7 @@ final class GestureKitRuntime {
     private let touchBackend: any TouchBackend
     private let settingsStore: any SettingsStore
     private let logger: GestureKitLogger
+    private let diagnosticSink: (LocalIPCEnvelope) -> Void
     private var listeningTask: Task<Void, Never>?
     private var eventServer: LocalEventServer?
 
@@ -17,12 +18,14 @@ final class GestureKitRuntime {
         statusHandler: @escaping (String) -> Void,
         touchBackend: any TouchBackend = MultitouchSupportBackend(),
         settingsStore: any SettingsStore = UserDefaultsSettingsStore(),
-        logger: GestureKitLogger = GestureKitLogger()
+        logger: GestureKitLogger = GestureKitLogger(),
+        diagnosticSink: @escaping (LocalIPCEnvelope) -> Void = { _ in }
     ) {
         self.statusHandler = statusHandler
         self.touchBackend = touchBackend
         self.settingsStore = settingsStore
         self.logger = logger
+        self.diagnosticSink = diagnosticSink
         self.ruleEngine = RuleEngine(rules: (try? settingsStore.loadRules()) ?? DefaultRules.v1)
     }
 
@@ -62,13 +65,7 @@ final class GestureKitRuntime {
         listeningTask = Task { @MainActor in
             for await frame in touchBackend.frames {
                 guard !Task.isCancelled else { return }
-                guard let event = recognizer.observe(frame) else { continue }
-                guard let gesture = event.gesture else {
-                    logger.debug(gestureMetrics("gesture_unstable", event: event), rateLimitKey: "gesture_unstable")
-                    continue
-                }
-                logger.info(gestureMetrics("gesture_recognized gesture=\(gesture.rawValue)", event: event))
-                handle(event)
+                _ = processFrame(frame)
             }
         }
 
@@ -78,6 +75,19 @@ final class GestureKitRuntime {
             return
         }
         logger.info("touch_backend_started")
+    }
+
+    @discardableResult
+    private func processFrame(_ frame: TouchFrame) -> RecognizedGesture? {
+        guard let event = recognizer.observe(frame) else { return nil }
+        publishDiagnostic(for: event)
+        guard let gesture = event.gesture else {
+            logger.debug(gestureMetrics("gesture_unstable", event: event), rateLimitKey: "gesture_unstable")
+            return event
+        }
+        logger.info(gestureMetrics("gesture_recognized gesture=\(gesture.rawValue)", event: event))
+        handle(event)
+        return event
     }
 
     private func handle(_ event: RecognizedGesture) {
@@ -119,11 +129,31 @@ final class GestureKitRuntime {
             "settings_applied swipeSensitivity=\(payload.swipeSensitivity.rawValue) swipeMinDistance=\(payload.swipeMinDistance)",
             rateLimitKey: "settings_applied"
         )
+        publishDiagnostic(DiagnosticEventPayload(
+            source: .app,
+            kind: .settings,
+            gesture: nil,
+            action: nil,
+            status: .success,
+            reason: .success,
+            swipeSensitivity: payload.swipeSensitivity,
+            dx: nil,
+            dy: nil,
+            distance: nil,
+            durationMs: nil,
+            horizontalRatio: nil,
+            thresholds: payload.recognitionSettings,
+            message: "settings_applied"
+        ))
         return SettingsAckPayload(applied: true, swipeSensitivity: payload.swipeSensitivity)
     }
 
     func observeForTesting(_ frame: TouchFrame) -> RecognizedGesture? {
         recognizer.observe(frame)
+    }
+
+    func processFrameForTesting(_ frame: TouchFrame) -> RecognizedGesture? {
+        processFrame(frame)
     }
 
     private func handleIPCEnvelope(_ envelope: LocalIPCEnvelope) {
@@ -149,6 +179,51 @@ final class GestureKitRuntime {
             event.dy,
             distance
         )
+    }
+
+    private func publishDiagnostic(for event: RecognizedGesture) {
+        publishDiagnostic(DiagnosticEventPayload(
+            source: .app,
+            kind: .gesture,
+            gesture: event.gesture,
+            action: event.gesture.flatMap(actionType(for:)),
+            status: event.status,
+            reason: event.reason,
+            swipeSensitivity: event.thresholds?.swipeSensitivity,
+            dx: Double(event.dx),
+            dy: Double(event.dy),
+            distance: Double(hypotf(event.dx, event.dy)),
+            durationMs: event.durationMs,
+            horizontalRatio: horizontalRatio(dx: event.dx, dy: event.dy),
+            thresholds: event.thresholds,
+            message: nil
+        ))
+    }
+
+    private func publishDiagnostic(_ payload: DiagnosticEventPayload) {
+        let envelope = LocalIPCEnvelope(message: .diagnosticEvent(
+            id: UUID().uuidString,
+            timestamp: Int64(Date().timeIntervalSince1970 * 1000),
+            payload: payload
+        ))
+        _ = eventServer?.publish(envelope)
+        diagnosticSink(envelope)
+    }
+
+    private func actionType(for gesture: GestureType) -> ActionType? {
+        switch gesture {
+        case .threeFingerTap:
+            return .openLinkBackground
+        case .threeFingerSwipeLeft:
+            return .activateLeftTab
+        case .threeFingerSwipeRight:
+            return .activateRightTab
+        }
+    }
+
+    private func horizontalRatio(dx: Float, dy: Float) -> Double? {
+        guard dy != 0 else { return 999 }
+        return Double(abs(dx / dy))
     }
 
     private func loggerFilePathHint() -> String {

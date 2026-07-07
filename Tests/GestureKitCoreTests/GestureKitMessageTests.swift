@@ -65,4 +65,32 @@ final class GestureKitMessageTests: XCTestCase {
         XCTAssertTrue(json.contains("\"applied\":true"))
         XCTAssertTrue(json.contains("\"swipeSensitivity\":\"standard\""))
     }
+
+    func testDiagnosticEventEncodesSwipeMetrics() throws {
+        let payload = DiagnosticEventPayload(
+            source: .app,
+            kind: .gesture,
+            gesture: .threeFingerSwipeRight,
+            action: .activateRightTab,
+            status: .gestureUnstable,
+            reason: .distanceTooShort,
+            swipeSensitivity: .standard,
+            dx: 0.073,
+            dy: 0.012,
+            distance: 0.074,
+            durationMs: 164,
+            horizontalRatio: 6.08,
+            thresholds: .standard,
+            message: nil
+        )
+        let message = GestureKitMessage.diagnosticEvent(id: "diag-1", timestamp: 30, payload: payload)
+
+        let json = String(decoding: try JSONEncoder.gestureKit.encode(message), as: UTF8.self)
+        let decoded = try JSONDecoder.gestureKit.decode(GestureKitMessage.self, from: Data(json.utf8))
+
+        XCTAssertTrue(json.contains("\"type\":\"diagnostic_event\""))
+        XCTAssertTrue(json.contains("\"reason\":\"distance_too_short\""))
+        XCTAssertEqual(decoded.diagnosticEventPayload?.gesture, .threeFingerSwipeRight)
+        XCTAssertEqual(decoded.diagnosticEventPayload?.thresholds?.swipeMinDistance, 0.09)
+    }
 }
