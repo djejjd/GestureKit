@@ -90,7 +90,7 @@ function bindEvents(
   });
 
   element(doc, "#copyDiagnostics").addEventListener("click", () => {
-    void navigator.clipboard?.writeText(formatDiagnosticsForClipboard(getDiagnostics()));
+    void navigator.clipboard?.writeText(formatPopupDiagnostics(readSettings(doc), getDiagnostics()));
   });
 
   element(doc, "#clearDiagnostics").addEventListener("click", () => {
@@ -141,7 +141,25 @@ function renderDiagnostics(doc: Document, diagnostics: GestureDiagnosticEntry[])
   element(doc, "#swipeSuccessRate").textContent = summary.swipeSuccessText;
   element(doc, "#mainFailureReason").textContent = summary.mainFailureReason;
   element(doc, "#diagnosticsSuggestion").textContent = summary.suggestion;
+  element(doc, "#recommendedSensitivity").textContent = sensitivityLabel(summary.recommendedSensitivity);
+  element(doc, "#recommendedMinDistance").textContent = summary.recommendedMinDistance === null
+    ? "暂无"
+    : summary.recommendedMinDistance.toFixed(3);
   element(doc, "#diagnosticsList").replaceChildren(...diagnostics.slice(-10).reverse().map((entry) => diagnosticRow(doc, entry)));
+}
+
+function formatPopupDiagnostics(settings: GestureSettings, diagnostics: GestureDiagnosticEntry[]): string {
+  return [
+    "GestureKit Settings",
+    `mode=${settings.mode}`,
+    `swipeSensitivity=${settings.swipeSensitivity}`,
+    `edgeTapEnabled=${settings.edgeTapEnabled}`,
+    `doubleTapCloseEnabled=${settings.doubleTapCloseEnabled}`,
+    `flickSwitchEnabled=${settings.flickSwitchEnabled}`,
+    `cooldownMs=${settings.cooldownMs}`,
+    `edgeWidth=${settings.leftEdgeMax.toFixed(2)}`,
+    formatDiagnosticsForClipboard(diagnostics)
+  ].join("\n");
 }
 
 function diagnosticRow(doc: Document, entry: GestureDiagnosticEntry): HTMLElement {
@@ -224,6 +242,16 @@ function actionLabel(action: GestureDiagnosticEntry["action"]): string {
     return "关闭当前标签页";
   }
   return "已记录";
+}
+
+function sensitivityLabel(sensitivity: GestureSettings["swipeSensitivity"]): string {
+  if (sensitivity === "sensitive") {
+    return "灵敏";
+  }
+  if (sensitivity === "robust") {
+    return "稳健";
+  }
+  return "标准";
 }
 
 function formatTime(timestamp: number): string {

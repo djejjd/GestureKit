@@ -74,13 +74,13 @@ export function createNativePortManager(deps: Dependencies) {
       if (message.payload.gesture === "three_finger_tap") {
         if (Date.now() < cooldownUntil) {
           clearPendingTap();
-          postActionResult(actionResult(message.id, "open_link_background", "gesture_unstable"));
+          postActionResult(actionResult(message.id, "open_link_background", "gesture_unstable", { reason: "cooldown" }));
           return;
         }
 
         if (!isStableTapDuration(message.payload.durationMs, settings)) {
           clearPendingTap();
-          postActionResult(actionResult(message.id, "open_link_background", "gesture_unstable"));
+          postActionResult(actionResult(message.id, "open_link_background", "gesture_unstable", { reason: "tap_duration_unstable" }));
           return;
         }
 
@@ -95,7 +95,7 @@ export function createNativePortManager(deps: Dependencies) {
                 await executeAndPost(message.id, { action: "close_tab" });
                 return;
               }
-              postActionResult(actionResult(message.id, "open_link_background", "gesture_unstable"));
+              postActionResult(actionResult(message.id, "open_link_background", "gesture_unstable", { reason: "tap_duration_unstable" }));
               return;
             }
             const fallbackIntent = intentFromTapZone(tapZone);
@@ -103,7 +103,14 @@ export function createNativePortManager(deps: Dependencies) {
             return;
           }
           clearPendingTap();
-          postActionResult(actionResult(message.id, "open_link_background", resolved.status));
+          postActionResult(actionResult(
+            message.id,
+            "open_link_background",
+            resolved.status,
+            !settings.edgeTapEnabled && tapZoneFromTouchXIgnoringSetting(message.payload.touchX, resolved.status, settings) !== null
+              ? { reason: "edge_tap_disabled" }
+              : undefined
+          ));
           return;
         }
         clearPendingTap();
@@ -114,12 +121,32 @@ export function createNativePortManager(deps: Dependencies) {
       clearPendingTap();
       const intent = intentFromGesture(message.payload.gesture);
       if (!settings.flickSwitchEnabled) {
-        postActionResult(actionResult(message.id, intent.action, "gesture_unstable"));
+        postActionResult(actionResult(message.id, intent.action, "gesture_unstable", { reason: "flick_switch_disabled" }));
         return;
       }
       await executeAndPost(message.id, intent);
     }
   };
+}
+
+function tapZoneFromTouchXIgnoringSetting(
+  touchX: number | undefined,
+  status: ResolveLastPointerResponse["status"],
+  settings: GestureSettings
+): TapZone | null {
+  if (touchX === undefined || touchX < 0 || touchX > 1) {
+    return null;
+  }
+  if (status !== "no_target" && status !== "no_recent_pointer" && status !== "page_unavailable") {
+    return null;
+  }
+  if (touchX <= settings.leftEdgeMax) {
+    return "left";
+  }
+  if (touchX >= settings.rightEdgeMin) {
+    return "right";
+  }
+  return null;
 }
 
 type TapZone = "left" | "center" | "right";

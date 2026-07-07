@@ -54,7 +54,11 @@ describe("createNativePortManager", () => {
 
     expect(executeAction).not.toHaveBeenCalled();
     expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({
-      payload: { action: "activate_left_tab", status: "gesture_unstable" }
+      payload: {
+        action: "activate_left_tab",
+        status: "gesture_unstable",
+        details: { reason: "flick_switch_disabled" }
+      }
     }));
   });
 
@@ -85,7 +89,11 @@ describe("createNativePortManager", () => {
 
     expect(executeAction).not.toHaveBeenCalled();
     expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({
-      payload: { action: "open_link_background", status: "gesture_unstable" }
+      payload: {
+        action: "open_link_background",
+        status: "gesture_unstable",
+        details: { reason: "tap_duration_unstable" }
+      }
     }));
   });
 
@@ -126,7 +134,11 @@ describe("createNativePortManager", () => {
 
     expect(executeAction).not.toHaveBeenCalled();
     expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({
-      payload: { action: "open_link_background", status: "no_target" }
+      payload: {
+        action: "open_link_background",
+        status: "no_target",
+        details: { reason: "edge_tap_disabled" }
+      }
     }));
   });
 
@@ -248,6 +260,29 @@ describe("createNativePortManager", () => {
     await vi.advanceTimersByTimeAsync(360);
 
     expect(executeAction).not.toHaveBeenCalled();
+  });
+
+  it("reports cooldown as a diagnostic reason", async () => {
+    vi.useFakeTimers();
+    const postMessage = vi.fn();
+    const executeAction = vi.fn(async () => ({ action: "activate_left_tab", status: "success" }));
+    const manager = createNativePortManager({
+      port: { postMessage },
+      resolveLastPointer: vi.fn(async () => ({ status: "no_target" })),
+      executeAction
+    });
+
+    await manager.handleNativeMessage(gestureMessage("three_finger_tap", { touchX: 0.25, durationMs: 96 }));
+    await vi.advanceTimersByTimeAsync(300);
+    await manager.handleNativeMessage(gestureMessage("three_finger_tap", { touchX: 0.75, durationMs: 96 }));
+
+    expect(postMessage).toHaveBeenLastCalledWith(expect.objectContaining({
+      payload: {
+        action: "open_link_background",
+        status: "gesture_unstable",
+        details: { reason: "cooldown" }
+      }
+    }));
   });
 
   it("does not close a tab when the second center tap is too fast", async () => {

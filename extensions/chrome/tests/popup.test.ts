@@ -30,6 +30,8 @@ function setupDom() {
     <div id="swipeSuccessRate"></div>
     <div id="mainFailureReason"></div>
     <div id="diagnosticsSuggestion"></div>
+    <div id="recommendedSensitivity"></div>
+    <div id="recommendedMinDistance"></div>
     <button id="diagnosticsToggle" aria-expanded="false"></button>
     <div id="diagnosticsPanel" hidden>
       <div id="diagnosticsList"></div>
@@ -119,6 +121,8 @@ describe("gesture settings popup", () => {
     expect(document.querySelector("#swipeSuccessRate")?.textContent).toBe("1 / 3");
     expect(document.querySelector("#mainFailureReason")?.textContent).toBe("横向距离不足");
     expect(document.querySelector("#diagnosticsSuggestion")?.textContent).toBe("可以尝试“灵敏”");
+    expect(document.querySelector("#recommendedSensitivity")?.textContent).toBe("灵敏");
+    expect(document.querySelector("#recommendedMinDistance")?.textContent).toBe("0.110");
   });
 
   it("expands recent diagnostics", async () => {
@@ -145,6 +149,8 @@ describe("gesture settings popup", () => {
     await flushPromises();
 
     expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expect.stringContaining("GestureKit Diagnostics"));
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expect.stringContaining("mode=safe"));
+    expect(navigator.clipboard.writeText).toHaveBeenCalledWith(expect.stringContaining("swipeSensitivity=robust"));
   });
 
   it("clears diagnostics", async () => {

@@ -2,10 +2,12 @@ import { describe, expect, it, vi } from "vitest";
 import {
   appendDiagnostic,
   DIAGNOSTICS_STORAGE_KEY,
+  diagnosticFromActionResult,
   formatDiagnosticsForClipboard,
   summarizeDiagnostics,
   type GestureDiagnosticEntry
 } from "../src/diagnostics/diagnostics";
+import type { ActionResultMessage } from "../src/protocol/messages";
 
 function storageWith(initial: GestureDiagnosticEntry[] = []) {
   const state: Record<string, unknown> = {
@@ -69,14 +71,58 @@ describe("diagnostics", () => {
     expect(summary.swipeSuccessText).toBe("7 / 10");
     expect(summary.mainFailureReason).toBe("横向距离不足");
     expect(summary.suggestion).toBe("可以尝试“灵敏”");
+    expect(summary.recommendedSensitivity).toBe("sensitive");
+    expect(summary.recommendedMinDistance).toBe(0.11);
+  });
+
+  it("recommends a personal minimum distance from successful swipe samples", () => {
+    const events = [0.080, 0.084, 0.090, 0.100, 0.120].map((dx, index) => ({
+      ...swipeEntry(index, "success"),
+      dx
+    }));
+
+    const summary = summarizeDiagnostics(events);
+
+    expect(summary.recommendedSensitivity).toBe("standard");
+    expect(summary.recommendedMinDistance).toBe(0.084);
+    expect(summary.recommendationText).toContain("推荐最小距离 0.084");
+  });
+
+  it("uses action_result details reason for extension-side failures", () => {
+    const entry = diagnosticFromActionResult(actionResult("gesture-1", "activate_left_tab", "gesture_unstable", {
+      reason: "cooldown"
+    }));
+
+    expect(entry.reason).toBe("cooldown");
   });
 
   it("formats diagnostics for clipboard without page content or URLs", () => {
     const text = formatDiagnosticsForClipboard([swipeEntry(1, "gesture_unstable")]);
 
     expect(text).toContain("GestureKit Diagnostics");
+    expect(text).toContain("recommendation=");
     expect(text).toContain("distance_too_short");
     expect(text).toContain("dx=0.073");
     expect(text).not.toContain("http");
   });
 });
+
+function actionResult(
+  id: string,
+  action: ActionResultMessage["payload"]["action"],
+  status: ActionResultMessage["payload"]["status"],
+  details?: Record<string, unknown>
+): ActionResultMessage {
+  return {
+    version: 1,
+    id,
+    type: "action_result",
+    timestamp: 123,
+    payload: {
+      action,
+      status,
+      ...(details ? { details } : {})
+    },
+    error: null
+  };
+}

@@ -52,7 +52,7 @@ const manager = createNativePortManager({
   onActionResult: (message) => {
     void appendDiagnostic(
       chrome.storage.local,
-      diagnosticFromActionResult(message.id, message.timestamp, message.payload.action, message.payload.status)
+      diagnosticFromActionResult(message)
     );
     void chrome.storage.local.set({
       [STATUS_STORAGE_KEY]: {
