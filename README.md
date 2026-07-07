@@ -13,15 +13,27 @@ English version: [English](#english)
 当前支持的 Chrome 手势：
 
 - 三指点按链接：在当前标签页右侧打开新标签页，并自动切换过去。
-- 三指点按空白处左半区：切换到左侧标签页。
-- 三指点按空白处右半区：切换到右侧标签页。
-- 三指双击空白处：关闭当前标签页。
+- 三指点按空白处左侧边缘：切换到左侧标签页。
+- 三指点按空白处右侧边缘：切换到右侧标签页。
+- 三指双击空白处中间区域：关闭当前标签页。
 - 三指快速左轻扫：切换到左侧标签页。
 - 三指快速右轻扫：切换到右侧标签页。
 
 标签页切换只作用于当前 Chrome 窗口。到达最左或最右标签页时会循环切换。
 
-左右轻扫只识别短促的 flick。慢速三指拖动会被判为不稳定手势，以减少 Chrome 页面文本被拖选的情况。
+三指点按会过滤异常短触和动作后的短暂抖动。左/右切 tab 只认触控板边缘区域，中间单点不执行动作，中间双点才关闭 tab。左右轻扫只识别短促的 flick，当前允许约 `60ms-420ms` 的短促横向动作。慢速三指拖动会被判为不稳定手势，以减少 Chrome 页面文本被拖选的情况。
+
+## 扩展设置
+
+点击 Chrome 工具栏里的 GestureKit 图标可以打开轻量设置面板：
+
+- `安全模式`：默认模式，边缘区域更窄，双击关闭更严格，动作冷却更长。
+- `高效模式`：响应更快，边缘区域更宽，双击窗口更宽，动作冷却更短。
+- 可单独开关边缘点按切 tab、中间双击关闭 tab、快速轻扫切 tab。
+- 可调整边缘区域宽度、双击速度和动作冷却。
+- 面板会显示 Native host、GestureKit App 和最近动作结果。
+
+设置保存在 Chrome 扩展的 `chrome.storage.local` 中，修改后立即影响后续手势。安全模式和高效模式目前只影响扩展侧动作阈值；三指轻扫能否被识别仍由 Swift App 内置阈值控制。重新构建扩展后，需要在 `chrome://extensions` 刷新 GestureKit 扩展。
 
 ## 工作方式
 
@@ -90,7 +102,7 @@ swift run GestureKitApp
 ~/Library/Logs/GestureKit/GestureKitApp.log
 ```
 
-默认情况下，终端只显示启动、停止、警告和错误。日志文件有大小限制和轮转机制，不记录原始触控板帧。
+默认情况下，终端只显示启动、停止、警告和错误。日志文件有大小限制和轮转机制：单文件约 1 MB，最多保留 3 个文件，不记录原始触控板帧。
 
 需要调试手势识别时：
 
@@ -109,6 +121,15 @@ cd extensions/chrome
 npm test
 npm run build
 ```
+
+## 后续方向
+
+- 把三指轻扫灵敏度做成可配置，并同步到 Swift App 的原生识别层。
+- 增加 popup 诊断：最近 10 次手势、忽略原因和一键复制诊断信息。
+- 将 `GestureKitApp` 从终端运行形态升级为菜单栏 App。
+- 增加恢复刚关闭标签页、复制当前链接等浏览器动作。
+- 稳定 Chrome 后，再评估 Edge、Brave、Arc 等浏览器支持。
+- 完善安装脚本、发布说明和开源贡献文档。
 
 ## 开源边界
 
@@ -146,10 +167,12 @@ This project is currently intended for local development and personal experiment
 Current gestures:
 
 - Three-finger tap on a link: open it in a new tab and switch to it.
-- Three-finger tap on empty space, left half of the trackpad: switch to the previous tab.
-- Three-finger tap on empty space, right half of the trackpad: switch to the next tab.
-- Three-finger double-tap on empty space: close the current tab.
+- Three-finger tap on empty space near the left edge of the trackpad: switch to the previous tab.
+- Three-finger tap on empty space near the right edge of the trackpad: switch to the next tab.
+- Three-finger double-tap on empty space in the center area: close the current tab.
 - Three-finger quick flick left/right: switch tabs.
+
+The Chrome extension popup provides safe/efficient presets, gesture toggles, edge width, double-tap speed, cooldown controls, and a small connection/status summary. Swipe recognition sensitivity is currently fixed in the Swift app and is planned as a future configurable setting.
 
 Build and test:
 

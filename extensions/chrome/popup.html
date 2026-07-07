@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>GestureKit</title>
+    <link rel="stylesheet" href="dist/popup/popup.css" />
+  </head>
+  <body>
+    <main>
+      <h1>GestureKit</h1>
+
+      <section>
+        <label>
+          模式
+          <select id="mode">
+            <option value="safe">安全模式</option>
+            <option value="efficient">高效模式</option>
+          </select>
+        </label>
+      </section>
+
+      <section>
+        <label class="row">
+          <span>边缘点按切换标签页</span>
+          <input id="edgeTapEnabled" type="checkbox" />
+        </label>
+        <label class="row">
+          <span>中间双击关闭标签页</span>
+          <input id="doubleTapCloseEnabled" type="checkbox" />
+        </label>
+        <label class="row">
+          <span>快速轻扫切换标签页</span>
+          <input id="flickSwitchEnabled" type="checkbox" />
+        </label>
+      </section>
+
+      <section>
+        <label class="field">
+          <span class="row">
+            <span>边缘区域宽度</span>
+            <output id="edgeWidthValue"></output>
+          </span>
+          <input id="edgeWidth" type="range" min="20" max="40" step="1" />
+        </label>
+
+        <label class="field">
+          <span class="row">
+            <span>双击速度</span>
+            <output id="doubleTapSpeedValue"></output>
+          </span>
+          <input id="doubleTapSpeed" type="range" min="240" max="500" step="10" />
+        </label>
+
+        <label class="field">
+          <span class="row">
+            <span>动作冷却</span>
+            <output id="cooldownMsValue"></output>
+          </span>
+          <input id="cooldownMs" type="range" min="80" max="500" step="10" />
+        </label>
+      </section>
+
+      <section class="status">
+        <div class="row"><span>Native host</span><strong id="nativeStatus">未连接</strong></div>
+        <div class="row"><span>GestureKit App</span><strong id="appStatus">未连接</strong></div>
+        <div class="row"><span>最近结果</span><strong id="lastResult">暂无</strong></div>
+      </section>
+
+      <section>
+        <button id="resetDefaults" type="button">恢复安全模式默认值</button>
+      </section>
+    </main>
+    <script type="module" src="dist/popup/popup.js"></script>
+  </body>
+</html>

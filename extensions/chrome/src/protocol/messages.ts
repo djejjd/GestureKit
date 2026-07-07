@@ -42,6 +42,7 @@ export type GestureEventMessage = GestureKitMessage<
     appBundleId: string;
     confidence?: number;
     touchX?: number;
+    durationMs?: number;
   }
 >;
 

@@ -41,12 +41,14 @@ public struct GestureEventPayload: Codable, Equatable, Sendable {
     public let appBundleId: String
     public let confidence: Double?
     public let touchX: Double?
+    public let durationMs: Int?
 
-    public init(gesture: GestureType, appBundleId: String, confidence: Double?, touchX: Double? = nil) {
+    public init(gesture: GestureType, appBundleId: String, confidence: Double?, touchX: Double? = nil, durationMs: Int? = nil) {
         self.gesture = gesture
         self.appBundleId = appBundleId
         self.confidence = confidence
         self.touchX = touchX
+        self.durationMs = durationMs
     }
 }
 

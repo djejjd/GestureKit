@@ -1,6 +1,7 @@
 import type { ActionExecutionResult } from "./actionExecutor";
 import type { LinkResolveResult } from "../content/linkResolver";
 import type { ActionResultMessage, GestureEventMessage } from "../protocol/messages";
+import { GESTURE_SETTINGS_PRESETS, type GestureSettings } from "../settings/gestureSettings";
 
 type ResolveLastPointerResponse = LinkResolveResult | { status: "no_recent_pointer" };
 type PortLike = { postMessage(message: unknown): void };
@@ -15,15 +16,28 @@ type Dependencies = {
   port: PortLike;
   resolveLastPointer(): Promise<ResolveLastPointerResponse>;
   executeAction(intent: GestureIntent): Promise<ActionExecutionResult>;
+  getSettings?(): Promise<GestureSettings>;
+  onActionResult?(message: ActionResultMessage): void;
 };
 
 const DOUBLE_TAP_WINDOW_MS = 300;
 
 export function createNativePortManager(deps: Dependencies) {
-  let pendingTap: { timer: ReturnType<typeof setTimeout> } | null = null;
+  let pendingTap: { timer: ReturnType<typeof setTimeout>; startedAt: number; zone: TapZone } | null = null;
+  let cooldownUntil = 0;
+
+  async function currentSettings() {
+    return deps.getSettings ? deps.getSettings() : GESTURE_SETTINGS_PRESETS.safe;
+  }
 
   async function executeAndPost(id: string, intent: GestureIntent) {
-    deps.port.postMessage(actionResultFromExecution(id, await deps.executeAction(intent)));
+    postActionResult(actionResultFromExecution(id, await deps.executeAction(intent)));
+    cooldownUntil = Date.now() + (await currentSettings()).cooldownMs;
+  }
+
+  function postActionResult(message: ActionResultMessage) {
+    deps.port.postMessage(message);
+    deps.onActionResult?.(message);
   }
 
   function clearPendingTap() {
@@ -33,13 +47,19 @@ export function createNativePortManager(deps: Dependencies) {
     }
   }
 
-  function scheduleSingleTapFallback(id: string, intent: GestureIntent) {
+  function scheduleSingleTapFallback(id: string, zone: TapZone, intent: GestureIntent | null, settings: GestureSettings) {
     clearPendingTap();
     pendingTap = {
+      startedAt: Date.now(),
+      zone,
       timer: setTimeout(() => {
         pendingTap = null;
-        void executeAndPost(id, intent);
-      }, DOUBLE_TAP_WINDOW_MS)
+        if (intent) {
+          void executeAndPost(id, intent);
+          return;
+        }
+        postActionResult(actionResult(id, "open_link_background", "no_target"));
+      }, zone === "center" ? settings.doubleTapMaxMs : DOUBLE_TAP_WINDOW_MS)
     };
   }
 
@@ -49,21 +69,41 @@ export function createNativePortManager(deps: Dependencies) {
         return;
       }
 
+      const settings = await currentSettings();
+
       if (message.payload.gesture === "three_finger_tap") {
+        if (Date.now() < cooldownUntil) {
+          clearPendingTap();
+          postActionResult(actionResult(message.id, "open_link_background", "gesture_unstable"));
+          return;
+        }
+
+        if (!isStableTapDuration(message.payload.durationMs, settings)) {
+          clearPendingTap();
+          postActionResult(actionResult(message.id, "open_link_background", "gesture_unstable"));
+          return;
+        }
+
         const resolved = await deps.resolveLastPointer();
         if (resolved.status !== "success") {
-          const fallbackIntent = tapZoneIntent(message.payload.touchX, resolved.status);
-          if (fallbackIntent) {
-            if (pendingTap) {
+          const tapZone = tapZoneFromTouchX(message.payload.touchX, resolved.status, settings);
+          if (tapZone) {
+            if (pendingTap?.zone === "center" && tapZone === "center" && settings.doubleTapCloseEnabled) {
+              const interval = Date.now() - pendingTap.startedAt;
               clearPendingTap();
-              await executeAndPost(message.id, { action: "close_tab" });
+              if (interval >= settings.doubleTapMinMs && interval <= settings.doubleTapMaxMs) {
+                await executeAndPost(message.id, { action: "close_tab" });
+                return;
+              }
+              postActionResult(actionResult(message.id, "open_link_background", "gesture_unstable"));
               return;
             }
-            scheduleSingleTapFallback(message.id, fallbackIntent);
+            const fallbackIntent = intentFromTapZone(tapZone);
+            scheduleSingleTapFallback(message.id, tapZone, fallbackIntent, settings);
             return;
           }
           clearPendingTap();
-          deps.port.postMessage(actionResult(message.id, "open_link_background", resolved.status));
+          postActionResult(actionResult(message.id, "open_link_background", resolved.status));
           return;
         }
         clearPendingTap();
@@ -73,19 +113,51 @@ export function createNativePortManager(deps: Dependencies) {
 
       clearPendingTap();
       const intent = intentFromGesture(message.payload.gesture);
+      if (!settings.flickSwitchEnabled) {
+        postActionResult(actionResult(message.id, intent.action, "gesture_unstable"));
+        return;
+      }
       await executeAndPost(message.id, intent);
     }
   };
 }
 
-function tapZoneIntent(touchX: number | undefined, status: ResolveLastPointerResponse["status"]): GestureIntent | null {
+type TapZone = "left" | "center" | "right";
+
+function isStableTapDuration(durationMs: number | undefined, settings: GestureSettings): boolean {
+  return durationMs !== undefined &&
+    durationMs >= settings.tapDurationMinMs &&
+    durationMs <= settings.tapDurationMaxMs;
+}
+
+function tapZoneFromTouchX(
+  touchX: number | undefined,
+  status: ResolveLastPointerResponse["status"],
+  settings: GestureSettings
+): TapZone | null {
   if (touchX === undefined || touchX < 0 || touchX > 1) {
     return null;
   }
   if (status !== "no_target" && status !== "no_recent_pointer" && status !== "page_unavailable") {
     return null;
   }
-  return touchX < 0.5 ? { action: "activate_left_tab" } : { action: "activate_right_tab" };
+  if (touchX <= settings.leftEdgeMax) {
+    return settings.edgeTapEnabled ? "left" : null;
+  }
+  if (touchX >= settings.rightEdgeMin) {
+    return settings.edgeTapEnabled ? "right" : null;
+  }
+  return "center";
+}
+
+function intentFromTapZone(zone: TapZone): GestureIntent | null {
+  if (zone === "left") {
+    return { action: "activate_left_tab" };
+  }
+  if (zone === "right") {
+    return { action: "activate_right_tab" };
+  }
+  return null;
 }
 
 function intentFromGesture(gesture: GestureEventMessage["payload"]["gesture"]): GestureIntent {

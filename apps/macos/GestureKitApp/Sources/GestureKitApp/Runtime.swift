@@ -94,7 +94,8 @@ final class GestureKitRuntime {
             timestamp: Int64(Date().timeIntervalSince1970 * 1000),
             gesture: gesture,
             appBundleId: context.appBundleId,
-            touchX: event.centroidX.map(Double.init)
+            touchX: event.centroidX.map(Double.init),
+            durationMs: event.durationMs
         )
         let connectionCount = eventServer?.publish(envelope) ?? 0
         if connectionCount == 0 {

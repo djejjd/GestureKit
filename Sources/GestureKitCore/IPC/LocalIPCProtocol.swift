@@ -14,12 +14,19 @@ public struct LocalIPCEnvelope: Codable, Equatable, Sendable {
         timestamp: Int64,
         gesture: GestureType,
         appBundleId: String,
-        touchX: Double? = nil
+        touchX: Double? = nil,
+        durationMs: Int? = nil
     ) -> LocalIPCEnvelope {
         LocalIPCEnvelope(message: .gestureEvent(
             id: id,
             timestamp: timestamp,
-            payload: GestureEventPayload(gesture: gesture, appBundleId: appBundleId, confidence: 1, touchX: touchX)
+            payload: GestureEventPayload(
+                gesture: gesture,
+                appBundleId: appBundleId,
+                confidence: 1,
+                touchX: touchX,
+                durationMs: durationMs
+            )
         ))
     }
 }

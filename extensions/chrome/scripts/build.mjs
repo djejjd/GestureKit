@@ -14,5 +14,12 @@ await Promise.all([
     format: "iife",
     outfile: "dist/content/pointerTracker.js",
     sourcemap: false
+  }),
+  build({
+    entryPoints: ["src/popup/popup.ts"],
+    bundle: true,
+    format: "esm",
+    outfile: "dist/popup/popup.js",
+    sourcemap: false
   })
 ]);

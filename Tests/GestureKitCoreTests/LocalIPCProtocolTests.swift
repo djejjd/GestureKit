@@ -24,4 +24,20 @@ final class LocalIPCProtocolTests: XCTestCase {
         XCTAssertEqual(envelope.id, "ipc-1")
         XCTAssertEqual(envelope.message.payload, .gestureEvent(GestureEventPayload(gesture: .threeFingerTap, appBundleId: "com.google.Chrome", confidence: 1)))
     }
+
+    func testGestureEnvelopeCarriesTapDuration() throws {
+        let envelope = LocalIPCEnvelope.gesture(
+            id: "gesture-1",
+            timestamp: 10,
+            gesture: .threeFingerTap,
+            appBundleId: "com.google.Chrome",
+            touchX: 0.25,
+            durationMs: 96
+        )
+
+        let line = try LocalIPCProtocol.encodeLine(envelope)
+
+        XCTAssertTrue(line.contains("\"touchX\":0.25"))
+        XCTAssertTrue(line.contains("\"durationMs\":96"))
+    }
 }

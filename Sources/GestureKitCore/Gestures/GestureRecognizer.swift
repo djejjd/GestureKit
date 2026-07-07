@@ -39,8 +39,8 @@ public struct GestureRecognizer: Sendable {
         let dy = session.latestCentroid.y - session.startCentroid.y
         let distance = hypotf(dx, dy)
         let durationMs = Int((duration * 1000).rounded())
-        let isQuickFlick = duration >= 0.06 && duration <= 0.35
-        let horizontalEnough = abs(dx) >= 0.11 && abs(dx) >= abs(dy) * 1.8
+        let isQuickFlick = duration >= 0.06 && duration <= 0.42
+        let horizontalEnough = abs(dx) >= 0.09 && abs(dx) >= abs(dy) * 1.5
 
         if duration <= 0.45 && distance <= 0.06 {
             return RecognizedGesture(
