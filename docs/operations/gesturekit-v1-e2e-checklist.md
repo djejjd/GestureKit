@@ -7,6 +7,13 @@
 - 输入设备: 内置触控板或 Magic Trackpad。
 - 显示器: 记录内置屏或外接屏组合。
 
+## 安装与预检查
+
+- [ ] 已按 `docs/operations/gesturekit-v1-local-install.md` 加载 unpacked extension，并记录实际扩展 ID。
+- [ ] 已运行 `./scripts/dev/smoke-check.sh --extension-id <extension-id>`，确认构建、host 自检、manifest 安装和 `smoke.html` 打开链路都成功。
+- [ ] 已单独启动 `swift run GestureKitApp`，确保 App 常驻后再做以下人工手势验证。
+- [ ] 如需复查链路但不实际执行，可运行 `./scripts/dev/smoke-check.sh --extension-id <extension-id> --dry-run`。
+
 ## 必测功能
 
 - [ ] Chrome 普通网页中，鼠标停在普通 `<a href>` 链接上，三指点按后在当前 tab 右侧打开新 tab。
@@ -51,12 +58,16 @@
 ## 必跑命令
 
 ```bash
+zsh scripts/dev/test-render-native-host-manifest.sh
+zsh scripts/dev/test-install-native-host.sh
+zsh scripts/dev/test-smoke-check.sh
 swift test
 swift build
 swift run GestureKitHost --self-test
 cd extensions/chrome
 npm test
 npm run build
+git diff --check
 ```
 
 ## 诊断日志
@@ -78,3 +89,5 @@ GESTUREKIT_DEBUG=1 swift run GestureKitApp
 tail -n 200 ~/Library/Logs/GestureKit/GestureKitApp.log
 grep -E "warn|error|gesture_unstable|connections=0|gesture_published" ~/Library/Logs/GestureKit/GestureKitApp.log
 ```
+
+如果 smoke 页面或 native host 链路异常，先看 `docs/operations/gesturekit-v1-troubleshooting.md`。
