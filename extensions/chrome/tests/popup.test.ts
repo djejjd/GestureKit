@@ -40,6 +40,13 @@ function setupDom() {
     </div>
     <button id="copyDiagnostics"></button>
     <button id="clearDiagnostics"></button>
+    <section class="recommendation">
+      <div id="recommendationDelta"></div>
+      <strong id="recommendationSavedStatus"></strong>
+      <strong id="recommendationRuntimeStatus"></strong>
+      <strong id="recommendationFailureReason"></strong>
+      <button id="applyRecommendedSettings" type="button">应用推荐设置</button>
+    </section>
     <button id="resetDefaults"></button>
   `;
 }
@@ -254,6 +261,102 @@ describe("gesture settings popup", () => {
     expect(storage.set).toHaveBeenLastCalledWith({
       [GESTURE_SETTINGS_STORAGE_KEY]: GESTURE_SETTINGS_PRESETS.safe
     });
+  });
+
+  it("renders saved and runtime status separately", async () => {
+    const storage = storageWith(
+      GESTURE_SETTINGS_PRESETS.safe,
+      undefined,
+      [swipeDiagnostic("diag-1", "success"), swipeDiagnostic("diag-2", "success")],
+      {
+        phase: "saved_only",
+        savedSwipeSensitivity: "sensitive",
+        runtimeSwipeSensitivity: null,
+        currentAppSessionId: null,
+        requestedAt: null,
+        appliedAt: null,
+        messageId: null,
+        deltaSummary: ["推荐档位与当前一致", "推荐最小距离与当前一致"],
+        message: undefined
+      }
+    );
+
+    await initializeGestureSettingsPopup(document, storage);
+
+    expect(document.querySelector("#recommendationSavedStatus")?.textContent).toContain("已保存");
+    expect(document.querySelector("#recommendationRuntimeStatus")?.textContent).toContain("等待确认");
+  });
+
+  it("applies recommended settings after confirmation", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+    const storage = storageWith(
+      GESTURE_SETTINGS_PRESETS.safe,
+      undefined,
+      [swipeDiagnostic("diag-1", "success"), swipeDiagnostic("diag-2", "gesture_unstable")],
+      {
+        phase: "saved_only",
+        savedSwipeSensitivity: "robust",
+        runtimeSwipeSensitivity: null,
+        currentAppSessionId: null,
+        requestedAt: null,
+        appliedAt: null,
+        messageId: null,
+        deltaSummary: [],
+        message: undefined
+      }
+    );
+
+    await initializeGestureSettingsPopup(document, storage);
+    (document.querySelector("#applyRecommendedSettings") as HTMLButtonElement).click();
+    await flushPromises();
+
+    expect(storage.set).toHaveBeenCalledWith({
+      [GESTURE_SETTINGS_STORAGE_KEY]: expect.objectContaining({
+        swipeSensitivity: "sensitive",
+        swipeRecognitionOverride: expect.objectContaining({
+          source: "recommended"
+        })
+      })
+    });
+  });
+
+  it("does not apply recommendation when confirm is cancelled", async () => {
+    vi.spyOn(window, "confirm").mockReturnValue(false);
+    const storage = storageWith(
+      GESTURE_SETTINGS_PRESETS.safe,
+      undefined,
+      [swipeDiagnostic("diag-1", "success")]
+    );
+
+    await initializeGestureSettingsPopup(document, storage);
+    const setCallCount = (storage.set as ReturnType<typeof vi.fn>).mock.calls.length;
+    (document.querySelector("#applyRecommendedSettings") as HTMLButtonElement).click();
+    await flushPromises();
+
+    expect(storage.set).toHaveBeenCalledTimes(setCallCount);
+  });
+
+  it("shows failure reason when sync failed", async () => {
+    const storage = storageWith(
+      GESTURE_SETTINGS_PRESETS.safe,
+      undefined,
+      [swipeDiagnostic("diag-1", "success")],
+      {
+        phase: "failed",
+        savedSwipeSensitivity: "sensitive",
+        runtimeSwipeSensitivity: null,
+        currentAppSessionId: null,
+        requestedAt: 100,
+        appliedAt: null,
+        messageId: null,
+        deltaSummary: [],
+        message: "native_host_disconnected"
+      }
+    );
+
+    await initializeGestureSettingsPopup(document, storage);
+
+    expect(document.querySelector("#recommendationFailureReason")?.textContent).toContain("native_host_disconnected");
   });
 });
 

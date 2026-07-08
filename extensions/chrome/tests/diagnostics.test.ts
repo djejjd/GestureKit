@@ -123,6 +123,54 @@ describe("diagnostics", () => {
     expect(text).toContain("dx=0.073");
     expect(text).not.toContain("http");
   });
+
+  it("includes current vs recommended delta in clipboard", () => {
+    const text = formatDiagnosticsForClipboard(
+      [swipeEntry(1, "success")],
+      {
+        swipeSensitivity: "robust",
+        swipeMinDistance: 0.11,
+        swipeHorizontalRatio: 1.8,
+        swipeMinDurationMs: 60,
+        swipeMaxDurationMs: 350,
+        source: "preset" as const
+      },
+      {
+        swipeSensitivity: "sensitive",
+        swipeMinDistance: 0.084,
+        swipeHorizontalRatio: 1.25,
+        swipeMinDurationMs: 50,
+        swipeMaxDurationMs: 480,
+        source: "recommended" as const
+      }
+    );
+
+    expect(text).toContain("currentRecognition=");
+    expect(text).toContain("recommendedRecognition=");
+    expect(text).toContain("robust");
+    expect(text).toContain("sensitive");
+  });
+
+  it("includes applyPhase in clipboard when sync status provided", () => {
+    const text = formatDiagnosticsForClipboard(
+      [swipeEntry(1, "success")],
+      undefined,
+      undefined,
+      {
+        phase: "applied",
+        savedSwipeSensitivity: "sensitive",
+        runtimeSwipeSensitivity: "sensitive",
+        currentAppSessionId: "sess-1",
+        requestedAt: null,
+        appliedAt: 200,
+        messageId: "ack-1",
+        deltaSummary: [],
+        message: undefined
+      }
+    );
+
+    expect(text).toContain("applyPhase=applied");
+  });
 });
 
 function actionResult(

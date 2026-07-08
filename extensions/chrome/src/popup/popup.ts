@@ -6,6 +6,12 @@ import {
   type GestureSettingsMode,
   type GestureSettingsStorage
 } from "../settings/gestureSettings";
+import {
+  buildRecommendedSettings,
+  describeRecognitionDelta,
+  resolveEffectiveSwipeRecognition,
+  type EffectiveSwipeRecognition
+} from "../settings/swipeRecognition";
 import { SETTINGS_SYNC_STATUS_STORAGE_KEY, type SettingsSyncStatus, isSettingsSyncStatus } from "../background/settingsSync";
 import {
   clearDiagnostics,
@@ -37,13 +43,24 @@ export async function initializeGestureSettingsPopup(doc: Document, storage: Pop
     storage.get([STATUS_STORAGE_KEY, SETTINGS_SYNC_STATUS_STORAGE_KEY, DIAGNOSTICS_STORAGE_KEY])
   ]);
   let diagnostics = normalizeDiagnostics(statusResult[DIAGNOSTICS_STORAGE_KEY]);
+  const summary = summarizeDiagnostics(diagnostics);
+  const syncStatus = extractSyncStatus(statusResult[SETTINGS_SYNC_STATUS_STORAGE_KEY], statusResult[STATUS_STORAGE_KEY]);
   renderSettings(doc, settings);
-  renderStatus(doc, statusResult[STATUS_STORAGE_KEY], statusResult[SETTINGS_SYNC_STATUS_STORAGE_KEY]);
+  renderStatus(doc, statusResult[STATUS_STORAGE_KEY], syncStatus);
   renderDiagnostics(doc, diagnostics);
+  renderRecommendationCard(doc, settings, summary, syncStatus);
   bindEvents(doc, storage, () => diagnostics, (next) => {
     diagnostics = next;
+    const newSummary = summarizeDiagnostics(diagnostics);
     renderDiagnostics(doc, diagnostics);
+    renderRecommendationCard(doc, settings, newSummary, syncStatus);
   });
+
+  try {
+    chrome.runtime?.sendMessage?.({ type: "gesturekit.runConnectionProbe" });
+  } catch {
+    // probe not available (e.g. in tests)
+  }
 }
 
 function bindEvents(
@@ -91,11 +108,20 @@ function bindEvents(
   });
 
   element(doc, "#copyDiagnostics").addEventListener("click", () => {
-    void navigator.clipboard?.writeText(formatPopupDiagnostics(readSettings(doc), getDiagnostics()));
+    void (async () => {
+      const settings = await loadGestureSettings(storage);
+      const statusResult = await storage.get([SETTINGS_SYNC_STATUS_STORAGE_KEY]);
+      const syncStatus = extractSyncStatus(statusResult[SETTINGS_SYNC_STATUS_STORAGE_KEY], null);
+      await navigator.clipboard?.writeText(formatPopupDiagnostics(settings, getDiagnostics(), syncStatus));
+    })();
   });
 
   element(doc, "#clearDiagnostics").addEventListener("click", () => {
     void clearDiagnostics(storage).then(() => setDiagnostics([]));
+  });
+
+  element(doc, "#applyRecommendedSettings").addEventListener("click", () => {
+    void applyRecommendedSettings(doc, storage);
   });
 }
 
@@ -123,13 +149,18 @@ function renderSettings(doc: Document, settings: GestureSettings) {
   output(doc, "#cooldownMsValue").textContent = `${settings.cooldownMs}ms`;
 }
 
-function renderStatus(doc: Document, value: unknown, syncValue: unknown) {
+function extractSyncStatus(syncValue: unknown, statusValue: unknown): SettingsSyncStatus | null {
+  if (isSettingsSyncStatus(syncValue)) {
+    return syncValue;
+  }
+  if (isPopupStatus(statusValue) && isSettingsSyncStatus(statusValue.settingsSync)) {
+    return statusValue.settingsSync;
+  }
+  return null;
+}
+
+function renderStatus(doc: Document, value: unknown, settingsSync: SettingsSyncStatus | null) {
   const status = isPopupStatus(value) ? value : {};
-  const settingsSync = isSettingsSyncStatus(syncValue)
-    ? syncValue
-    : isSettingsSyncStatus(status.settingsSync)
-      ? status.settingsSync
-      : null;
   element(doc, "#nativeStatus").textContent = status.nativeConnected ? "已连接" : "未连接";
   element(doc, "#appStatus").textContent = status.appConnected ? "在线" : "未连接";
   element(doc, "#settingsSyncStatus").textContent = settingsSync
@@ -150,7 +181,108 @@ function renderDiagnostics(doc: Document, diagnostics: GestureDiagnosticEntry[])
   element(doc, "#diagnosticsList").replaceChildren(...diagnostics.slice(-10).reverse().map((entry) => diagnosticRow(doc, entry)));
 }
 
-function formatPopupDiagnostics(settings: GestureSettings, diagnostics: GestureDiagnosticEntry[]): string {
+function renderRecommendationCard(
+  doc: Document,
+  settings: GestureSettings,
+  summary: ReturnType<typeof summarizeDiagnostics>,
+  syncStatus: SettingsSyncStatus | null
+) {
+  const current = resolveEffectiveSwipeRecognition(settings);
+  const showCard = summary.recommendedMinDistance !== null;
+  const section = doc.querySelector("#recommendationSection");
+  if (section instanceof HTMLElement) {
+    section.hidden = !showCard;
+  }
+  if (!showCard) {
+    return;
+  }
+
+  const recommended: EffectiveSwipeRecognition = {
+    swipeSensitivity: summary.recommendedSensitivity,
+    swipeMinDistance: summary.recommendedMinDistance!,
+    swipeHorizontalRatio: current.swipeHorizontalRatio,
+    swipeMinDurationMs: current.swipeMinDurationMs,
+    swipeMaxDurationMs: current.swipeMaxDurationMs,
+    source: "recommended"
+  };
+
+  const deltaLines = describeRecognitionDelta(current, recommended);
+  element(doc, "#recommendationDelta").textContent = deltaLines.join("；");
+
+  const savedEl = element(doc, "#recommendationSavedStatus");
+  const runtimeEl = element(doc, "#recommendationRuntimeStatus");
+  const failureEl = element(doc, "#recommendationFailureReason");
+  const button = element(doc, "#applyRecommendedSettings") as HTMLButtonElement;
+
+  if (syncStatus) {
+    savedEl.textContent = `推荐保存状态：${phaseLabel(syncStatus.phase)}`;
+    runtimeEl.textContent = syncStatus.runtimeSwipeSensitivity
+      ? `App 运行时：${syncStatus.runtimeSwipeSensitivity}`
+      : "App 运行时：等待确认";
+  } else {
+    savedEl.textContent = "推荐保存状态：未保存";
+    runtimeEl.textContent = "App 运行时：未知";
+  }
+
+  if (syncStatus?.phase === "failed" || syncStatus?.phase === "stale") {
+    failureEl.textContent = syncStatus.message ?? syncStatus.phase;
+    failureEl.hidden = false;
+  } else {
+    failureEl.textContent = "";
+    failureEl.hidden = true;
+  }
+
+  button.disabled = false;
+  button.textContent = syncStatus?.phase === "applied" ? "重新应用推荐设置" : "应用推荐设置";
+}
+
+async function applyRecommendedSettings(doc: Document, storage: PopupStorage) {
+  const settings = await loadGestureSettings(storage);
+  const statusResult = await storage.get([DIAGNOSTICS_STORAGE_KEY]);
+  const diagnostics = normalizeDiagnostics(statusResult[DIAGNOSTICS_STORAGE_KEY]);
+  const summary = summarizeDiagnostics(diagnostics);
+
+  const next = buildRecommendedSettings(settings, summary);
+  if (!next) {
+    const failureEl = element(doc, "#recommendationFailureReason");
+    failureEl.textContent = "当前推荐数据不足，暂不应用";
+    failureEl.hidden = false;
+    return;
+  }
+
+  if (!window.confirm("将把推荐档位和推荐最小距离写入扩展设置，并等待 App 运行时确认。继续吗？")) {
+    return;
+  }
+
+  const saved = await saveGestureSettings(storage, next);
+  renderSettings(doc, saved);
+  renderRecommendationCard(doc, saved, summary, null);
+
+  try {
+    chrome.runtime?.sendMessage?.({ type: "gesturekit.runConnectionProbe" });
+  } catch {
+    // probe not available
+  }
+}
+
+function formatPopupDiagnostics(
+  settings: GestureSettings,
+  diagnostics: GestureDiagnosticEntry[],
+  syncStatus: SettingsSyncStatus | null
+): string {
+  const summary = summarizeDiagnostics(diagnostics);
+  const current = resolveEffectiveSwipeRecognition(settings);
+  const recommended: EffectiveSwipeRecognition | null = summary.recommendedMinDistance !== null
+    ? {
+        swipeSensitivity: summary.recommendedSensitivity,
+        swipeMinDistance: summary.recommendedMinDistance,
+        swipeHorizontalRatio: current.swipeHorizontalRatio,
+        swipeMinDurationMs: current.swipeMinDurationMs,
+        swipeMaxDurationMs: current.swipeMaxDurationMs,
+        source: "recommended"
+      }
+    : null;
+
   return [
     "GestureKit Settings",
     `mode=${settings.mode}`,
@@ -161,7 +293,7 @@ function formatPopupDiagnostics(settings: GestureSettings, diagnostics: GestureD
     `linkClickProtectionEnabled=${settings.linkClickProtectionEnabled}`,
     `cooldownMs=${settings.cooldownMs}`,
     `edgeWidth=${settings.leftEdgeMax.toFixed(2)}`,
-    formatDiagnosticsForClipboard(diagnostics)
+    formatDiagnosticsForClipboard(diagnostics, current, recommended, syncStatus)
   ].join("\n");
 }
 

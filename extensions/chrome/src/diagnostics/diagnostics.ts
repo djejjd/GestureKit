@@ -9,6 +9,8 @@ import type {
   ActionType,
   SwipeSensitivity
 } from "../protocol/messages";
+import type { EffectiveSwipeRecognition } from "../settings/swipeRecognition";
+import type { SettingsSyncStatus } from "../background/settingsSync";
 
 export const DIAGNOSTICS_STORAGE_KEY = "gesturekitDiagnostics";
 
@@ -110,31 +112,43 @@ export function summarizeDiagnostics(events: GestureDiagnosticEntry[]): Diagnost
   };
 }
 
-export function formatDiagnosticsForClipboard(events: GestureDiagnosticEntry[]): string {
+export function formatDiagnosticsForClipboard(
+  events: GestureDiagnosticEntry[],
+  current?: EffectiveSwipeRecognition,
+  recommended?: EffectiveSwipeRecognition | null,
+  syncStatus?: SettingsSyncStatus | null
+): string {
   const summary = summarizeDiagnostics(events);
-  const lines = [
+  const header = [
     "GestureKit Diagnostics",
     `count=${events.length}`,
     `recommendation=${summary.recommendationText}`,
-    ...events.slice(-20).map((event) => {
-      const parts = [
-        `time=${event.timestamp}`,
-        `source=${event.source}`,
-        `kind=${event.kind}`,
-        event.gesture ? `gesture=${event.gesture}` : null,
-        event.action ? `action=${event.action}` : null,
-        event.status ? `status=${event.status}` : null,
-        `reason=${event.reason}`,
-        event.swipeSensitivity ? `sensitivity=${event.swipeSensitivity}` : null,
-        typeof event.dx === "number" ? `dx=${event.dx.toFixed(3)}` : null,
-        typeof event.dy === "number" ? `dy=${event.dy.toFixed(3)}` : null,
-        typeof event.durationMs === "number" ? `durationMs=${event.durationMs}` : null,
-        event.thresholds ? `minDistance=${event.thresholds.swipeMinDistance}` : null
-      ].filter(Boolean);
-      return parts.join(" ");
-    })
-  ];
-  return lines.join("\n");
+    current ? `currentRecognition=${formatRecognition(current)}` : null,
+    recommended ? `recommendedRecognition=${formatRecognition(recommended)}` : null,
+    syncStatus ? `applyPhase=${syncStatus.phase}` : null
+  ].filter(Boolean);
+  const detailLines = events.slice(-20).map((event) => {
+    const parts = [
+      `time=${event.timestamp}`,
+      `source=${event.source}`,
+      `kind=${event.kind}`,
+      event.gesture ? `gesture=${event.gesture}` : null,
+      event.action ? `action=${event.action}` : null,
+      event.status ? `status=${event.status}` : null,
+      `reason=${event.reason}`,
+      event.swipeSensitivity ? `sensitivity=${event.swipeSensitivity}` : null,
+      typeof event.dx === "number" ? `dx=${event.dx.toFixed(3)}` : null,
+      typeof event.dy === "number" ? `dy=${event.dy.toFixed(3)}` : null,
+      typeof event.durationMs === "number" ? `durationMs=${event.durationMs}` : null,
+      event.thresholds ? `minDistance=${event.thresholds.swipeMinDistance}` : null
+    ].filter(Boolean);
+    return parts.join(" ");
+  });
+  return [...header, ...detailLines].join("\n");
+}
+
+function formatRecognition(recog: EffectiveSwipeRecognition): string {
+  return `${recog.swipeSensitivity} minDist=${recog.swipeMinDistance.toFixed(3)} hRatio=${recog.swipeHorizontalRatio} src=${recog.source}`;
 }
 
 export function isDiagnosticEventMessage(message: unknown): message is DiagnosticEventMessage {
