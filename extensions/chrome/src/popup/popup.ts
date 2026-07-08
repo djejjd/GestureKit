@@ -6,7 +6,7 @@ import {
   type GestureSettingsMode,
   type GestureSettingsStorage
 } from "../settings/gestureSettings";
-import { SETTINGS_SYNC_STATUS_STORAGE_KEY, type SettingsSyncStatus } from "../background/settingsSync";
+import { SETTINGS_SYNC_STATUS_STORAGE_KEY, type SettingsSyncStatus, isSettingsSyncStatus } from "../background/settingsSync";
 import {
   clearDiagnostics,
   DIAGNOSTICS_STORAGE_KEY,
@@ -133,7 +133,7 @@ function renderStatus(doc: Document, value: unknown, syncValue: unknown) {
   element(doc, "#nativeStatus").textContent = status.nativeConnected ? "已连接" : "未连接";
   element(doc, "#appStatus").textContent = status.appConnected ? "在线" : "未连接";
   element(doc, "#settingsSyncStatus").textContent = settingsSync
-    ? `${settingsSync.applied ? "已应用" : "未应用"} ${settingsSync.swipeSensitivity}`
+    ? `${phaseLabel(settingsSync.phase)} ${settingsSync.savedSwipeSensitivity}`
     : "待同步";
   element(doc, "#lastResult").textContent = status.lastResult ? resultLabel(status.lastResult) : "暂无";
 }
@@ -318,10 +318,15 @@ function isPopupStatus(value: unknown): value is PopupStatus {
   return typeof value === "object" && value !== null;
 }
 
-function isSettingsSyncStatus(value: unknown): value is SettingsSyncStatus {
-  return typeof value === "object" && value !== null &&
-    "applied" in value &&
-    "swipeSensitivity" in value;
+function phaseLabel(phase: string): string {
+  const labels: Record<string, string> = {
+    saved_only: "已保存",
+    pending: "等待确认",
+    applied: "已应用",
+    failed: "失败",
+    stale: "已失效"
+  };
+  return labels[phase] ?? phase;
 }
 
 declare const chrome: { storage?: { local?: PopupStorage } } | undefined;

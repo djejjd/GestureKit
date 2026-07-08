@@ -7,6 +7,7 @@ import type {
 export type ConnectionProbeResult = {
   hostConnected: boolean;
   appConnected: boolean;
+  appSessionId?: string;
   status: string;
   message: string;
 };
@@ -45,6 +46,7 @@ export async function runConnectionProbe(port: chrome.runtime.Port): Promise<Con
         finish({
           hostConnected: true,
           appConnected: message.payload.appConnected,
+          appSessionId: message.payload.appSessionId,
           status: message.payload.appConnected ? "connected" : "app_unavailable",
           message: message.payload.message ?? "probe_response"
         });

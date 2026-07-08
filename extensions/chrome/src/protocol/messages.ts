@@ -67,6 +67,7 @@ export type ProbeResponseMessage = GestureKitMessage<
   {
     hostConnected: boolean;
     appConnected: boolean;
+    appSessionId?: string;
     message?: string;
   }
 >;
@@ -89,6 +90,8 @@ export type SettingsAckMessage = GestureKitMessage<
   {
     applied: boolean;
     swipeSensitivity: SwipeSensitivity;
+    appSessionId: string;
+    recognitionSettings: GestureRecognitionThresholds;
     message?: string;
   }
 >;

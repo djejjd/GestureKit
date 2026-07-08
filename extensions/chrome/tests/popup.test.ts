@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GESTURE_SETTINGS_PRESETS, GESTURE_SETTINGS_STORAGE_KEY } from "../src/settings/gestureSettings";
 import { initializeGestureSettingsPopup } from "../src/popup/popup";
+import { SETTINGS_SYNC_STATUS_STORAGE_KEY } from "../src/background/settingsSync";
 import { DIAGNOSTICS_STORAGE_KEY, type GestureDiagnosticEntry } from "../src/diagnostics/diagnostics";
 
 function setupDom() {
@@ -46,7 +47,8 @@ function setupDom() {
 function storageWith(
   value: unknown = GESTURE_SETTINGS_PRESETS.safe,
   status: unknown = undefined,
-  diagnostics: GestureDiagnosticEntry[] = []
+  diagnostics: GestureDiagnosticEntry[] = [],
+  syncStatus: unknown = undefined
 ) {
   const state: Record<string, unknown> = {
     [GESTURE_SETTINGS_STORAGE_KEY]: value,
@@ -54,6 +56,9 @@ function storageWith(
   };
   if (status !== undefined) {
     state.gesturekitStatus = status;
+  }
+  if (syncStatus !== undefined) {
+    state[SETTINGS_SYNC_STATUS_STORAGE_KEY] = syncStatus;
   }
   return {
     get: vi.fn(async (key: string | string[]) => {
@@ -89,11 +94,19 @@ describe("gesture settings popup", () => {
       {
         nativeConnected: true,
         appConnected: false,
-        lastResult: "open_link_background success",
-        settingsSync: {
-          applied: true,
-          swipeSensitivity: "sensitive"
-        }
+        lastResult: "open_link_background success"
+      },
+      [],
+      {
+        phase: "applied",
+        savedSwipeSensitivity: "sensitive",
+        runtimeSwipeSensitivity: "sensitive",
+        currentAppSessionId: "sess-1",
+        requestedAt: null,
+        appliedAt: 200,
+        messageId: "ack-1",
+        deltaSummary: [],
+        message: undefined
       }
     );
 
