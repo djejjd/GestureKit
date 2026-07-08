@@ -114,6 +114,10 @@ export function createNativePortManager(deps: Dependencies) {
           return;
         }
         clearPendingTap();
+        if (resolved.clickAlreadyFired) {
+          postActionResult(actionResult(message.id, "open_link_background", "gesture_unstable", { reason: "click_already_fired" }));
+          return;
+        }
         await executeAndPost(message.id, { action: "open_link_background", url: resolved.url });
         return;
       }

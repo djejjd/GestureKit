@@ -80,11 +80,13 @@ export function summarizeDiagnostics(events: GestureDiagnosticEntry[]): Diagnost
   const swipes = events
     .filter((event) => event.gesture === "three_finger_swipe_left" || event.gesture === "three_finger_swipe_right")
     .slice(-10);
+  const fallbackFailures = events.filter((event) => event.reason !== "success").slice(-10);
   if (swipes.length === 0) {
+    const mainReason = mostCommonReason(fallbackFailures);
     return {
       swipeSuccessText: "暂无",
-      mainFailureReason: "暂无",
-      suggestion: "继续使用，等待更多数据",
+      mainFailureReason: mainReason ? reasonLabel(mainReason) : "暂无",
+      suggestion: mainReason ? suggestionFor(mainReason) : "继续使用，等待更多数据",
       recommendedSensitivity: "standard",
       recommendedMinDistance: null,
       recommendationText: "等待更多轻扫数据"
@@ -190,6 +192,7 @@ export function reasonLabel(reason: DiagnosticReason): string {
     double_tap_disabled: "中间双击关闭开关关闭",
     tap_duration_unstable: "点按时长不稳定",
     chrome_action_failed: "Chrome 动作执行失败",
+    click_already_fired: "点击已先触发",
     not_chrome: "非 Chrome 前台",
     native_host_disconnected: "Native host 已断开",
     page_unavailable: "当前页面不可用",
@@ -214,6 +217,9 @@ function suggestionFor(reason: DiagnosticReason | null): string {
   }
   if (reason === "flick_switch_disabled" || reason === "edge_tap_disabled" || reason === "double_tap_disabled") {
     return "检查对应开关是否符合预期";
+  }
+  if (reason === "click_already_fired") {
+    return "页面原生点击先于手势处理发生";
   }
   return "继续观察，暂不调整";
 }
@@ -309,6 +315,7 @@ function isDiagnosticReason(value: unknown): value is DiagnosticReason {
     value === "double_tap_disabled" ||
     value === "tap_duration_unstable" ||
     value === "chrome_action_failed" ||
+    value === "click_already_fired" ||
     value === "not_chrome" ||
     value === "native_host_disconnected" ||
     value === "page_unavailable" ||

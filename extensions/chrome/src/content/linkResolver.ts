@@ -1,5 +1,5 @@
 export type LinkResolveResult =
-  | { status: "success"; url: string }
+  | { status: "success"; url: string; clickAlreadyFired?: boolean }
   | { status: "no_target" }
   | { status: "unsupported_url_scheme" }
   | { status: "page_unavailable" };

@@ -91,6 +91,7 @@ export type DiagnosticReason =
   | "double_tap_disabled"
   | "tap_duration_unstable"
   | "chrome_action_failed"
+  | "click_already_fired"
   | "not_chrome"
   | "native_host_disconnected"
   | "page_unavailable"

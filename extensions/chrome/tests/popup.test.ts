@@ -88,7 +88,7 @@ describe("gesture settings popup", () => {
       {
         nativeConnected: true,
         appConnected: false,
-        lastResult: "gesture_unstable",
+        lastResult: "open_link_background success",
         settingsSync: {
           applied: true,
           swipeSensitivity: "sensitive"
@@ -104,7 +104,7 @@ describe("gesture settings popup", () => {
     expect(document.querySelector("#nativeStatus")?.textContent).toBe("已连接");
     expect(document.querySelector("#appStatus")?.textContent).toBe("未连接");
     expect(document.querySelector("#settingsSyncStatus")?.textContent).toBe("已应用 sensitive");
-    expect(document.querySelector("#lastResult")?.textContent).toBe("gesture_unstable");
+    expect(document.querySelector("#lastResult")?.textContent).toBe("打开链接成功");
   });
 
   it("renders diagnostics summary while keeping settings controls", async () => {

@@ -96,6 +96,15 @@ describe("diagnostics", () => {
     expect(entry.reason).toBe("cooldown");
   });
 
+  it("labels click race failures in Chinese", () => {
+    const entry = diagnosticFromActionResult(actionResult("gesture-1", "open_link_background", "gesture_unstable", {
+      reason: "click_already_fired"
+    }));
+
+    expect(entry.reason).toBe("click_already_fired");
+    expect(summarizeDiagnostics([entry]).mainFailureReason).toBe("点击已先触发");
+  });
+
   it("formats diagnostics for clipboard without page content or URLs", () => {
     const text = formatDiagnosticsForClipboard([swipeEntry(1, "gesture_unstable")]);
 

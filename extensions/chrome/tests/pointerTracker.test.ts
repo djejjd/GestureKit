@@ -36,6 +36,21 @@ describe("pointerTracker", () => {
     expect(click.defaultPrevented).toBe(true);
   });
 
+  it("reports when the link click already fired before GestureKit can consume it", async () => {
+    const module = await import("../src/content/pointerTracker");
+    const anchor = document.getElementById("target") as HTMLAnchorElement;
+    window.dispatchEvent(new PointerEvent("pointermove", { clientX: 10, clientY: 20 }));
+
+    anchor.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    const result = module.resolveLinkAtLastPointer(Date.now(), { consumeNextClick: true });
+
+    expect(result).toEqual({
+      status: "success",
+      url: "http://localhost:3000/docs",
+      clickAlreadyFired: true
+    });
+  });
+
   it("does not prevent ordinary clicks before GestureKit asks to consume one", async () => {
     await import("../src/content/pointerTracker");
     document.body.innerHTML = `<button id="ordinary">Open</button>`;

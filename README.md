@@ -34,7 +34,7 @@ English version: [English](#english)
 - 面板会显示 Native host、GestureKit App、灵敏度同步状态和最近动作结果。
 - 面板包含可折叠诊断区：最近轻扫成功率、主要失败原因、建议、推荐档位、推荐最小距离、最近诊断、复制诊断和清空诊断。
 
-设置保存在 Chrome 扩展的 `chrome.storage.local` 中，修改后立即影响后续手势。安全模式默认使用稳健轻扫，高效模式默认使用灵敏轻扫；自定义轻扫灵敏度会通过 Native Messaging host 同步到 Swift App 的原生识别层，popup 中会显示最近一次应用状态。重新构建扩展后，需要在 `chrome://extensions` 刷新 GestureKit 扩展。
+设置保存在 Chrome 扩展的 `chrome.storage.local` 中，修改后立即影响后续手势。安全模式默认使用稳健轻扫，高效模式默认使用灵敏轻扫；自定义轻扫灵敏度会通过 Native Messaging host 同步到 Swift App 的原生识别层，popup 中会显示最近一次应用状态。“最近结果”表示扩展侧最新一次动作执行结果，例如打开链接、切换标签页或连接断开。重新构建扩展后，需要在 `chrome://extensions` 刷新 GestureKit 扩展。
 
 诊断数据也只保存在本机 `chrome.storage.local`。它只记录手势摘要、动作状态、失败原因、轻扫距离、时长、当前灵敏度和阈值，最多保留最近 100 条；不记录原始触控板帧、网页内容、URL 或浏览历史。复制诊断会附带当前 popup 设置和本地推荐结果，便于排查。
 

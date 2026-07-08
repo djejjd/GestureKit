@@ -133,7 +133,7 @@ function renderStatus(doc: Document, value: unknown, syncValue: unknown) {
   element(doc, "#settingsSyncStatus").textContent = settingsSync
     ? `${settingsSync.applied ? "已应用" : "未应用"} ${settingsSync.swipeSensitivity}`
     : "待同步";
-  element(doc, "#lastResult").textContent = status.lastResult ?? "暂无";
+  element(doc, "#lastResult").textContent = status.lastResult ? resultLabel(status.lastResult) : "暂无";
 }
 
 function renderDiagnostics(doc: Document, diagnostics: GestureDiagnosticEntry[]) {
@@ -242,6 +242,29 @@ function actionLabel(action: GestureDiagnosticEntry["action"]): string {
     return "关闭当前标签页";
   }
   return "已记录";
+}
+
+function resultLabel(value: string): string {
+  const labels: Record<string, string> = {
+    "connected": "已连接",
+    "native_host_disconnected": "Native host 已断开",
+    "open_link_background success": "打开链接成功",
+    "open_link_background gesture_unstable": "打开链接未执行",
+    "open_link_background no_recent_pointer": "没有最近鼠标位置",
+    "open_link_background no_target": "未命中链接",
+    "open_link_background page_unavailable": "当前页面不可用",
+    "open_link_background unsupported_url_scheme": "链接类型不支持",
+    "activate_left_tab success": "已切换到左侧标签页",
+    "activate_left_tab gesture_unstable": "左切未执行",
+    "activate_left_tab page_unavailable": "左切失败：页面不可用",
+    "activate_right_tab success": "已切换到右侧标签页",
+    "activate_right_tab gesture_unstable": "右切未执行",
+    "activate_right_tab page_unavailable": "右切失败：页面不可用",
+    "close_tab success": "已关闭当前标签页",
+    "close_tab gesture_unstable": "关闭标签页未执行",
+    "close_tab page_unavailable": "关闭失败：页面不可用"
+  };
+  return labels[value] ?? value;
 }
 
 function sensitivityLabel(sensitivity: GestureSettings["swipeSensitivity"]): string {

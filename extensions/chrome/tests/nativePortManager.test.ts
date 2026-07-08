@@ -76,6 +76,31 @@ describe("createNativePortManager", () => {
     expect(executeAction).toHaveBeenCalledWith({ action: "open_link_background", url: "https://example.com" });
   });
 
+  it("does not open a duplicate tab when the page click already fired", async () => {
+    const postMessage = vi.fn();
+    const executeAction = vi.fn();
+    const manager = createNativePortManager({
+      port: { postMessage },
+      resolveLastPointer: vi.fn(async () => ({
+        status: "success",
+        url: "https://example.com",
+        clickAlreadyFired: true
+      })),
+      executeAction
+    });
+
+    await manager.handleNativeMessage(gestureMessage("three_finger_tap", { durationMs: 96 }));
+
+    expect(executeAction).not.toHaveBeenCalled();
+    expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      payload: {
+        action: "open_link_background",
+        status: "gesture_unstable",
+        details: { reason: "click_already_fired" }
+      }
+    }));
+  });
+
   it("ignores short no-link tap without opening a tab or switching tabs", async () => {
     const postMessage = vi.fn();
     const executeAction = vi.fn();
