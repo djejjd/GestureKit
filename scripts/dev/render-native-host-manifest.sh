@@ -39,6 +39,7 @@ if [[ "$host_path" != /* ]]; then
   exit 1
 fi
 
+# Keep JSON escaping centralized so installer reuse stays exact.
 json_string() {
   /usr/bin/python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$1"
 }
