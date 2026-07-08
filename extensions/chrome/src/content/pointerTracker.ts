@@ -70,20 +70,19 @@ window.addEventListener(
 );
 
 export function resolveLinkAtLastPointer(now: number = Date.now(), options: ResolveOptions = {}) {
+  if (options.consumeNextClick) {
+    const protectedResult = consumeProtectedLinkClick(now);
+    if (protectedResult) {
+      return protectedResult;
+    }
+  }
+
   if (!state.lastPointer || now - state.lastPointer.timestamp > MAX_POINTER_AGE_MS) {
     return { status: "no_recent_pointer" as const };
   }
 
   const result = resolveLinkAtPoint(state.lastPointer.x, state.lastPointer.y);
   if (options.consumeNextClick && result.status === "success") {
-    const clickProtected = state.protectedLinkClick?.url === result.url &&
-      now - state.protectedLinkClick.timestamp <= LINK_CLICK_PROTECTION_WINDOW_MS;
-    if (clickProtected) {
-      clearTimeout(state.protectedLinkClick!.timeout);
-      state.protectedLinkClick = null;
-      return { ...result, clickProtected: true };
-    }
-
     const clickAlreadyFired = state.lastLinkClick?.url === result.url && now - state.lastLinkClick.timestamp <= CONSUME_CLICK_WINDOW_MS;
     state.pendingConsumedClick = {
       url: result.url,
@@ -94,6 +93,16 @@ export function resolveLinkAtLastPointer(now: number = Date.now(), options: Reso
     }
   }
   return result;
+}
+
+function consumeProtectedLinkClick(now: number) {
+  if (!state.protectedLinkClick || now - state.protectedLinkClick.timestamp > LINK_CLICK_PROTECTION_WINDOW_MS) {
+    return null;
+  }
+  const url = state.protectedLinkClick.url;
+  clearTimeout(state.protectedLinkClick.timeout);
+  state.protectedLinkClick = null;
+  return { status: "success" as const, url, clickProtected: true };
 }
 
 export function setLinkClickProtectionEnabled(enabled: boolean) {
