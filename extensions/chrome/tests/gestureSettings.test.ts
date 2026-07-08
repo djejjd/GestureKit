@@ -36,7 +36,8 @@ describe("gesture settings", () => {
       doubleTapMaxMs: 330,
       cooldownMs: 260,
       tapDurationMinMs: 45,
-      tapDurationMaxMs: 200
+      tapDurationMaxMs: 200,
+      swipeRecognitionOverride: null
     });
   });
 
@@ -97,5 +98,39 @@ describe("gesture settings", () => {
         leftEdgeMax: 0.38
       })
     });
+  });
+
+  it("keeps recommendation override when normalized", () => {
+    const normalized = normalizeGestureSettings({
+      mode: "safe",
+      swipeSensitivity: "standard",
+      swipeRecognitionOverride: {
+        source: "recommended",
+        recommendedMinDistance: 0.084
+      }
+    });
+
+    expect(normalized.swipeRecognitionOverride).toEqual({
+      source: "recommended",
+      recommendedMinDistance: 0.084
+    });
+  });
+
+  it("drops invalid recommendation override", () => {
+    const normalized = normalizeGestureSettings({
+      mode: "safe",
+      swipeRecognitionOverride: {
+        source: "recommended",
+        recommendedMinDistance: -1
+      }
+    });
+
+    expect(normalized.swipeRecognitionOverride).toBeNull();
+  });
+
+  it("defaults swipeRecognitionOverride to null", () => {
+    const normalized = normalizeGestureSettings({ mode: "safe" });
+
+    expect(normalized.swipeRecognitionOverride).toBeNull();
   });
 });

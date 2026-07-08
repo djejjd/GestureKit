@@ -1,6 +1,11 @@
 export type GestureSettingsMode = "safe" | "efficient";
 export type SwipeSensitivity = "robust" | "standard" | "sensitive";
 
+export type SwipeRecognitionOverride = {
+  source: "preset" | "recommended";
+  recommendedMinDistance: number | null;
+};
+
 export type GestureSettings = {
   mode: GestureSettingsMode;
   swipeSensitivity: SwipeSensitivity;
@@ -15,6 +20,7 @@ export type GestureSettings = {
   cooldownMs: number;
   tapDurationMinMs: number;
   tapDurationMaxMs: number;
+  swipeRecognitionOverride: SwipeRecognitionOverride | null;
 };
 
 export type GestureSettingsInput = Partial<GestureSettings> & {
@@ -42,7 +48,8 @@ export const GESTURE_SETTINGS_PRESETS: Record<GestureSettingsMode, GestureSettin
     doubleTapMaxMs: 330,
     cooldownMs: 260,
     tapDurationMinMs: 45,
-    tapDurationMaxMs: 200
+    tapDurationMaxMs: 200,
+    swipeRecognitionOverride: null
   },
   efficient: {
     mode: "efficient",
@@ -57,7 +64,8 @@ export const GESTURE_SETTINGS_PRESETS: Record<GestureSettingsMode, GestureSettin
     doubleTapMaxMs: 380,
     cooldownMs: 160,
     tapDurationMinMs: 35,
-    tapDurationMaxMs: 240
+    tapDurationMaxMs: 240,
+    swipeRecognitionOverride: null
   }
 };
 
@@ -115,7 +123,8 @@ export function normalizeGestureSettings(input: GestureSettingsInput | unknown):
     doubleTapMaxMs,
     cooldownMs: clampNumber(merged.cooldownMs, preset.cooldownMs, 80, 500),
     tapDurationMinMs,
-    tapDurationMaxMs
+    tapDurationMaxMs,
+    swipeRecognitionOverride: normalizeSwipeRecognitionOverride(merged.swipeRecognitionOverride)
   };
 }
 
@@ -145,4 +154,26 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function isSwipeSensitivity(value: unknown): value is SwipeSensitivity {
   return value === "robust" || value === "standard" || value === "sensitive";
+}
+
+function normalizeSwipeRecognitionOverride(value: unknown): SwipeRecognitionOverride | null {
+  if (!isRecord(value)) {
+    return null;
+  }
+  const source = value.source === "preset" || value.source === "recommended"
+    ? value.source
+    : null;
+  if (source === null) {
+    return null;
+  }
+  const recommendedMinDistance = typeof value.recommendedMinDistance === "number" &&
+    Number.isFinite(value.recommendedMinDistance) &&
+    value.recommendedMinDistance >= 0.05 &&
+    value.recommendedMinDistance <= 0.20
+    ? value.recommendedMinDistance
+    : (source === "recommended" ? null : null);
+  if (source === "recommended" && recommendedMinDistance === null) {
+    return null;
+  }
+  return { source, recommendedMinDistance };
 }
