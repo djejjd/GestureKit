@@ -105,6 +105,15 @@ describe("diagnostics", () => {
     expect(summarizeDiagnostics([entry]).mainFailureReason).toBe("点击已先触发");
   });
 
+  it("labels missing link targets with a specific Chinese hint", () => {
+    const entry = diagnosticFromActionResult(actionResult("gesture-1", "open_link_background", "no_target"));
+
+    expect(entry.reason).toBe("no_target");
+    const summary = summarizeDiagnostics([entry]);
+    expect(summary.mainFailureReason).toBe("未命中可打开链接");
+    expect(summary.suggestion).toBe("把鼠标停在普通 http/https 链接上");
+  });
+
   it("formats diagnostics for clipboard without page content or URLs", () => {
     const text = formatDiagnosticsForClipboard([swipeEntry(1, "gesture_unstable")]);
 

@@ -102,7 +102,7 @@ describe("gesture settings popup", () => {
     expect((document.querySelector("#mode") as HTMLSelectElement).value).toBe("efficient");
     expect((document.querySelector("#swipeSensitivity") as HTMLSelectElement).value).toBe("sensitive");
     expect((document.querySelector("#doubleTapCloseEnabled") as HTMLInputElement).checked).toBe(false);
-    expect((document.querySelector("#linkClickProtectionEnabled") as HTMLInputElement).checked).toBe(true);
+    expect((document.querySelector("#linkClickProtectionEnabled") as HTMLInputElement).checked).toBe(false);
     expect(document.querySelector("#nativeStatus")?.textContent).toBe("已连接");
     expect(document.querySelector("#appStatus")?.textContent).toBe("未连接");
     expect(document.querySelector("#settingsSyncStatus")?.textContent).toBe("已应用 sensitive");

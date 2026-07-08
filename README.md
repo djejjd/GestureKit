@@ -29,14 +29,14 @@ English version: [English](#english)
 
 - `安全模式`：默认模式，边缘区域更窄，双击关闭更严格，动作冷却更长。
 - `高效模式`：响应更快，边缘区域更宽，双击窗口更宽，动作冷却更短。
-- 可单独开关边缘点按切 tab、中间双击关闭 tab、快速轻扫切 tab、链接点按保护。
+- 可单独开关边缘点按切 tab、中间双击关闭 tab、快速轻扫切 tab、防止链接原地跳转。
 - 可调整轻扫灵敏度、边缘区域宽度、双击速度和动作冷却。
 - 面板会显示 Native host、GestureKit App、灵敏度同步状态和最近动作结果。
 - 面板包含可折叠诊断区：最近轻扫成功率、主要失败原因、建议、推荐档位、推荐最小距离、最近诊断、复制诊断和清空诊断。
 
 设置保存在 Chrome 扩展的 `chrome.storage.local` 中，修改后立即影响后续手势。安全模式默认使用稳健轻扫，高效模式默认使用灵敏轻扫；自定义轻扫灵敏度会通过 Native Messaging host 同步到 Swift App 的原生识别层，popup 中会显示最近一次应用状态。“最近结果”表示扩展侧最新一次动作执行结果，例如打开链接、切换标签页或连接断开。重新构建扩展后，需要在 `chrome://extensions` 刷新 GestureKit 扩展。
 
-链接点按保护默认开启。开启后，content script 会对普通链接左键点击做约 `180ms` 的短暂保护，等待 GestureKit 确认三指点按；确认后阻止当前页原地跳转，并由扩展打开新标签页再切过去。关闭后恢复旧行为。保护不处理带 Command/Control/Shift/Option 的点击、`target` 非 `_self` 的链接和下载链接。
+“防止链接原地跳转”默认关闭，属于实验兼容开关。开启后，content script 会对普通 `http/https` 链接左键点击做约 `180ms` 的短暂保护，等待 GestureKit 确认三指点按；确认后阻止当前页原地跳转，并由扩展打开新标签页再切过去。保护不处理带 Command/Control/Shift/Option 的点击、`target` 非 `_self` 的链接、下载链接和非 `http/https` 链接。
 
 诊断数据也只保存在本机 `chrome.storage.local`。它只记录手势摘要、动作状态、失败原因、轻扫距离、时长、当前灵敏度和阈值，最多保留最近 100 条；不记录原始触控板帧、网页内容、URL 或浏览历史。复制诊断会附带当前 popup 设置和本地推荐结果，便于排查。
 
@@ -180,7 +180,7 @@ Current gestures:
 
 Quick flicks follow macOS Spaces-style content movement: flicking right brings the content on the left into view, so GestureKit switches to the previous tab.
 
-The Chrome extension popup provides safe/efficient presets, gesture toggles, link click protection, swipe sensitivity, edge width, double-tap speed, cooldown controls, and a small connection/status summary. Swipe sensitivity is synced through the native host and applied by the Swift app.
+The Chrome extension popup provides safe/efficient presets, gesture toggles, optional link click protection, swipe sensitivity, edge width, double-tap speed, cooldown controls, and a small connection/status summary. Swipe sensitivity is synced through the native host and applied by the Swift app.
 
 Build and test:
 

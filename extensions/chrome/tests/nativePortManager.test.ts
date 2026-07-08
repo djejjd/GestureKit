@@ -93,6 +93,9 @@ describe("createNativePortManager", () => {
     await manager.handleNativeMessage(gestureMessage("three_finger_tap", { durationMs: 96 }));
 
     expect(executeAction).toHaveBeenCalledWith({ action: "open_link_background", url: "https://example.com" });
+    expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      payload: { action: "open_link_background", status: "success" }
+    }));
   });
 
   it("does not open a duplicate tab when the page click already fired", async () => {

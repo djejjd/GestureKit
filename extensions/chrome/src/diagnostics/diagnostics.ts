@@ -196,7 +196,7 @@ export function reasonLabel(reason: DiagnosticReason): string {
     not_chrome: "非 Chrome 前台",
     native_host_disconnected: "Native host 已断开",
     page_unavailable: "当前页面不可用",
-    no_target: "未命中目标",
+    no_target: "未命中可打开链接",
     unknown: "未知"
   };
   return labels[reason];
@@ -220,6 +220,9 @@ function suggestionFor(reason: DiagnosticReason | null): string {
   }
   if (reason === "click_already_fired") {
     return "页面原生点击先于手势处理发生";
+  }
+  if (reason === "no_target") {
+    return "把鼠标停在普通 http/https 链接上";
   }
   return "继续观察，暂不调整";
 }

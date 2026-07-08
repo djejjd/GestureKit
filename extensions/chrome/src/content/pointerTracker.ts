@@ -16,6 +16,7 @@ type PointerTrackerState = {
   pendingConsumedClick: { url: string; expiresAt: number } | null;
   lastLinkClick: { url: string; timestamp: number } | null;
   protectedLinkClick: { url: string; timestamp: number; timeout: ReturnType<typeof setTimeout> } | null;
+  expiredProtectedClick: { url: string; timestamp: number } | null;
   linkClickProtectionEnabled: boolean;
 };
 
@@ -75,6 +76,10 @@ export function resolveLinkAtLastPointer(now: number = Date.now(), options: Reso
     if (protectedResult) {
       return protectedResult;
     }
+    const expiredProtectedResult = consumeExpiredProtectedLinkClick(now);
+    if (expiredProtectedResult) {
+      return expiredProtectedResult;
+    }
   }
 
   if (!state.lastPointer || now - state.lastPointer.timestamp > MAX_POINTER_AGE_MS) {
@@ -105,6 +110,15 @@ function consumeProtectedLinkClick(now: number) {
   return { status: "success" as const, url, clickProtected: true };
 }
 
+function consumeExpiredProtectedLinkClick(now: number) {
+  if (!state.expiredProtectedClick || now - state.expiredProtectedClick.timestamp > CONSUME_CLICK_WINDOW_MS) {
+    return null;
+  }
+  const url = state.expiredProtectedClick.url;
+  state.expiredProtectedClick = null;
+  return { status: "success" as const, url, clickAlreadyFired: true };
+}
+
 export function setLinkClickProtectionEnabled(enabled: boolean) {
   resetTransientClickState();
   state.linkClickProtectionEnabled = enabled;
@@ -119,8 +133,18 @@ function shouldProtectLinkClick(event: MouseEvent, anchor: HTMLAnchorElement): b
     !event.ctrlKey &&
     !event.shiftKey &&
     !event.altKey &&
+    isHttpLink(anchor.href) &&
     !anchor.download &&
     (!anchor.target || anchor.target === "_self");
+}
+
+function isHttpLink(urlValue: string): boolean {
+  try {
+    const url = new URL(urlValue);
+    return url.protocol === "http:" || url.protocol === "https:";
+  } catch {
+    return false;
+  }
 }
 
 function protectLinkClick(event: MouseEvent, url: string) {
@@ -134,6 +158,10 @@ function protectLinkClick(event: MouseEvent, url: string) {
     url,
     timestamp: Date.now(),
     timeout: setTimeout(() => {
+      state.expiredProtectedClick = {
+        url,
+        timestamp: Date.now()
+      };
       state.protectedLinkClick = null;
       window.location.assign(url);
     }, LINK_CLICK_PROTECTION_WINDOW_MS)
@@ -147,6 +175,7 @@ function resetTransientClickState() {
   state.pendingConsumedClick = null;
   state.lastLinkClick = null;
   state.protectedLinkClick = null;
+  state.expiredProtectedClick = null;
 }
 
 function sharedState(): PointerTrackerState {
@@ -157,6 +186,7 @@ function sharedState(): PointerTrackerState {
     pendingConsumedClick: null,
     lastLinkClick: null,
     protectedLinkClick: null,
+    expiredProtectedClick: null,
     linkClickProtectionEnabled: false
   };
   return target[key]!;
