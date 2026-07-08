@@ -1,4 +1,5 @@
 import { resolveLinkAtPoint } from "./linkResolver";
+import { GESTURE_SETTINGS_STORAGE_KEY, normalizeGestureSettings } from "../settings/gestureSettings";
 
 export type PointerSnapshot = {
   x: number;
@@ -8,9 +9,17 @@ export type PointerSnapshot = {
 
 const MAX_POINTER_AGE_MS = 1500;
 const CONSUME_CLICK_WINDOW_MS = 1000;
-let lastPointer: PointerSnapshot | null = null;
-let pendingConsumedClick: { url: string; expiresAt: number } | null = null;
-let lastLinkClick: { url: string; timestamp: number } | null = null;
+const LINK_CLICK_PROTECTION_WINDOW_MS = 180;
+
+type PointerTrackerState = {
+  lastPointer: PointerSnapshot | null;
+  pendingConsumedClick: { url: string; expiresAt: number } | null;
+  lastLinkClick: { url: string; timestamp: number } | null;
+  protectedLinkClick: { url: string; timestamp: number; timeout: ReturnType<typeof setTimeout> } | null;
+  linkClickProtectionEnabled: boolean;
+};
+
+const state = sharedState();
 
 type ResolveOptions = {
   consumeNextClick?: boolean;
@@ -19,7 +28,7 @@ type ResolveOptions = {
 window.addEventListener(
   "pointermove",
   (event) => {
-    lastPointer = {
+    state.lastPointer = {
       x: event.clientX,
       y: event.clientY,
       timestamp: Date.now()
@@ -33,38 +42,50 @@ window.addEventListener(
   (event) => {
     const target = event.target instanceof Element ? event.target : null;
     const anchor = target?.closest("a[href]") as HTMLAnchorElement | null;
-    if (anchor?.href) {
-      lastLinkClick = {
-        url: anchor.href,
-        timestamp: Date.now()
-      };
-    }
 
-    if (!pendingConsumedClick || Date.now() > pendingConsumedClick.expiresAt) {
-      pendingConsumedClick = null;
+    if (!state.pendingConsumedClick || Date.now() > state.pendingConsumedClick.expiresAt) {
+      state.pendingConsumedClick = null;
+    } else if (anchor?.href === state.pendingConsumedClick.url) {
+      state.pendingConsumedClick = null;
+      event.preventDefault();
+      event.stopImmediatePropagation();
       return;
     }
 
-    if (!anchor || anchor.href !== pendingConsumedClick.url) {
+    if (!anchor?.href) {
       return;
     }
 
-    pendingConsumedClick = null;
-    event.preventDefault();
-    event.stopImmediatePropagation();
+    if (shouldProtectLinkClick(event, anchor)) {
+      protectLinkClick(event, anchor.href);
+      return;
+    }
+
+    state.lastLinkClick = {
+      url: anchor.href,
+      timestamp: Date.now()
+    };
   },
   { capture: true }
 );
 
 export function resolveLinkAtLastPointer(now: number = Date.now(), options: ResolveOptions = {}) {
-  if (!lastPointer || now - lastPointer.timestamp > MAX_POINTER_AGE_MS) {
+  if (!state.lastPointer || now - state.lastPointer.timestamp > MAX_POINTER_AGE_MS) {
     return { status: "no_recent_pointer" as const };
   }
 
-  const result = resolveLinkAtPoint(lastPointer.x, lastPointer.y);
+  const result = resolveLinkAtPoint(state.lastPointer.x, state.lastPointer.y);
   if (options.consumeNextClick && result.status === "success") {
-    const clickAlreadyFired = lastLinkClick?.url === result.url && now - lastLinkClick.timestamp <= CONSUME_CLICK_WINDOW_MS;
-    pendingConsumedClick = {
+    const clickProtected = state.protectedLinkClick?.url === result.url &&
+      now - state.protectedLinkClick.timestamp <= LINK_CLICK_PROTECTION_WINDOW_MS;
+    if (clickProtected) {
+      clearTimeout(state.protectedLinkClick!.timeout);
+      state.protectedLinkClick = null;
+      return { ...result, clickProtected: true };
+    }
+
+    const clickAlreadyFired = state.lastLinkClick?.url === result.url && now - state.lastLinkClick.timestamp <= CONSUME_CLICK_WINDOW_MS;
+    state.pendingConsumedClick = {
       url: result.url,
       expiresAt: now + CONSUME_CLICK_WINDOW_MS
     };
@@ -75,7 +96,84 @@ export function resolveLinkAtLastPointer(now: number = Date.now(), options: Reso
   return result;
 }
 
+export function setLinkClickProtectionEnabled(enabled: boolean) {
+  resetTransientClickState();
+  state.linkClickProtectionEnabled = enabled;
+}
+
+function shouldProtectLinkClick(event: MouseEvent, anchor: HTMLAnchorElement): boolean {
+  return state.linkClickProtectionEnabled &&
+    event.cancelable &&
+    !event.defaultPrevented &&
+    event.button === 0 &&
+    !event.metaKey &&
+    !event.ctrlKey &&
+    !event.shiftKey &&
+    !event.altKey &&
+    !anchor.download &&
+    (!anchor.target || anchor.target === "_self");
+}
+
+function protectLinkClick(event: MouseEvent, url: string) {
+  if (state.protectedLinkClick) {
+    clearTimeout(state.protectedLinkClick.timeout);
+  }
+
+  event.preventDefault();
+  event.stopImmediatePropagation();
+  state.protectedLinkClick = {
+    url,
+    timestamp: Date.now(),
+    timeout: setTimeout(() => {
+      state.protectedLinkClick = null;
+      window.location.assign(url);
+    }, LINK_CLICK_PROTECTION_WINDOW_MS)
+  };
+}
+
+function resetTransientClickState() {
+  if (state.protectedLinkClick) {
+    clearTimeout(state.protectedLinkClick.timeout);
+  }
+  state.pendingConsumedClick = null;
+  state.lastLinkClick = null;
+  state.protectedLinkClick = null;
+}
+
+function sharedState(): PointerTrackerState {
+  const key = "__gestureKitPointerTrackerState";
+  const target = window as unknown as Record<string, PointerTrackerState | undefined>;
+  target[key] ??= {
+    lastPointer: null,
+    pendingConsumedClick: null,
+    lastLinkClick: null,
+    protectedLinkClick: null,
+    linkClickProtectionEnabled: false
+  };
+  return target[key]!;
+}
+
+function syncLinkClickProtectionFromStorage() {
+  if (typeof chrome === "undefined" || !chrome.storage?.local) {
+    return;
+  }
+  void chrome.storage.local.get(GESTURE_SETTINGS_STORAGE_KEY).then((result) => {
+    setLinkClickProtectionEnabled(
+      normalizeGestureSettings(result[GESTURE_SETTINGS_STORAGE_KEY]).linkClickProtectionEnabled
+    );
+  });
+  chrome.storage.onChanged?.addListener((changes, areaName) => {
+    if (areaName !== "local" || !changes[GESTURE_SETTINGS_STORAGE_KEY]) {
+      return;
+    }
+    setLinkClickProtectionEnabled(
+      normalizeGestureSettings(changes[GESTURE_SETTINGS_STORAGE_KEY].newValue).linkClickProtectionEnabled
+    );
+  });
+}
+
 if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
+  syncLinkClickProtectionFromStorage();
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (message.type !== "gesturekit.resolveLastPointer") {
       return false;

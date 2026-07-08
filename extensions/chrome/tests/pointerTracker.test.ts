@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 describe("pointerTracker", () => {
   beforeEach(() => {
+    vi.useRealTimers();
     vi.resetModules();
     document.body.innerHTML = `<a id="target" href="/docs">Docs</a>`;
     document.elementFromPoint = () => document.getElementById("target");
@@ -58,6 +59,37 @@ describe("pointerTracker", () => {
 
     const click = new MouseEvent("click", { bubbles: true, cancelable: true });
     const wasNotCancelled = button.dispatchEvent(click);
+
+    expect(wasNotCancelled).toBe(true);
+    expect(click.defaultPrevented).toBe(false);
+  });
+
+  it("protects a link click while waiting for GestureKit to resolve the tap", async () => {
+    const module = await import("../src/content/pointerTracker");
+    module.setLinkClickProtectionEnabled(true);
+    const anchor = document.getElementById("target") as HTMLAnchorElement;
+    window.dispatchEvent(new PointerEvent("pointermove", { clientX: 10, clientY: 20 }));
+
+    const click = new MouseEvent("click", { bubbles: true, cancelable: true });
+    const wasNotCancelled = anchor.dispatchEvent(click);
+    const result = module.resolveLinkAtLastPointer(Date.now(), { consumeNextClick: true });
+
+    expect(wasNotCancelled).toBe(false);
+    expect(click.defaultPrevented).toBe(true);
+    expect(result).toEqual({
+      status: "success",
+      url: "http://localhost:3000/docs",
+      clickProtected: true
+    });
+  });
+
+  it("does not protect link clicks when link click protection is disabled", async () => {
+    const module = await import("../src/content/pointerTracker");
+    module.setLinkClickProtectionEnabled(false);
+    const anchor = document.getElementById("target") as HTMLAnchorElement;
+
+    const click = new MouseEvent("click", { bubbles: true, cancelable: true });
+    const wasNotCancelled = anchor.dispatchEvent(click);
 
     expect(wasNotCancelled).toBe(true);
     expect(click.defaultPrevented).toBe(false);

@@ -7,6 +7,7 @@ export type GestureSettings = {
   edgeTapEnabled: boolean;
   doubleTapCloseEnabled: boolean;
   flickSwitchEnabled: boolean;
+  linkClickProtectionEnabled: boolean;
   leftEdgeMax: number;
   rightEdgeMin: number;
   doubleTapMinMs: number;
@@ -34,6 +35,7 @@ export const GESTURE_SETTINGS_PRESETS: Record<GestureSettingsMode, GestureSettin
     edgeTapEnabled: true,
     doubleTapCloseEnabled: true,
     flickSwitchEnabled: true,
+    linkClickProtectionEnabled: true,
     leftEdgeMax: 0.3,
     rightEdgeMin: 0.7,
     doubleTapMinMs: 160,
@@ -48,6 +50,7 @@ export const GESTURE_SETTINGS_PRESETS: Record<GestureSettingsMode, GestureSettin
     edgeTapEnabled: true,
     doubleTapCloseEnabled: true,
     flickSwitchEnabled: true,
+    linkClickProtectionEnabled: true,
     leftEdgeMax: 0.38,
     rightEdgeMin: 0.62,
     doubleTapMinMs: 120,
@@ -103,6 +106,9 @@ export function normalizeGestureSettings(input: GestureSettingsInput | unknown):
     flickSwitchEnabled: typeof merged.flickSwitchEnabled === "boolean"
       ? merged.flickSwitchEnabled
       : preset.flickSwitchEnabled,
+    linkClickProtectionEnabled: typeof merged.linkClickProtectionEnabled === "boolean"
+      ? merged.linkClickProtectionEnabled
+      : preset.linkClickProtectionEnabled,
     leftEdgeMax,
     rightEdgeMin,
     doubleTapMinMs,

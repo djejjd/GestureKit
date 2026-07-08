@@ -61,6 +61,7 @@ function bindEvents(
     "#edgeTapEnabled",
     "#doubleTapCloseEnabled",
     "#flickSwitchEnabled",
+    "#linkClickProtectionEnabled",
     "#swipeSensitivity",
     "#edgeWidth",
     "#doubleTapSpeed",
@@ -109,6 +110,7 @@ function renderSettings(doc: Document, settings: GestureSettings) {
   checkbox(doc, "#edgeTapEnabled").checked = settings.edgeTapEnabled;
   checkbox(doc, "#doubleTapCloseEnabled").checked = settings.doubleTapCloseEnabled;
   checkbox(doc, "#flickSwitchEnabled").checked = settings.flickSwitchEnabled;
+  checkbox(doc, "#linkClickProtectionEnabled").checked = settings.linkClickProtectionEnabled;
 
   const edgeWidth = Math.round(settings.leftEdgeMax * 100);
   input(doc, "#edgeWidth").value = String(edgeWidth);
@@ -156,6 +158,7 @@ function formatPopupDiagnostics(settings: GestureSettings, diagnostics: GestureD
     `edgeTapEnabled=${settings.edgeTapEnabled}`,
     `doubleTapCloseEnabled=${settings.doubleTapCloseEnabled}`,
     `flickSwitchEnabled=${settings.flickSwitchEnabled}`,
+    `linkClickProtectionEnabled=${settings.linkClickProtectionEnabled}`,
     `cooldownMs=${settings.cooldownMs}`,
     `edgeWidth=${settings.leftEdgeMax.toFixed(2)}`,
     formatDiagnosticsForClipboard(diagnostics)
@@ -200,6 +203,7 @@ function readSettings(doc: Document): GestureSettings {
     edgeTapEnabled: checkbox(doc, "#edgeTapEnabled").checked,
     doubleTapCloseEnabled: checkbox(doc, "#doubleTapCloseEnabled").checked,
     flickSwitchEnabled: checkbox(doc, "#flickSwitchEnabled").checked,
+    linkClickProtectionEnabled: checkbox(doc, "#linkClickProtectionEnabled").checked,
     leftEdgeMax: edgeWidth,
     rightEdgeMin: 1 - edgeWidth,
     doubleTapMaxMs,

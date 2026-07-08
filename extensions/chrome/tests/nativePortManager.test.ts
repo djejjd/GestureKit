@@ -120,6 +120,24 @@ describe("createNativePortManager", () => {
     }));
   });
 
+  it("opens a link when the page click was protected by the content script", async () => {
+    const postMessage = vi.fn();
+    const executeAction = vi.fn(async () => ({ action: "open_link_background", status: "success" }));
+    const manager = createNativePortManager({
+      port: { postMessage },
+      resolveLastPointer: vi.fn(async () => ({
+        status: "success",
+        url: "https://example.com",
+        clickProtected: true
+      })),
+      executeAction
+    });
+
+    await manager.handleNativeMessage(gestureMessage("three_finger_tap", { durationMs: 96 }));
+
+    expect(executeAction).toHaveBeenCalledWith({ action: "open_link_background", url: "https://example.com" });
+  });
+
   it("ignores short no-link tap without opening a tab or switching tabs", async () => {
     const postMessage = vi.fn();
     const executeAction = vi.fn();

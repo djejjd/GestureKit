@@ -29,6 +29,7 @@ describe("gesture settings", () => {
       edgeTapEnabled: true,
       doubleTapCloseEnabled: true,
       flickSwitchEnabled: true,
+      linkClickProtectionEnabled: true,
       leftEdgeMax: 0.3,
       rightEdgeMin: 0.7,
       doubleTapMinMs: 160,
@@ -52,6 +53,7 @@ describe("gesture settings", () => {
       mode: "efficient",
       swipeSensitivity: "sensitive",
       doubleTapCloseEnabled: false,
+      linkClickProtectionEnabled: true,
       leftEdgeMax: 0.38,
       rightEdgeMin: 0.62,
       cooldownMs: 80
@@ -65,6 +67,15 @@ describe("gesture settings", () => {
     });
 
     expect(normalized.swipeSensitivity).toBe("standard");
+  });
+
+  it("keeps an explicit link click protection setting", () => {
+    const normalized = normalizeGestureSettings({
+      mode: "safe",
+      linkClickProtectionEnabled: false
+    });
+
+    expect(normalized.linkClickProtectionEnabled).toBe(false);
   });
 
   it("falls back to safe settings when storage is empty", async () => {
@@ -82,6 +93,7 @@ describe("gesture settings", () => {
       [GESTURE_SETTINGS_STORAGE_KEY]: expect.objectContaining({
         mode: "efficient",
         edgeTapEnabled: false,
+        linkClickProtectionEnabled: true,
         leftEdgeMax: 0.38
       })
     });
