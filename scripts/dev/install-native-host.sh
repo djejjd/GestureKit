@@ -43,7 +43,14 @@ done
 
 mkdir -p "$manifest_dir"
 target="$manifest_dir/com.gesturekit.host.json"
+temp_target=$(mktemp "$manifest_dir/.com.gesturekit.host.json.XXXXXX")
+cleanup() {
+  rm -f "$temp_target"
+}
+trap cleanup EXIT
 
-"$renderer" --extension-id "$extension_id" --host-path "$host_path" >"$target"
+"$renderer" --extension-id "$extension_id" --host-path "$host_path" >"$temp_target"
+mv -f "$temp_target" "$target"
+trap - EXIT
 
 echo "installed_manifest=$target"

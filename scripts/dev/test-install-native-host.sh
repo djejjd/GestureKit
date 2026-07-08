@@ -59,4 +59,18 @@ default_target="$default_home/Library/Application Support/Google/Chrome/NativeMe
 [[ -f "$default_target" ]]
 [[ "$output" == *"installed_manifest=$default_target"* ]]
 
+failed_manifest_dir="$tmpdir/failed"
+mkdir -p "$failed_manifest_dir"
+
+if "$script" \
+  --extension-id invalid-extension-id \
+  --host-path "$host_path" \
+  --manifest-dir "$failed_manifest_dir" >/dev/null 2>&1; then
+  echo "expected invalid renderer input to fail"
+  exit 1
+fi
+
+failed_target="$failed_manifest_dir/com.gesturekit.host.json"
+[[ ! -e "$failed_target" ]]
+
 echo "install-native-host ok"
