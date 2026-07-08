@@ -29,6 +29,25 @@ assert data["type"] == "stdio"
 assert data["allowed_origins"] == [f"chrome-extension://{extension_id}/"]
 PY
 
+escaped_host_path=$'/tmp/GestureKitHost "quote" \\backslash\nnewline'
+
+"$script" --extension-id "$extension_id" --host-path "$escaped_host_path" >"$tmpdir/escaped.json"
+
+/usr/bin/python3 - <<'PY' "$tmpdir/escaped.json" "$extension_id" "$escaped_host_path"
+import json
+import pathlib
+import sys
+
+out_path = pathlib.Path(sys.argv[1])
+extension_id = sys.argv[2]
+host_path = sys.argv[3]
+
+data = json.loads(out_path.read_text())
+
+assert data["path"] == host_path
+assert data["allowed_origins"] == [f"chrome-extension://{extension_id}/"]
+PY
+
 if "$script" --extension-id not-valid --host-path "$host_path" >/dev/null 2>&1; then
   echo "expected invalid extension id to fail"
   exit 1

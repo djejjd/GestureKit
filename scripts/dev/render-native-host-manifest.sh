@@ -39,14 +39,21 @@ if [[ "$host_path" != /* ]]; then
   exit 1
 fi
 
+json_string() {
+  /usr/bin/python3 -c 'import json,sys; print(json.dumps(sys.argv[1]))' "$1"
+}
+
+path_json=$(json_string "$host_path")
+origin_json=$(json_string "chrome-extension://$extension_id/")
+
 cat <<EOF
 {
   "name": "com.gesturekit.host",
   "description": "GestureKit Native Messaging Host",
-  "path": "$host_path",
+  "path": $path_json,
   "type": "stdio",
   "allowed_origins": [
-    "chrome-extension://$extension_id/"
+    $origin_json
   ]
 }
 EOF
