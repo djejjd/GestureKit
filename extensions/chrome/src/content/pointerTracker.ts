@@ -185,6 +185,13 @@ function resetTransientClickState() {
   state.expiredProtectedClick = null;
 }
 
+export function cancelProtectedClick() {
+  if (state.protectedLinkClick) {
+    clearTimeout(state.protectedLinkClick.timeout);
+    state.protectedLinkClick = null;
+  }
+}
+
 function sharedState(): PointerTrackerState {
   const key = "__gestureKitPointerTrackerState";
   const target = window as unknown as Record<string, PointerTrackerState | undefined>;
@@ -221,6 +228,10 @@ function syncLinkClickProtectionFromStorage() {
 if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
   syncLinkClickProtectionFromStorage();
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message.type === "gesturekit.cancelTap") {
+      cancelProtectedClick();
+      return false;
+    }
     if (message.type !== "gesturekit.resolveLastPointer") {
       return false;
     }

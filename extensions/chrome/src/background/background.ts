@@ -49,11 +49,21 @@ void chrome.storage.local.set({
   }
 });
 
+function cancelPendingTap() {
+  void (async () => {
+    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    if (tab?.id) {
+      chrome.tabs.sendMessage(tab.id, { type: "gesturekit.cancelTap" }).catch(() => {});
+    }
+  })();
+}
+
 const manager = createNativePortManager({
   port,
   resolveLastPointer,
   executeAction: (intent) => executeGestureAction(chromeApi, intent),
   getSettings: () => loadGestureSettings(chrome.storage.local),
+  cancelPendingTap,
   onActionResult: (message) => {
     void appendDiagnostic(
       chrome.storage.local,

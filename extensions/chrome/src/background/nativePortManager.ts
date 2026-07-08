@@ -18,6 +18,7 @@ type Dependencies = {
   executeAction(intent: GestureIntent): Promise<ActionExecutionResult>;
   getSettings?(): Promise<GestureSettings>;
   onActionResult?(message: ActionResultMessage): void;
+  cancelPendingTap?(): void;
 };
 
 const DOUBLE_TAP_WINDOW_MS = 300;
@@ -85,12 +86,14 @@ export function createNativePortManager(deps: Dependencies) {
       if (message.payload.gesture === "three_finger_tap") {
         if (Date.now() < cooldownUntil) {
           clearPendingTap();
+          deps.cancelPendingTap?.();
           postActionResult(actionResult(message.id, "open_link_background", "gesture_unstable", { reason: "cooldown" }));
           return;
         }
 
         if (!isStableTapDuration(message.payload.durationMs, settings)) {
           clearPendingTap();
+          deps.cancelPendingTap?.();
           postActionResult(actionResult(message.id, "open_link_background", "gesture_unstable", { reason: "tap_duration_unstable" }));
           return;
         }
