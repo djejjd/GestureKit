@@ -14,18 +14,31 @@ function makeChromeApi(tabs: Array<{ id: number; index: number; active?: boolean
         }
         return tabs;
       }),
-      create: vi.fn(async (createProperties) => ({
-        id: 100,
-        index: createProperties.index ?? 0,
-        windowId: createProperties.windowId ?? 1
-      })),
+      create: vi.fn(async (createProperties) => {
+        const tab = {
+          id: 100,
+          index: createProperties.index ?? 0,
+          active: Boolean(createProperties.active),
+          windowId: createProperties.windowId ?? 1
+        };
+        tabs.push(tab);
+        return tab;
+      }),
       update: vi.fn(async (tabId, updateProperties) => ({
         id: tabId,
         active: Boolean(updateProperties.active),
         index: 0,
         windowId: 1
       })),
-      remove: vi.fn(async () => {})
+      remove: vi.fn(async (tabIds) => {
+        const ids = Array.isArray(tabIds) ? tabIds : [tabIds];
+        for (const id of ids) {
+          const index = tabs.findIndex((tab) => tab.id === id);
+          if (index >= 0) {
+            tabs.splice(index, 1);
+          }
+        }
+      })
     }
   };
 }
@@ -105,5 +118,58 @@ describe("executeGestureAction", () => {
 
     expect(result.status).toBe("success");
     expect(api.tabs.remove).toHaveBeenCalledWith(20);
+  });
+
+  it("returns to the opener tab when closing a GestureKit-opened tab", async () => {
+    const api = makeChromeApi([
+      { id: 10, index: 0, active: true, windowId: 7 },
+      { id: 11, index: 1, windowId: 7 }
+    ]);
+
+    await executeGestureAction(api, {
+      action: "open_link_background",
+      url: "https://example.com/docs"
+    });
+    const openedTab = await api.tabs.create.mock.results[0].value;
+    const tabs = [
+      { id: 10, index: 0, windowId: 7 },
+      { id: openedTab.id!, index: 1, active: true, windowId: 7 },
+      { id: 11, index: 2, windowId: 7 }
+    ];
+    const closeApi = makeChromeApi(tabs);
+
+    const result = await executeGestureAction(closeApi, { action: "close_tab" });
+
+    expect(result.status).toBe("success");
+    expect(closeApi.tabs.update).toHaveBeenCalledWith(10, { active: true });
+    expect(closeApi.tabs.remove).toHaveBeenCalledWith(openedTab.id);
+  });
+
+  it("activates the left tab before closing when no opener is available", async () => {
+    const api = makeChromeApi([
+      { id: 10, index: 0, windowId: 7 },
+      { id: 11, index: 1, active: true, windowId: 7 },
+      { id: 12, index: 2, windowId: 7 }
+    ]);
+
+    const result = await executeGestureAction(api, { action: "close_tab" });
+
+    expect(result.status).toBe("success");
+    expect(api.tabs.update).toHaveBeenCalledWith(10, { active: true });
+    expect(api.tabs.remove).toHaveBeenCalledWith(11);
+  });
+
+  it("activates the right tab before closing when the active tab is leftmost", async () => {
+    const api = makeChromeApi([
+      { id: 10, index: 0, active: true, windowId: 7 },
+      { id: 11, index: 1, windowId: 7 },
+      { id: 12, index: 2, windowId: 7 }
+    ]);
+
+    const result = await executeGestureAction(api, { action: "close_tab" });
+
+    expect(result.status).toBe("success");
+    expect(api.tabs.update).toHaveBeenCalledWith(11, { active: true });
+    expect(api.tabs.remove).toHaveBeenCalledWith(10);
   });
 });

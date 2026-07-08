@@ -20,6 +20,9 @@
 - [ ] 鼠标停在非链接区域，触控板右侧边缘三指点按切到右侧 tab。
 - [ ] 鼠标停在非链接区域，触控板中间区域三指单点不切 tab、不关闭 tab。
 - [ ] 鼠标停在非链接区域，合法间隔内连续两次三指点按触控板中间区域关闭当前 tab，且第一下不先切 tab。
+- [ ] 关闭 GestureKit 三指点按链接打开的新 tab 后，Chrome 回到打开它的来源 tab。
+- [ ] 关闭普通中间 tab 后，Chrome 优先切到左侧 tab。
+- [ ] 关闭最左侧 tab 后，如果没有来源 tab，Chrome 切到右侧 tab。
 - [ ] 快速连续轻碰或明显过短的三指点按不会切 tab 或关闭 tab。
 - [ ] `javascript:`、`file:` 或 `mailto:` 链接返回 `unsupported_url_scheme`。
 - [ ] 多 tab 中间位置三指快速左轻扫，切到右侧相邻 tab。

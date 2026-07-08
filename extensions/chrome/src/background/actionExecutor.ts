@@ -13,6 +13,8 @@ export type ActionExecutionResult = {
   details?: Record<string, unknown>;
 };
 
+const openerTabByOpenedTab = new Map<number, number>();
+
 export async function executeGestureAction(api: ChromeApi, intent: ActionIntent): Promise<ActionExecutionResult> {
   if (intent.action === "open_link_background") {
     return openLinkBackground(api, intent.url);
@@ -37,12 +39,15 @@ async function openLinkBackground(api: ChromeApi, urlValue: string): Promise<Act
     return { action: "open_link_background", status: "page_unavailable" };
   }
 
-  await api.tabs.create({
+  const created = await api.tabs.create({
     url: url.toString(),
     active: true,
     index: activeTab.index + 1,
     windowId: activeTab.windowId
   });
+  if (created.id !== undefined && activeTab.id !== undefined) {
+    openerTabByOpenedTab.set(created.id, activeTab.id);
+  }
   return { action: "open_link_background", status: "success" };
 }
 
@@ -83,12 +88,38 @@ async function getActiveTab(api: ChromeApi): Promise<chrome.tabs.Tab | undefined
 
 async function closeActiveTab(api: ChromeApi): Promise<ActionExecutionResult> {
   const activeTab = await getActiveTab(api);
-  if (!activeTab?.id) {
+  if (!activeTab?.id || activeTab.index === undefined || activeTab.windowId === undefined) {
     return { action: "close_tab", status: "page_unavailable" };
   }
 
+  const target = await preferredTabAfterClose(api, activeTab);
+  if (target?.id !== undefined) {
+    await api.tabs.update(target.id, { active: true });
+  }
   await api.tabs.remove(activeTab.id);
+  openerTabByOpenedTab.delete(activeTab.id);
   return { action: "close_tab", status: "success" };
+}
+
+async function preferredTabAfterClose(api: ChromeApi, activeTab: chrome.tabs.Tab): Promise<chrome.tabs.Tab | null> {
+  const tabs = (await api.tabs.query({ currentWindow: true }))
+    .filter((tab) => tab.windowId === activeTab.windowId && tab.id !== undefined && tab.index !== undefined && tab.id !== activeTab.id)
+    .sort((a, b) => (a.index ?? 0) - (b.index ?? 0));
+  if (tabs.length === 0) {
+    return null;
+  }
+
+  const openerId = openerTabByOpenedTab.get(activeTab.id!);
+  const opener = openerId === undefined ? null : tabs.find((tab) => tab.id === openerId) ?? null;
+  if (opener) {
+    return opener;
+  }
+
+  const left = [...tabs].reverse().find((tab) => (tab.index ?? 0) < (activeTab.index ?? 0));
+  if (left) {
+    return left;
+  }
+  return tabs.find((tab) => (tab.index ?? 0) > (activeTab.index ?? 0)) ?? null;
 }
 
 function parseAllowedURL(value: string): URL | null {

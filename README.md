@@ -21,7 +21,7 @@ English version: [English](#english)
 
 标签页切换只作用于当前 Chrome 窗口。到达最左或最右标签页时会循环切换。
 
-三指点按会过滤异常短触和动作后的短暂抖动。左/右切 tab 只认触控板边缘区域，中间单点不执行动作，中间双点才关闭 tab。左右轻扫按 macOS Spaces 的内容移动语义适配：手指向右滑会把左侧内容带过来，因此切到左侧标签页；手指向左滑则切到右侧标签页。左右轻扫只识别短促的 flick，默认约 `60ms-420ms` 的短促横向动作；可在扩展 popup 中切换稳健、标准、灵敏三档。慢速三指拖动会被判为不稳定手势，以减少 Chrome 页面文本被拖选的情况。
+三指点按会过滤异常短触和动作后的短暂抖动。左/右切 tab 只认触控板边缘区域，中间单点不执行动作，中间双点才关闭 tab。关闭 GestureKit 打开的新标签页时会优先回到来源标签页；没有来源标签页时优先切到左侧标签页，最左侧则切到右侧标签页。左右轻扫按 macOS Spaces 的内容移动语义适配：手指向右滑会把左侧内容带过来，因此切到左侧标签页；手指向左滑则切到右侧标签页。左右轻扫只识别短促的 flick，默认约 `60ms-420ms` 的短促横向动作；可在扩展 popup 中切换稳健、标准、灵敏三档。慢速三指拖动会被判为不稳定手势，以减少 Chrome 页面文本被拖选的情况。
 
 ## 扩展设置
 
@@ -174,7 +174,7 @@ Current gestures:
 - Three-finger tap on a link: open it in a new tab and switch to it.
 - Three-finger tap on empty space near the left edge of the trackpad: switch to the previous tab.
 - Three-finger tap on empty space near the right edge of the trackpad: switch to the next tab.
-- Three-finger double-tap on empty space in the center area: close the current tab.
+- Three-finger double-tap on empty space in the center area: close the current tab, preferring the opener tab, then the tab on the left.
 - Three-finger quick flick left: switch to the next tab.
 - Three-finger quick flick right: switch to the previous tab.
 
