@@ -119,7 +119,13 @@ function bindEvents(
   });
 
   element(doc, "#clearDiagnostics").addEventListener("click", () => {
-    void clearDiagnostics(storage).then(() => setDiagnostics([]));
+    void clearDiagnostics(storage).then(() => {
+      setDiagnostics([]);
+      const toggle = element(doc, "#diagnosticsToggle");
+      toggle.setAttribute("aria-expanded", "false");
+      toggle.textContent = "展开";
+      element(doc, "#diagnosticsPanel").hidden = true;
+    });
   });
 
   element(doc, "#applyRecommendedSettings").addEventListener("click", () => {
