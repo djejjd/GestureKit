@@ -30,6 +30,8 @@ public enum ActionStatus: String, Codable, Equatable, Sendable {
 
 public enum MessageType: String, Codable, Equatable, Sendable {
     case hello
+    case probeRequest = "probe_request"
+    case probeResponse = "probe_response"
     case gestureEvent = "gesture_event"
     case actionResult = "action_result"
     case settingsUpdate = "settings_update"
@@ -91,6 +93,26 @@ public struct ActionResultPayload: Codable, Equatable, Sendable {
         self.action = action
         self.status = status
         self.details = details
+    }
+}
+
+public struct ProbeRequestPayload: Codable, Equatable, Sendable {
+    public let source: String
+
+    public init(source: String) {
+        self.source = source
+    }
+}
+
+public struct ProbeResponsePayload: Codable, Equatable, Sendable {
+    public let hostConnected: Bool
+    public let appConnected: Bool
+    public let message: String?
+
+    public init(hostConnected: Bool, appConnected: Bool, message: String?) {
+        self.hostConnected = hostConnected
+        self.appConnected = appConnected
+        self.message = message
     }
 }
 
@@ -215,6 +237,8 @@ public struct GestureKitMessage: Codable, Equatable, Sendable {
     }
 
     public enum Payload: Codable, Equatable, Sendable {
+        case probeRequest(ProbeRequestPayload)
+        case probeResponse(ProbeResponsePayload)
         case gestureEvent(GestureEventPayload)
         case actionResult(ActionResultPayload)
         case settingsUpdate(SettingsUpdatePayload)
@@ -224,7 +248,11 @@ public struct GestureKitMessage: Codable, Equatable, Sendable {
 
         public init(from decoder: Decoder) throws {
             let container = try decoder.singleValueContainer()
-            if let payload = try? container.decode(GestureEventPayload.self) {
+            if let payload = try? container.decode(ProbeRequestPayload.self) {
+                self = .probeRequest(payload)
+            } else if let payload = try? container.decode(ProbeResponsePayload.self) {
+                self = .probeResponse(payload)
+            } else if let payload = try? container.decode(GestureEventPayload.self) {
                 self = .gestureEvent(payload)
             } else if let payload = try? container.decode(ActionResultPayload.self) {
                 self = .actionResult(payload)
@@ -242,6 +270,10 @@ public struct GestureKitMessage: Codable, Equatable, Sendable {
         public func encode(to encoder: Encoder) throws {
             var container = encoder.singleValueContainer()
             switch self {
+            case .probeRequest(let payload):
+                try container.encode(payload)
+            case .probeResponse(let payload):
+                try container.encode(payload)
             case .gestureEvent(let payload):
                 try container.encode(payload)
             case .actionResult(let payload):
@@ -258,6 +290,14 @@ public struct GestureKitMessage: Codable, Equatable, Sendable {
         }
     }
 
+    public static func probeRequest(id: String, timestamp: Int64, payload: ProbeRequestPayload) -> GestureKitMessage {
+        GestureKitMessage(version: 1, id: id, type: .probeRequest, timestamp: timestamp, payload: .probeRequest(payload), error: nil)
+    }
+
+    public static func probeResponse(id: String, timestamp: Int64, payload: ProbeResponsePayload) -> GestureKitMessage {
+        GestureKitMessage(version: 1, id: id, type: .probeResponse, timestamp: timestamp, payload: .probeResponse(payload), error: nil)
+    }
+
     public static func gestureEvent(id: String, timestamp: Int64, payload: GestureEventPayload) -> GestureKitMessage {
         GestureKitMessage(version: 1, id: id, type: .gestureEvent, timestamp: timestamp, payload: .gestureEvent(payload), error: nil)
     }
@@ -272,6 +312,16 @@ public struct GestureKitMessage: Codable, Equatable, Sendable {
 
     public var actionResultPayload: ActionResultPayload? {
         guard case .actionResult(let payload) = payload else { return nil }
+        return payload
+    }
+
+    public var probeRequestPayload: ProbeRequestPayload? {
+        guard case .probeRequest(let payload) = payload else { return nil }
+        return payload
+    }
+
+    public var probeResponsePayload: ProbeResponsePayload? {
+        guard case .probeResponse(let payload) = payload else { return nil }
         return payload
     }
 
@@ -313,6 +363,10 @@ public struct GestureKitMessage: Codable, Equatable, Sendable {
         type = try container.decode(MessageType.self, forKey: .type)
         timestamp = try container.decode(Int64.self, forKey: .timestamp)
         switch type {
+        case .probeRequest:
+            payload = .probeRequest(try container.decode(ProbeRequestPayload.self, forKey: .payload))
+        case .probeResponse:
+            payload = .probeResponse(try container.decode(ProbeResponsePayload.self, forKey: .payload))
         case .gestureEvent:
             payload = .gestureEvent(try container.decode(GestureEventPayload.self, forKey: .payload))
         case .actionResult:

@@ -1,6 +1,7 @@
 import { executeGestureAction } from "./actionExecutor";
 import { chromeApi } from "./chromeApi";
 import { createNativePortManager } from "./nativePortManager";
+import { runConnectionProbe } from "./connectionProbe";
 import { GESTURE_SETTINGS_STORAGE_KEY, loadGestureSettings } from "../settings/gestureSettings";
 import {
   createSettingsUpdateMessage,
@@ -63,6 +64,23 @@ const manager = createNativePortManager({
       }
     });
   }
+});
+
+chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type !== "gesturekit.runConnectionProbe") {
+    return false;
+  }
+
+  runConnectionProbe(port)
+    .then(sendResponse)
+    .catch((error: Error) => sendResponse({
+      hostConnected: false,
+      appConnected: false,
+      status: "error",
+      message: error.message
+    }));
+
+  return true;
 });
 
 async function syncGestureSettings() {

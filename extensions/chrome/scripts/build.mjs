@@ -21,5 +21,12 @@ await Promise.all([
     format: "esm",
     outfile: "dist/popup/popup.js",
     sourcemap: false
+  }),
+  build({
+    entryPoints: ["src/smoke/smoke.ts"],
+    bundle: true,
+    format: "esm",
+    outfile: "dist/smoke/smoke.js",
+    sourcemap: false
   })
 ]);

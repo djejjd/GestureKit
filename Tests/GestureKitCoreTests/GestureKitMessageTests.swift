@@ -93,4 +93,16 @@ final class GestureKitMessageTests: XCTestCase {
         XCTAssertEqual(decoded.diagnosticEventPayload?.gesture, .threeFingerSwipeRight)
         XCTAssertEqual(decoded.diagnosticEventPayload?.thresholds?.swipeMinDistance, 0.09)
     }
+
+    func testProbeResponseDecodesContractShape() throws {
+        let data = Data("""
+        {"version":1,"id":"probe-1","type":"probe_response","timestamp":10,"payload":{"hostConnected":true,"appConnected":true,"message":"app_ready"},"error":null}
+        """.utf8)
+
+        let message = try JSONDecoder.gestureKit.decode(GestureKitMessage.self, from: data)
+
+        XCTAssertEqual(message.type, .probeResponse)
+        XCTAssertEqual(message.probeResponsePayload?.appConnected, true)
+        XCTAssertEqual(message.probeResponsePayload?.message, "app_ready")
+    }
 }

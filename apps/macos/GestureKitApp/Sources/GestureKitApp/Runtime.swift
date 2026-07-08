@@ -156,14 +156,35 @@ final class GestureKitRuntime {
         processFrame(frame)
     }
 
+    func handleProbeRequestForTesting(id: String) -> GestureKitMessage {
+        handleProbeRequest(id).message
+    }
+
+    private func handleProbeRequest(_ id: String) -> LocalIPCEnvelope {
+        LocalIPCEnvelope(message: .probeResponse(
+            id: id,
+            timestamp: currentTimestampMs(),
+            payload: ProbeResponsePayload(
+                hostConnected: true,
+                appConnected: true,
+                message: "app_ready"
+            )
+        ))
+    }
+
     private func handleIPCEnvelope(_ envelope: LocalIPCEnvelope) {
+        if envelope.message.type == .probeRequest {
+            _ = eventServer?.publish(handleProbeRequest(envelope.id))
+            return
+        }
+
         guard let payload = envelope.message.settingsUpdatePayload else {
             return
         }
         let ack = applySettingsUpdate(payload)
         let ackEnvelope = LocalIPCEnvelope(message: .settingsAck(
             id: envelope.id,
-            timestamp: Int64(Date().timeIntervalSince1970 * 1000),
+            timestamp: currentTimestampMs(),
             payload: ack
         ))
         _ = eventServer?.publish(ackEnvelope)
@@ -228,5 +249,9 @@ final class GestureKitRuntime {
 
     private func loggerFilePathHint() -> String {
         "~/Library/Logs/GestureKit/GestureKitApp.log"
+    }
+
+    private func currentTimestampMs() -> Int64 {
+        Int64(Date().timeIntervalSince1970 * 1000)
     }
 }

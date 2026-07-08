@@ -55,6 +55,22 @@ export type ActionResultMessage = GestureKitMessage<
   }
 >;
 
+export type ProbeRequestMessage = GestureKitMessage<
+  "probe_request",
+  {
+    source: "extension_smoke_page";
+  }
+>;
+
+export type ProbeResponseMessage = GestureKitMessage<
+  "probe_response",
+  {
+    hostConnected: boolean;
+    appConnected: boolean;
+    message?: string;
+  }
+>;
+
 export type SwipeSensitivity = "robust" | "standard" | "sensitive";
 
 export type SettingsUpdateMessage = GestureKitMessage<
