@@ -103,7 +103,9 @@ function bindEvents(
     const panel = element(doc, "#diagnosticsPanel");
     const toggle = element(doc, "#diagnosticsToggle");
     const expanded = toggle.getAttribute("aria-expanded") === "true";
-    toggle.setAttribute("aria-expanded", String(!expanded));
+    const nextExpanded = !expanded;
+    toggle.setAttribute("aria-expanded", String(nextExpanded));
+    toggle.textContent = nextExpanded ? "收起" : "展开";
     panel.hidden = expanded;
   });
 
