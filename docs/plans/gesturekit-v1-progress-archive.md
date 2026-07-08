@@ -2,7 +2,7 @@
 
 日期：2026-07-08
 
-更新日期：2026-07-08
+更新日期：2026-07-09
 
 相关文档：
 
@@ -32,13 +32,13 @@ plan/v1-spikes
 当前阶段：
 
 ```text
-P3 安装与验收闭环已完成；准备进入 P4 推荐应用闭环
+P4 推荐应用闭环已完成；准备进入 P5 菜单栏状态与生命周期加固
 ```
 
 当前工作结论：
 
-- `P3` 已把 native host manifest 生成、安装、extension 到 App 的连通探针、以及安装/排障文档收口成可重复流程。
-- `P4` 尚未开始实现；当前只有路线图和方向约束，没有新的代码或文档提交。
+- `P4` 已把推荐结果推进到"可显式应用、可确认是否真正生效"的闭环。
+- `P5` 尚未开始实现；当前只有路线图和方向约束。
 
 ## 2. 已完成并提交的工作
 
@@ -151,59 +151,82 @@ npm run build
 - `smoke-check.sh` 负责预检查和打开 smoke 页面，不负责自动启动 `GestureKitApp`。
 - smoke 页面是否真正显示 `connected`，仍依赖 App 已单独启动。
 
-## 4. P4 修改方向
+## 4. P4 归档
 
 ### 4.1 P4 目标
 
-`P4` 的目标不是继续扩诊断展示，而是把“推荐结果”推进到“可显式应用、可确认是否真正生效”的闭环。
+`P4` 的目标是把当前”只读展示推荐档位/推荐最小距离”推进到”用户可以显式应用推荐设置，并且知道应用结果是否真实生效”的闭环。
 
-### 4.2 P4 主要修改方向
+### 4.2 P4 已完成内容
 
-`P4` 主要收在 4 条线上：
+已完成 5 个 Task：
 
-1. 推荐应用入口
-   - 在 popup 中增加“应用推荐设置”入口。
-   - 入口只针对轻扫灵敏度和相关阈值，不扩展到动作绑定。
+1. `Task 1`：协议契约与 App 会话标识 — `ProbeResponsePayload` 和 `SettingsAckPayload` 新增 `appSessionId`；Runtime 生成稳定 UUID 会话号
+2. `Task 2`：扩展侧推荐设置模型与有效阈值解析 — `SwipeRecognitionOverride` 类型、`resolveEffectiveSwipeRecognition`、`buildRecommendedSettings`、`describeRecognitionDelta`
+3. `Task 3`：后台同步状态机与 stale/failed 语义 — 五态模型 `saved_only | pending | applied | failed | stale`，完整状态迁移链路
+4. `Task 4`：popup 推荐应用、确认与诊断 delta 展示 — 推荐卡片渲染、显式确认流程、状态分离展示、诊断 delta 输出
+5. `Task 5`：文档、全量验证与收口 — 验收清单、排障文档更新
 
-2. 应用前确认
-   - 应用前要有显式确认，不做静默自动修改。
-   - 保持当前规则 source of truth 不变。
+当前关键产物修改/新增：
 
-3. 应用后状态语义
-   - 明确区分“已保存到 extension 设置”和“App 运行时已应用”。
-   - 明确 `settings_ack` 的语义，不把最后一次 ack 误显示成持久生效。
-
-4. 失败与恢复路径
-   - host 断开、App 未运行、ack 缺失、App 重启后状态不一致，都要有明确反馈。
-   - 复制诊断时补充“当前设置 vs 推荐设置”的差异摘要。
-
-### 4.3 P4 主要改动位置
-
-预计主要改动这些位置：
-
-- `extensions/chrome/src/popup/popup.ts`
-- `extensions/chrome/popup.html`
-- `extensions/chrome/src/background/settingsSync.ts`
-- `extensions/chrome/src/settings/gestureSettings.ts`
-- `extensions/chrome/src/diagnostics/diagnostics.ts`
-- `extensions/chrome/tests/popup.test.ts`
-- `extensions/chrome/tests/settingsSync.test.ts`
-- `extensions/chrome/tests/gestureSettings.test.ts`
+- `Sources/GestureKitCore/Protocol/GestureKitMessage.swift`
 - `apps/macos/GestureKitApp/Sources/GestureKitApp/Runtime.swift`
-- `Tests/GestureKitAppTests/RuntimeSettingsTests.swift`
+- `extensions/chrome/src/settings/swipeRecognition.ts` (新增)
+- `extensions/chrome/src/settings/gestureSettings.ts`
+- `extensions/chrome/src/background/settingsSync.ts`
+- `extensions/chrome/src/background/background.ts`
+- `extensions/chrome/src/background/connectionProbe.ts`
+- `extensions/chrome/src/protocol/messages.ts`
+- `extensions/chrome/src/popup/popup.ts`
+- `extensions/chrome/src/popup/popup.css`
+- `extensions/chrome/src/diagnostics/diagnostics.ts`
+- `extensions/chrome/popup.html`
+- `docs/operations/gesturekit-v1-e2e-checklist.md`
+- `docs/operations/gesturekit-v1-troubleshooting.md`
 
-### 4.4 P4 不做的内容
+### 4.3 P4 关键提交记录
 
-`P4` 不做：
+```text
+afee405 feat: add recommendation apply flow in popup
+883a7a9 feat: track recommendation apply sync state
+84707f4 feat: add recommendation-aware swipe settings
+278a120 feat: add app session to settings ack
+```
 
-- 不新增新的用户手势动作；
-- 不做规则编辑器；
-- 不把 extension 设置扩成任意动作绑定；
-- 不做自动应用推荐；
-- 不扩到多浏览器支持；
-- 不在本阶段做菜单栏 UI 加固或开源整理。
+### 4.4 P4 已通过验证
 
-## 5. 恢复开发时的建议步骤
+Swift 与 native host：
+
+```bash
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test   # 41 passed
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift build  # Build complete
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift run GestureKitHost --self-test  # self-test passed
+```
+
+Chrome extension：
+
+```bash
+cd extensions/chrome
+npm test       # 97 passed
+npm run build  # Build complete
+```
+
+### 4.5 P4 当前结论
+
+`P4` 已完成当前目标：
+
+- 用户能在 popup 中看见推荐并主动应用；
+- 推荐应用结果在 UI 和诊断摘要中可见；
+- 推荐失败不允许静默处理，必须返回明确原因；
+- “已保存”与”已应用”状态语义明确，不会把最后一次 ack 误显示成持久生效；
+- 推荐应用不突破规则 source of truth 边界；
+- `appSessionId` 作为跨端状态锚点已落地。
+
+## 5. P5 修改方向
+
+`P5` 聚焦菜单栏状态增强、排障入口和生命周期加固，不重写手势识别主流程。
+
+## 6. 恢复开发时的建议步骤
 
 如果从本次归档恢复，建议按以下顺序继续：
 
@@ -222,21 +245,21 @@ npm run build
    zsh scripts/dev/test-smoke-check.sh
    ```
 
-3. 阅读 `P4` 方向文档：
+3. 阅读 `P5` 方向文档：
 
    ```bash
-   sed -n '1,220p' docs/plans/gesturekit-v1-optimization-roadmap.md
+   sed -n '110,135p' docs/plans/gesturekit-v1-optimization-roadmap.md
    ```
 
-4. 再开始写 `P4` 的独立实施计划或直接进入 `P4` 执行。
+4. 再开始写 `P5` 的独立实施计划或直接进入 `P5` 执行。
 
-## 6. 已知后续事项
+## 7. 已知后续事项
 
-- `P4` 仍需独立实施计划或执行分解，不建议直接从口头方向进入多文件实现。
-- 当前 `smoke-check.sh` 的职责是“预检查入口 + 打开 smoke 页面”，不是完整自动化 E2E。
+- `P5` 仍需独立实施计划或执行分解。
+- 当前 `smoke-check.sh` 的职责是”预检查入口 + 打开 smoke 页面”，不是完整自动化 E2E。
 - `pyenv: cannot rehash ... isn't writable` 仍可能在 `npm` 命令中出现警告，但当前不阻塞通过。
 
-## 7. 暂停时的原则
+## 8. 暂停时的原则
 
 - 不纳入 `.obsidian/`。
 - 项目文档继续保持中文优先。

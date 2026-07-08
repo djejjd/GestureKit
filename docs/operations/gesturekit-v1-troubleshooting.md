@@ -99,7 +99,23 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer GESTUREKIT_DEBUG=1 swif
 - 结合 `~/Library/Logs/GestureKit/GestureKitApp.log` 看 `gesture_unstable`、发布结果和连接数。
 - 回到手势矩阵记录实际设备、系统版本和冲突现象，不要在本任务里改 Task 3 协议或 probe 逻辑。
 
-## 7. 不确定从哪里开始排查
+## 7. 推荐应用同步状态异常
+
+推荐应用闭环（P4）的五种同步状态和对应排查入口：
+
+- `saved_only`：扩展设置已写入，但 App 还未 ack。先确认 App 是否运行；如果 App 已运行但长期处于此状态，检查 native host 连接。
+- `pending`：已发出 settings_update，等待 host/App 返回。如果长时间不消失，先跑 `smoke-check.sh` 确认连通性。
+- `applied`：App 已确认应用推荐设置，当前 App 会话中生效。
+- `failed`：host 断开或 ack 返回失败。先跑 smoke probe；检查 `~/Library/Logs/GestureKit/GestureKitApp.log` 中的 settings_applied 日志。
+- `stale`：App 会话已变化（重启或崩溃后重新启动），旧 ack 作废。需要重新应用推荐设置或等待自动重同步。
+
+常见问题：
+
+- **推荐按钮不显示**：需要 popup 中有足够的轻扫诊断数据（至少一条成功轻扫记录）才会出现推荐。
+- **点击应用后状态一直显示"等待确认"**：检查 GestureKitApp 是否运行，以及 native host 是否连接正常。
+- **关闭 App 后状态仍然显示"已应用"**：刷新 popup（重新打开）以触发探针检查，状态应转为 `stale`。
+
+## 8. 不确定从哪里开始排查
 
 建议固定顺序，不要跳步：
 
