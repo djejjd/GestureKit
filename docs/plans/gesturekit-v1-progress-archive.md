@@ -1,8 +1,19 @@
 # GestureKit V1 当前进度归档
 
-日期：2026-06-24
+日期：2026-07-08
 
-更新日期：2026-07-01
+更新日期：2026-07-08
+
+相关文档：
+
+- `docs/product/gesturekit-v1-contract.md`
+- `docs/product/gesturekit-v1-requirements.md`
+- `docs/architecture/gesturekit-v1-technical-design.md`
+- `docs/plans/gesturekit-v1-optimization-roadmap.md`
+- `docs/plans/gesturekit-p3-installation-connectivity-plan.md`
+- `docs/operations/gesturekit-v1-local-install.md`
+- `docs/operations/gesturekit-v1-e2e-checklist.md`
+- `docs/operations/gesturekit-v1-troubleshooting.md`
 
 ## 1. 当前状态
 
@@ -15,69 +26,96 @@ plan/v1-spikes
 当前已提交 HEAD：
 
 ```text
-6f6dcb4 feat: add trackpad input spike
+345e0ac docs: clarify smoke check phases
 ```
 
 当前阶段：
 
 ```text
-正式开发前 spike 验证
+P3 安装与验收闭环已完成；准备进入 P4 推荐应用闭环
 ```
 
-本次归档后暂停继续开发。后续恢复时，应先从本文件和 `git status --short` 开始。
+当前工作结论：
+
+- `P3` 已把 native host manifest 生成、安装、extension 到 App 的连通探针、以及安装/排障文档收口成可重复流程。
+- `P4` 尚未开始实现；当前只有路线图和方向约束，没有新的代码或文档提交。
 
 ## 2. 已完成并提交的工作
 
-已完成：
+截至本次归档，已经完成：
 
-- V1 设计文档基线。
-- 项目设计开发契约。
-- 正式开发前路线图。
-- 三份 ADR：
-  - 使用独立 native host shim。
-  - 使用 extension 记录最近 pointer 位置。
-  - V1 即引入窄规则引擎。
-- V1 正式开发前 spike 执行计划。
-- 项目基础骨架。
-- 共享 Native Messaging 协议 schema。
-- Native Messaging host spike。
-- Chrome link hit-test spike。
-- Chrome extension build 修复，使 manifest 指向可加载的 build 输出。
-- 文档中文优先规则已写入契约，并已把当前用户可见 README 转为中文优先。
-- Trackpad input spike 已提交，OpenMultitouchSupport backend 可以启动监听并输出三指候选事件。
+- V1 契约、需求、技术设计、ADR 和正式产品实现计划基线。
+- GestureKit App / GestureKitHost / GestureKitCore / Chrome extension 的正式代码骨架。
+- 轻扫灵敏度、扩展 popup、诊断面板、推荐档位与推荐最小距离能力。
+- `P3` 安装与验收闭环：
+  - native host manifest 渲染脚本；
+  - native host 安装脚本；
+  - `probe_request` / `probe_response` 连通探针；
+  - `smoke.html` dev smoke 页面；
+  - `smoke-check.sh` 开发入口；
+  - 中文本地安装说明、E2E 清单和排障文档。
 
-## 3. 关键提交记录
+## 3. P3 归档
+
+### 3.1 P3 目标
+
+`P3` 的目标是把 GestureKit 的本地安装、连接配置和基础验收流程收敛成低摩擦、可重复、可诊断的闭环，不新增任何用户手势能力。
+
+### 3.2 P3 已完成内容
+
+已完成 4 个任务：
+
+1. `Task 1`：native host manifest 渲染脚本
+2. `Task 2`：native host 安装脚本
+3. `Task 3`：extension -> native host -> App IPC 连通探针
+4. `Task 4`：`smoke-check` 命令与运维文档收口
+
+当前关键产物：
+
+- `scripts/dev/render-native-host-manifest.sh`
+- `scripts/dev/install-native-host.sh`
+- `scripts/dev/smoke-check.sh`
+- `extensions/chrome/smoke.html`
+- `extensions/chrome/src/background/connectionProbe.ts`
+- `docs/operations/gesturekit-v1-local-install.md`
+- `docs/operations/gesturekit-v1-e2e-checklist.md`
+- `docs/operations/gesturekit-v1-troubleshooting.md`
+
+### 3.3 P3 关键提交记录
 
 ```text
-6f6dcb4 feat: add trackpad input spike
-797665d docs: archive v1 spike progress
-454f2a7 fix: bundle chrome content script for manifest loading
-470499b docs: enforce Chinese-first project documentation
-9b6c084 fix: make chrome link hit-test spike loadable
-ab801c5 fix: make native message decode alignment-safe
-a5ce32b feat: add chrome link hit-test spike
-e539f17 feat: add native messaging host spike
-ae790c6 feat: define v1 native message protocol
-71f506e fix: avoid empty Swift test target in foundation
-bde24d4 chore: add project foundation
-13318ca docs: add v1 spike implementation plan
-d7d3930 docs: add GestureKit v1 design baseline
+345e0ac docs: clarify smoke check phases
+552bb48 docs: align smoke check swift entrypoint
+458b03e docs: update task 4 report
+9c2ff24 docs: close p3 installation workflow
+d30b388 feat: add connectivity probe
+7dfaf73 fix: make native host install atomic
+499ef9a feat: add native host installer command
+617f93e fix: escape native host manifest json
+acf8992 feat: add native host manifest renderer
 ```
 
-## 4. 已通过的验证
+### 3.4 P3 已通过验证
 
-Native host：
+脚本与安装链路：
 
 ```bash
-swift run GestureKitHost --self-test
+zsh scripts/dev/test-render-native-host-manifest.sh
+zsh scripts/dev/test-install-native-host.sh
+zsh scripts/dev/test-smoke-check.sh
 ```
 
-结果：通过。当前 self-test 覆盖：
+结果：通过。
 
-- encode/decode happy path。
-- too-short input。
-- length mismatch。
-- host response frame round trip。
+Swift 与 native host：
+
+```bash
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift build
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift run GestureKitHost --self-test
+```
+
+结果：通过。
 
 Chrome extension：
 
@@ -85,139 +123,122 @@ Chrome extension：
 cd extensions/chrome
 npm test
 npm run build
-npx tsc --noEmit
 ```
 
 结果：通过。
 
-当前 `dist/content/pointerTracker.js` 由 esbuild 以 IIFE 输出，没有顶层 `import` / `export`，可作为 manifest content script 加载。`dist/background/nativePort.js` 保持 ESM，manifest 使用 `"type": "module"`。
+连通探针：
 
-## 5. 审核状态
+- 已增加 `probe_request` / `probe_response` 协议类型；
+- 已增加 App 侧 `probe_request` 回复路径；
+- 已增加 `chrome-extension://<id>/smoke.html` 作为 dev smoke 页面；
+- 已把安装文档拆成“阶段一：预检查”和“阶段二：连通性探针”。
 
-Task 1：项目基础骨架
+### 3.5 P3 当前结论
 
-- spec 审核通过。
-- code quality 审核发现空 Swift test target 问题。
-- 已修复：Task 1 不再声明空 test target。
+`P3` 已完成当前目标，当前仓库已经具备：
 
-Task 2：共享协议 schema
+- 可生成且可安装的 native host manifest；
+- 可通过固定命令验证 host、extension 和 App IPC 链路；
+- 可区分“预检查成功但 App 尚未启动”与“真正连接失败”；
+- 可通过中文文档完成安装、预检查和排障。
 
-- spec 审核通过。
-- code quality 审核通过。
-- 非阻塞建议：后续 codec 应按 `type` 分发到具体 schema，而不是只校验 envelope。
+`P3` 当前已知限制：
 
-Task 3：Chrome link hit-test spike
+- 当前环境默认 `swift` 可能指向 Command Line Tools；仓库当前验证以
+  `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`
+  为正式 Swift 入口。
+- `smoke-check.sh` 负责预检查和打开 smoke 页面，不负责自动启动 `GestureKitApp`。
+- smoke 页面是否真正显示 `connected`，仍依赖 App 已单独启动。
 
-- 初始审核发现扩展不可加载问题。
-- 已修复：
-  - 增加 background simulated gesture bridge。
-  - manifest 改为指向 build 输出。
-  - 使用 esbuild 将 content script 打包为 IIFE。
-- 复审通过。
+## 4. P4 修改方向
 
-Task 4：Native Messaging host spike
+### 4.1 P4 目标
 
-- 初始审核发现 `Data` 上 `rawBuffer.load(as:)` 存在未对齐内存风险。
-- 已修复：按字节组装 little-endian `UInt32`。
-- 复审通过。
+`P4` 的目标不是继续扩诊断展示，而是把“推荐结果”推进到“可显式应用、可确认是否真正生效”的闭环。
 
-## 6. 当前未提交工作
+### 4.2 P4 主要修改方向
 
-当前没有项目代码或项目文档 WIP。
+`P4` 主要收在 4 条线上：
 
-当前未跟踪文件：
+1. 推荐应用入口
+   - 在 popup 中增加“应用推荐设置”入口。
+   - 入口只针对轻扫灵敏度和相关阈值，不扩展到动作绑定。
 
-```text
-?? .obsidian/
-```
+2. 应用前确认
+   - 应用前要有显式确认，不做静默自动修改。
+   - 保持当前规则 source of truth 不变。
 
-说明：`.obsidian/` 是本地编辑器配置，未纳入项目提交。
+3. 应用后状态语义
+   - 明确区分“已保存到 extension 设置”和“App 运行时已应用”。
+   - 明确 `settings_ack` 的语义，不把最后一次 ack 误显示成持久生效。
 
-## 7. Task 5 当前发现
+4. 失败与恢复路径
+   - host 断开、App 未运行、ack 缺失、App 重启后状态不一致，都要有明确反馈。
+   - 复制诊断时补充“当前设置 vs 推荐设置”的差异摘要。
 
-Task 5 已经提交。它调研到 OpenMultiTouchSupport 当前上游信息，并写入中文研究笔记。
+### 4.3 P4 主要改动位置
 
-关键发现：
+预计主要改动这些位置：
 
-- 上游仓库：`https://github.com/Kyome22/OpenMultiTouchSupport.git`
-- 当前 HEAD：`15c6bb0c6a2d2858559493a28ab23f7ac58648a3`
-- package product name：`OpenMultitouchSupport`
-- import module name：`OpenMultitouchSupport`
-- 监听入口：`OMSManager.shared`
-- 启动监听：`OMSManager.startListening() -> Bool`
-- 停止监听：`OMSManager.stopListening() -> Bool`
-- 事件入口：`OMSManager.touchDataStream`
-- app-facing event callback type：`any AsyncShareStream<[OMSTouchData]>`
-- 上游要求：
-  - `swift-tools-version: 6.2`
-  - macOS 15+
-  - Xcode 26.2+
-  - App Sandbox 关闭
+- `extensions/chrome/src/popup/popup.ts`
+- `extensions/chrome/popup.html`
+- `extensions/chrome/src/background/settingsSync.ts`
+- `extensions/chrome/src/settings/gestureSettings.ts`
+- `extensions/chrome/src/diagnostics/diagnostics.ts`
+- `extensions/chrome/tests/popup.test.ts`
+- `extensions/chrome/tests/settingsSync.test.ts`
+- `extensions/chrome/tests/gestureSettings.test.ts`
+- `apps/macos/GestureKitApp/Sources/GestureKitApp/Runtime.swift`
+- `Tests/GestureKitAppTests/RuntimeSettingsTests.swift`
 
-当前 `Package.swift` 已被改为 Swift 6.2 / macOS 15，并添加 OpenMultiTouchSupport 依赖。这是一个重要设计影响点，进入正式开发前必须确认是否接受。
+### 4.4 P4 不做的内容
 
-已完成验证：
+`P4` 不做：
 
-- `swift build` 通过。
-- `swift run TrackpadInputProbe` 能启动默认 multitouch listener。
-- probe 能输出 `[candidate:three_finger_tap]`。
-- 使用 `Ctrl-C` 后能打印 `device_status=listener_stopped stopped=true`。
+- 不新增新的用户手势动作；
+- 不做规则编辑器；
+- 不把 extension 设置扩成任意动作绑定；
+- 不做自动应用推荐；
+- 不扩到多浏览器支持；
+- 不在本阶段做菜单栏 UI 加固或开源整理。
 
-仍需补齐：
+## 5. 恢复开发时的建议步骤
 
-- `docs/research/trackpad-gesture-stability-matrix.md` 中的人工稳定性矩阵。
-
-## 8. 恢复开发时的建议步骤
-
-恢复时按以下顺序继续：
+如果从本次归档恢复，建议按以下顺序继续：
 
 1. 运行：
 
    ```bash
    git status --short
+   git log --oneline --decorate -6
    ```
 
-2. 确认当前 HEAD 包含 Task 5：
+2. 先确认 `P3` 入口仍可工作：
 
    ```bash
-   git log --oneline --decorate -5
+   zsh scripts/dev/test-render-native-host-manifest.sh
+   zsh scripts/dev/test-install-native-host.sh
+   zsh scripts/dev/test-smoke-check.sh
    ```
 
-3. 阅读手势稳定性矩阵：
+3. 阅读 `P4` 方向文档：
 
    ```bash
-   sed -n '1,260p' docs/research/trackpad-gesture-stability-matrix.md
+   sed -n '1,220p' docs/plans/gesturekit-v1-optimization-roadmap.md
    ```
 
-4. 判断是否接受 OpenMultiTouchSupport 当前上游带来的最低要求：
+4. 再开始写 `P4` 的独立实施计划或直接进入 `P4` 执行。
 
-   ```text
-   Swift 6.2
-   macOS 15+
-   Xcode 26.2+
-   App Sandbox 关闭
-   ```
+## 6. 已知后续事项
 
-5. 若接受，继续人工稳定性验证：
+- `P4` 仍需独立实施计划或执行分解，不建议直接从口头方向进入多文件实现。
+- 当前 `smoke-check.sh` 的职责是“预检查入口 + 打开 smoke 页面”，不是完整自动化 E2E。
+- `pyenv: cannot rehash ... isn't writable` 仍可能在 `npm` 命令中出现警告，但当前不阻塞通过。
 
-   ```bash
-   swift build
-   swift run TrackpadInputProbe
-   ```
-
-6. 若不接受，先调整触控板输入方案，不进入正式开发。
-
-7. 手势稳定性矩阵完成后，回到契约和技术设计做正式开发前修订。
-
-## 9. 已知后续事项
-
-- `docs/plans/gesturekit-v1-implementation-plan.md` 的 Task 4 代码片段曾滞后于实际 self-test 修复，后续 Task 6 应整体校验计划与实现一致性。
-- npm install 曾报告 dev dependency audit 风险。当前作为 spike 非阻塞，未执行 `npm audit fix --force`，避免引入破坏性升级。
-- 后续审核必须检查文档是否中文优先；代码、API、命令、协议字段保持英文原样。
-- 手势稳定性矩阵完成前，不进入正式产品实现。
-
-## 10. 暂停时的原则
+## 7. 暂停时的原则
 
 - 不纳入 `.obsidian/`。
-- 后续恢复时先完成手势稳定性矩阵，再继续正式设计开发。
+- 项目文档继续保持中文优先。
+- `P4` 前不回退已完成的 `P3` 安装链路。
 - 审核仍以 `docs/product/gesturekit-v1-contract.md` 为最高项目契约。
