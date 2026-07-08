@@ -18,8 +18,8 @@ V1 的目标不是做通用自动化平台，而是先把 Chrome 中最高频的
 - 三指点按链接，打开到新标签页并自动切换过去。
 - 三指点按空白处左/右边缘，切换到相邻标签页。
 - 三指双击空白处中间区域，关闭当前标签页。
-- 三指快速左轻扫，切换到左侧标签页。
-- 三指快速右轻扫，切换到右侧标签页。
+- 三指快速左轻扫，切换到右侧标签页。
+- 三指快速右轻扫，切换到左侧标签页。
 
 ## 2. 用户范围
 
@@ -89,9 +89,9 @@ V1 当前运行约束：
 
 动作结果：
 
-- 激活同一 Chrome 窗口中 `index - 1` 的标签页。
+- 激活同一 Chrome 窗口中 `index + 1` 的标签页。
 - 不跨窗口查找标签页。
-- 如果当前已在最左侧标签页，则循环激活同一窗口最后一个标签页。
+- 如果当前已在最右侧标签页，则循环激活同一窗口第一个标签页。
 
 边界结果：
 
@@ -108,9 +108,9 @@ V1 当前运行约束：
 
 动作结果：
 
-- 激活同一 Chrome 窗口中 `index + 1` 的标签页。
+- 激活同一 Chrome 窗口中 `index - 1` 的标签页。
 - 不跨窗口查找标签页。
-- 如果当前已在最右侧标签页，则循环激活同一窗口第一个标签页。
+- 如果当前已在最左侧标签页，则循环激活同一窗口最后一个标签页。
 
 边界结果：
 
@@ -150,8 +150,8 @@ V1 内置规则：
 | 规则 ID | 条件 | 动作 |
 | --- | --- | --- |
 | `chrome-open-link-background` | Chrome + link + `three_finger_tap` | `open_link_background` |
-| `chrome-activate-left-tab` | Chrome + any + `three_finger_swipe_left` | `activate_left_tab` |
-| `chrome-activate-right-tab` | Chrome + any + `three_finger_swipe_right` | `activate_right_tab` |
+| `chrome-activate-right-tab` | Chrome + any + `three_finger_swipe_left` | `activate_right_tab` |
+| `chrome-activate-left-tab` | Chrome + any + `three_finger_swipe_right` | `activate_left_tab` |
 
 规则匹配必须满足：
 

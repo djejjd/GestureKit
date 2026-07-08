@@ -193,9 +193,9 @@ function intentFromTapZone(zone: TapZone): GestureIntent | null {
 
 function intentFromGesture(gesture: GestureEventMessage["payload"]["gesture"]): GestureIntent {
   if (gesture === "three_finger_swipe_left") {
-    return { action: "activate_left_tab" };
+    return { action: "activate_right_tab" };
   }
-  return { action: "activate_right_tab" };
+  return { action: "activate_left_tab" };
 }
 
 function actionResultFromExecution(id: string, result: ActionExecutionResult): ActionResultMessage {

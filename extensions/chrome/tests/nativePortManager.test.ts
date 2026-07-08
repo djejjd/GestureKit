@@ -22,21 +22,40 @@ describe("createNativePortManager", () => {
     vi.useRealTimers();
   });
 
-  it("dispatches swipe left to action executor and posts action_result", async () => {
+  it("maps swipe left to the right tab like macOS content movement", async () => {
     const postMessage = vi.fn();
+    const executeAction = vi.fn(async () => ({ action: "activate_right_tab", status: "success" }));
     const manager = createNativePortManager({
       port: { postMessage },
       resolveLastPointer: vi.fn(),
-      executeAction: vi.fn(async () => ({ action: "activate_left_tab", status: "success" }))
+      executeAction
     });
 
     await manager.handleNativeMessage(gestureMessage("three_finger_swipe_left"));
 
+    expect(executeAction).toHaveBeenCalledWith({ action: "activate_right_tab" });
     expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({
       version: 1,
       type: "action_result",
-      payload: { action: "activate_left_tab", status: "success" },
+      payload: { action: "activate_right_tab", status: "success" },
       error: null
+    }));
+  });
+
+  it("maps swipe right to the left tab like macOS content movement", async () => {
+    const postMessage = vi.fn();
+    const executeAction = vi.fn(async () => ({ action: "activate_left_tab", status: "success" }));
+    const manager = createNativePortManager({
+      port: { postMessage },
+      resolveLastPointer: vi.fn(),
+      executeAction
+    });
+
+    await manager.handleNativeMessage(gestureMessage("three_finger_swipe_right"));
+
+    expect(executeAction).toHaveBeenCalledWith({ action: "activate_left_tab" });
+    expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      payload: { action: "activate_left_tab", status: "success" }
     }));
   });
 
@@ -55,7 +74,7 @@ describe("createNativePortManager", () => {
     expect(executeAction).not.toHaveBeenCalled();
     expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({
       payload: {
-        action: "activate_left_tab",
+        action: "activate_right_tab",
         status: "gesture_unstable",
         details: { reason: "flick_switch_disabled" }
       }

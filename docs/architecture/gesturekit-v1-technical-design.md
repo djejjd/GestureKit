@@ -21,8 +21,8 @@ V1 实现以下用户可见动作：
 - 三指点按链接：新标签页打开链接并自动切换过去。
 - 三指点按空白处左/右边缘：切到左/右标签页。
 - 三指双击空白处中间区域：关闭当前标签页。
-- 三指快速左轻扫：切到左侧标签页。
-- 三指快速右轻扫：切到右侧标签页。
+- 三指快速左轻扫：切到右侧标签页。
+- 三指快速右轻扫：切到左侧标签页。
 
 三指点按路径会过滤异常短触、过长点按和动作后的短暂抖动。中间区域单点不执行动作，避免高强度使用时误切 tab。
 
@@ -306,8 +306,8 @@ V1 内置三条规则，但所有动作都通过规则引擎执行。
 V1 内置规则：
 
 - `Chrome + link + three_finger_tap -> open_link_background`
-- `Chrome + any + three_finger_swipe_left -> activate_left_tab`
-- `Chrome + any + three_finger_swipe_right -> activate_right_tab`
+- `Chrome + any + three_finger_swipe_left -> activate_right_tab`
+- `Chrome + any + three_finger_swipe_right -> activate_left_tab`
 
 ### 7.1 规则边界
 

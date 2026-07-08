@@ -19,10 +19,10 @@
 - [ ] 鼠标停在非链接区域，合法间隔内连续两次三指点按触控板中间区域关闭当前 tab，且第一下不先切 tab。
 - [ ] 快速连续轻碰或明显过短的三指点按不会切 tab 或关闭 tab。
 - [ ] `javascript:`、`file:` 或 `mailto:` 链接返回 `unsupported_url_scheme`。
-- [ ] 多 tab 中间位置三指快速左轻扫，切到左侧相邻 tab。
-- [ ] 多 tab 中间位置三指快速右轻扫，切到右侧相邻 tab。
-- [ ] 最左侧 tab 三指快速左轻扫循环切到当前窗口最后一个 tab。
-- [ ] 最右侧 tab 三指快速右轻扫循环切到当前窗口第一个 tab。
+- [ ] 多 tab 中间位置三指快速左轻扫，切到右侧相邻 tab。
+- [ ] 多 tab 中间位置三指快速右轻扫，切到左侧相邻 tab。
+- [ ] 最右侧 tab 三指快速左轻扫循环切到当前窗口第一个 tab。
+- [ ] 最左侧 tab 三指快速右轻扫循环切到当前窗口最后一个 tab。
 - [ ] 非 Chrome 前台三指手势返回或记录 `unsupported_app`，不执行 Chrome 动作。
 - [ ] `chrome://extensions` 或不可注入页面返回 `page_unavailable`。
 - [ ] 关闭 GestureKitApp 后，extension 记录 `app_unavailable` 或 `native_host_disconnected`。
