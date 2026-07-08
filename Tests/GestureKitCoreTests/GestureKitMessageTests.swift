@@ -56,7 +56,7 @@ final class GestureKitMessageTests: XCTestCase {
         let message = GestureKitMessage.settingsAck(
             id: "settings-ack-1",
             timestamp: 20,
-            payload: SettingsAckPayload(applied: true, swipeSensitivity: .standard)
+            payload: SettingsAckPayload(applied: true, swipeSensitivity: .standard, appSessionId: "test-session", recognitionSettings: .standard)
         )
 
         let json = String(decoding: try JSONEncoder.gestureKit.encode(message), as: UTF8.self)
@@ -104,5 +104,45 @@ final class GestureKitMessageTests: XCTestCase {
         XCTAssertEqual(message.type, .probeResponse)
         XCTAssertEqual(message.probeResponsePayload?.appConnected, true)
         XCTAssertEqual(message.probeResponsePayload?.message, "app_ready")
+    }
+
+    func testProbeResponseDecodesAppSessionId() throws {
+        let data = Data("""
+        {"version":1,"id":"probe-2","type":"probe_response","timestamp":10,"payload":{"hostConnected":true,"appConnected":true,"appSessionId":"session-abc","message":"app_ready"},"error":null}
+        """.utf8)
+
+        let message = try JSONDecoder.gestureKit.decode(GestureKitMessage.self, from: data)
+
+        XCTAssertEqual(message.probeResponsePayload?.appSessionId, "session-abc")
+    }
+
+    func testSettingsAckEncodesRuntimeSessionAndThresholds() throws {
+        let message = GestureKitMessage.settingsAck(
+            id: "settings-ack-1",
+            timestamp: 20,
+            payload: SettingsAckPayload(
+                applied: true,
+                swipeSensitivity: .standard,
+                appSessionId: "session-1",
+                recognitionSettings: .standard
+            )
+        )
+
+        let json = String(decoding: try JSONEncoder.gestureKit.encode(message), as: UTF8.self)
+        XCTAssertTrue(json.contains("\"appSessionId\":\"session-1\""))
+        XCTAssertTrue(json.contains("\"swipeMinDistance\":0.09"))
+    }
+
+    func testSettingsAckDecodesRecognitionSettingsFromJSON() throws {
+        let data = Data("""
+        {"version":1,"id":"ack-1","type":"settings_ack","timestamp":100,"payload":{"applied":true,"swipeSensitivity":"sensitive","appSessionId":"sess-xyz","recognitionSettings":{"swipeSensitivity":"sensitive","swipeMinDistance":0.075,"swipeHorizontalRatio":1.25,"swipeMinDurationMs":50,"swipeMaxDurationMs":480}},"error":null}
+        """.utf8)
+
+        let message = try JSONDecoder.gestureKit.decode(GestureKitMessage.self, from: data)
+
+        XCTAssertEqual(message.type, .settingsAck)
+        XCTAssertEqual(message.settingsAckPayload?.appSessionId, "sess-xyz")
+        XCTAssertEqual(message.settingsAckPayload?.recognitionSettings.swipeSensitivity, .sensitive)
+        XCTAssertEqual(message.settingsAckPayload?.recognitionSettings.swipeMinDistance, 0.075)
     }
 }

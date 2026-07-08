@@ -107,11 +107,13 @@ public struct ProbeRequestPayload: Codable, Equatable, Sendable {
 public struct ProbeResponsePayload: Codable, Equatable, Sendable {
     public let hostConnected: Bool
     public let appConnected: Bool
+    public let appSessionId: String?
     public let message: String?
 
-    public init(hostConnected: Bool, appConnected: Bool, message: String?) {
+    public init(hostConnected: Bool, appConnected: Bool, appSessionId: String? = nil, message: String?) {
         self.hostConnected = hostConnected
         self.appConnected = appConnected
+        self.appSessionId = appSessionId
         self.message = message
     }
 }
@@ -151,11 +153,21 @@ public struct SettingsUpdatePayload: Codable, Equatable, Sendable {
 public struct SettingsAckPayload: Codable, Equatable, Sendable {
     public let applied: Bool
     public let swipeSensitivity: SwipeSensitivity
+    public let appSessionId: String
+    public let recognitionSettings: GestureRecognitionSettings
     public let message: String?
 
-    public init(applied: Bool, swipeSensitivity: SwipeSensitivity, message: String? = nil) {
+    public init(
+        applied: Bool,
+        swipeSensitivity: SwipeSensitivity,
+        appSessionId: String,
+        recognitionSettings: GestureRecognitionSettings,
+        message: String? = nil
+    ) {
         self.applied = applied
         self.swipeSensitivity = swipeSensitivity
+        self.appSessionId = appSessionId
+        self.recognitionSettings = recognitionSettings
         self.message = message
     }
 }

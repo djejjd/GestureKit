@@ -37,6 +37,41 @@ final class RuntimeSettingsTests: XCTestCase {
         XCTAssertEqual(event?.gesture, .threeFingerSwipeRight)
     }
 
+    func testSettingsAckIncludesCurrentRuntimeSession() {
+        let runtime = GestureKitRuntime(
+            statusHandler: { _ in },
+            touchBackend: StubTouchBackend(),
+            settingsStore: StubSettingsStore(),
+            logger: GestureKitLogger(terminalWriter: { _ in })
+        )
+
+        let ack = runtime.applySettingsUpdate(SettingsUpdatePayload(
+            swipeSensitivity: .sensitive,
+            swipeMinDistance: 0.075,
+            swipeHorizontalRatio: 1.25,
+            swipeMinDurationMs: 50,
+            swipeMaxDurationMs: 480
+        ))
+
+        XCTAssertEqual(ack.appSessionId.count > 0, true)
+        XCTAssertEqual(ack.recognitionSettings.swipeSensitivity, .sensitive)
+    }
+
+    func testProbeResponseIncludesAppSessionId() {
+        let runtime = GestureKitRuntime(
+            statusHandler: { _ in },
+            touchBackend: StubTouchBackend(),
+            settingsStore: StubSettingsStore(),
+            logger: GestureKitLogger(terminalWriter: { _ in })
+        )
+
+        let message = runtime.handleProbeRequestForTesting(id: "probe-1")
+
+        XCTAssertEqual(message.type, .probeResponse)
+        XCTAssertNotNil(message.probeResponsePayload?.appSessionId)
+        XCTAssertEqual((message.probeResponsePayload?.appSessionId?.count ?? 0) > 0, true)
+    }
+
     func testUnstableSwipePublishesDiagnosticEvent() {
         var diagnostics: [LocalIPCEnvelope] = []
         let runtime = GestureKitRuntime(

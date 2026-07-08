@@ -13,6 +13,7 @@ final class GestureKitRuntime {
     private let diagnosticSink: (LocalIPCEnvelope) -> Void
     private var listeningTask: Task<Void, Never>?
     private var eventServer: LocalEventServer?
+    private let appSessionId: String
 
     init(
         statusHandler: @escaping (String) -> Void,
@@ -27,6 +28,7 @@ final class GestureKitRuntime {
         self.logger = logger
         self.diagnosticSink = diagnosticSink
         self.ruleEngine = RuleEngine(rules: (try? settingsStore.loadRules()) ?? DefaultRules.v1)
+        self.appSessionId = UUID().uuidString
     }
 
     func start() {
@@ -145,7 +147,12 @@ final class GestureKitRuntime {
             thresholds: payload.recognitionSettings,
             message: "settings_applied"
         ))
-        return SettingsAckPayload(applied: true, swipeSensitivity: payload.swipeSensitivity)
+        return SettingsAckPayload(
+            applied: true,
+            swipeSensitivity: payload.swipeSensitivity,
+            appSessionId: appSessionId,
+            recognitionSettings: payload.recognitionSettings
+        )
     }
 
     func observeForTesting(_ frame: TouchFrame) -> RecognizedGesture? {
@@ -167,6 +174,7 @@ final class GestureKitRuntime {
             payload: ProbeResponsePayload(
                 hostConnected: true,
                 appConnected: true,
+                appSessionId: appSessionId,
                 message: "app_ready"
             )
         ))
