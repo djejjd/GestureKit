@@ -47,7 +47,7 @@ git diff --check
 
 ## commit sha
 
-- 待提交
+- `9c2ff24` (`docs: close p3 installation workflow`)
 
 ## concern
 
