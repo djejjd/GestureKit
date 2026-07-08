@@ -53,3 +53,35 @@ git diff --check
 
 - 当前环境默认 `swift` 指向 Command Line Tools；按 brief 的 `swift test` 会失败，需显式切到 Xcode Developer dir 才能通过。已按仓库当前实际情况验证并作为正式结果记录。
 - `npm test` / `npm run build` 输出了 `pyenv: cannot rehash: /Users/lanser/.pyenv/shims isn't writable`，但命令本身均成功，不构成本任务阻塞。
+
+## follow-up fix
+
+- 修复原因：`smoke-check.sh` 之前直接调用默认 `swift build` / `swift run`，与当前仓库真实可用的 Swift 入口不一致，导致脚本主入口和文档主入口都可能在默认 Command Line Tools 环境下失败。
+- 修复内容：
+  - `scripts/dev/smoke-check.sh` 现在在未显式设置时默认优先使用 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer`，但仍允许外部覆盖 `DEVELOPER_DIR`。
+  - `scripts/dev/test-smoke-check.sh` 的 dry-run 断言已改为验证带 `DEVELOPER_DIR` 的真实命令链路。
+  - 安装文档、E2E 清单和排障文档里的手工 Swift 命令已同步到与脚本一致的入口策略。
+- follow-up 复跑命令：
+
+```bash
+zsh scripts/dev/test-render-native-host-manifest.sh
+zsh scripts/dev/test-install-native-host.sh
+zsh scripts/dev/test-smoke-check.sh
+/bin/zsh -lc 'DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test'
+/bin/zsh -lc 'DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift build'
+/bin/zsh -lc 'DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift run GestureKitHost --self-test'
+cd extensions/chrome && npm test
+cd extensions/chrome && npm run build
+git diff --check
+```
+
+- follow-up 复跑结果：
+  - `zsh scripts/dev/test-render-native-host-manifest.sh`: pass
+  - `zsh scripts/dev/test-install-native-host.sh`: pass
+  - `zsh scripts/dev/test-smoke-check.sh`: pass
+  - `/bin/zsh -lc 'DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test'`: pass, 36 tests passed
+  - `/bin/zsh -lc 'DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift build'`: pass
+  - `/bin/zsh -lc 'DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift run GestureKitHost --self-test'`: pass
+  - `cd extensions/chrome && npm test`: pass, 9 files / 70 tests passed
+  - `cd extensions/chrome && npm run build`: pass
+  - `git diff --check`: pass

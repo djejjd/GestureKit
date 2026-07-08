@@ -5,6 +5,12 @@ repo_root=$(cd "$(dirname "$0")/../.." && pwd)
 extension_id=""
 host_path="$repo_root/.build/debug/GestureKitHost"
 dry_run=false
+default_developer_dir=/Applications/Xcode.app/Contents/Developer
+developer_dir="${DEVELOPER_DIR:-}"
+
+if [[ -z "$developer_dir" && -d "$default_developer_dir" ]]; then
+  developer_dir="$default_developer_dir"
+fi
 
 usage() {
   cat <<'EOF' >&2
@@ -54,6 +60,12 @@ print_command() {
   printf '%s\n' "$1"
 }
 
+swift_display_prefix() {
+  if [[ -n "$developer_dir" ]]; then
+    printf 'DEVELOPER_DIR=%s ' "$developer_dir"
+  fi
+}
+
 run_or_print() {
   local command="$1"
   shift
@@ -65,8 +77,13 @@ run_or_print() {
   fi
 }
 
-run_or_print "swift build" swift build
-run_or_print "swift run GestureKitHost --self-test" swift run GestureKitHost --self-test
+if [[ -n "$developer_dir" ]]; then
+  run_or_print "$(swift_display_prefix)swift build" env DEVELOPER_DIR="$developer_dir" swift build
+  run_or_print "$(swift_display_prefix)swift run GestureKitHost --self-test" env DEVELOPER_DIR="$developer_dir" swift run GestureKitHost --self-test
+else
+  run_or_print "swift build" swift build
+  run_or_print "swift run GestureKitHost --self-test" swift run GestureKitHost --self-test
+fi
 
 if $dry_run; then
   print_command "cd extensions/chrome && npm run build"

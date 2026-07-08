@@ -10,8 +10,8 @@
 ## 安装与预检查
 
 - [ ] 已按 `docs/operations/gesturekit-v1-local-install.md` 加载 unpacked extension，并记录实际扩展 ID。
-- [ ] 已运行 `./scripts/dev/smoke-check.sh --extension-id <extension-id>`，确认构建、host 自检、manifest 安装和 `smoke.html` 打开链路都成功。
-- [ ] 已单独启动 `swift run GestureKitApp`，确保 App 常驻后再做以下人工手势验证。
+- [ ] 已运行 `./scripts/dev/smoke-check.sh --extension-id <extension-id>`，确认脚本实际使用的 Swift 入口、host 自检、manifest 安装和 `smoke.html` 打开链路都成功。
+- [ ] 已单独启动 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift run GestureKitApp`，确保 App 常驻后再做以下人工手势验证。
 - [ ] 如需复查链路但不实际执行，可运行 `./scripts/dev/smoke-check.sh --extension-id <extension-id> --dry-run`。
 
 ## 必测功能
@@ -61,9 +61,9 @@
 zsh scripts/dev/test-render-native-host-manifest.sh
 zsh scripts/dev/test-install-native-host.sh
 zsh scripts/dev/test-smoke-check.sh
-swift test
-swift build
-swift run GestureKitHost --self-test
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift build
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift run GestureKitHost --self-test
 cd extensions/chrome
 npm test
 npm run build
@@ -80,7 +80,7 @@ git diff --check
 - 需要分析“滑一次没反应”等识别问题时，用详细模式启动：
 
 ```bash
-GESTUREKIT_DEBUG=1 swift run GestureKitApp
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer GESTUREKIT_DEBUG=1 swift run GestureKitApp
 ```
 
 常用排查命令：

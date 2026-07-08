@@ -12,6 +12,7 @@
 
 - 扩展 ID 是当前 `chrome://extensions` 里这次加载的 ID。
 - 默认 host 路径是否仍然是 `$(pwd)/.build/debug/GestureKitHost`。
+- dry-run 里 Swift 命令是否显示为 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift ...`；如果你的 Xcode 不在这个路径，先导出正确的 `DEVELOPER_DIR` 再重跑。
 - 如果你在别的位置构建过 host，改用 `--host-path /absolute/path/to/GestureKitHost`。
 
 ## 2. `swift run GestureKitHost --self-test` 失败
@@ -19,14 +20,14 @@
 先单独执行：
 
 ```bash
-swift run GestureKitHost --self-test
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift run GestureKitHost --self-test
 ```
 
 常见原因：
 
 - 当前目录不在仓库根目录，导致 Swift Package 解析错误。
-- `.build/debug/GestureKitHost` 还没生成，先执行 `swift build`。
-- 当前机器环境需要按仓库既有方式用非沙箱 Swift 命令执行；如果你是在受限环境里跑自动化，按实际执行方式记录到任务报告。
+- `.build/debug/GestureKitHost` 还没生成，先执行 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift build`。
+- 当前机器的 Xcode Developer 路径不是 `/Applications/Xcode.app/Contents/Developer`，需要先设置正确的 `DEVELOPER_DIR`。
 
 ## 3. 扩展前端构建失败
 
@@ -48,6 +49,7 @@ npm run build
 按顺序检查：
 
 1. 运行 `swift run GestureKitHost --self-test`，确认 host 本体可启动。
+   实际建议命令：`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift run GestureKitHost --self-test`
 2. 打开 `~/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.gesturekit.host.json`，确认：
    - `path` 是实际 `GestureKitHost` 绝对路径。
    - `allowed_origins` 是当前扩展 ID。
@@ -70,7 +72,7 @@ open "chrome-extension://<extension-id>/smoke.html"
 这通常表示扩展能连到 native host，但 App 没起来或本机 IPC 不通。先确认：
 
 ```bash
-swift run GestureKitApp
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift run GestureKitApp
 ```
 
 再查看日志：
@@ -82,7 +84,7 @@ tail -n 200 ~/Library/Logs/GestureKit/GestureKitApp.log
 必要时开详细日志重跑：
 
 ```bash
-GESTUREKIT_DEBUG=1 swift run GestureKitApp
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer GESTUREKIT_DEBUG=1 swift run GestureKitApp
 ```
 
 ## 6. 手势识别不稳定或三指轻扫方向不符合预期
@@ -98,9 +100,9 @@ GESTUREKIT_DEBUG=1 swift run GestureKitApp
 建议固定顺序，不要跳步：
 
 1. `./scripts/dev/smoke-check.sh --extension-id <extension-id> --dry-run`
-2. `swift build`
-3. `swift run GestureKitHost --self-test`
+2. `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift build`
+3. `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift run GestureKitHost --self-test`
 4. `cd extensions/chrome && npm run build`
 5. `./scripts/dev/install-native-host.sh --extension-id <extension-id> --host-path "$(pwd)/.build/debug/GestureKitHost"`
-6. `swift run GestureKitApp`
+6. `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift run GestureKitApp`
 7. `open "chrome-extension://<extension-id>/smoke.html"`

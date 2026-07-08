@@ -5,12 +5,20 @@
 先在仓库根目录构建 host，并安装扩展依赖：
 
 ```bash
-swift build
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift build
 cd extensions/chrome
 npm install
 ```
 
 如果只是更新扩展前端，后续可直接复用已有依赖执行 `npm run build`。
+
+当前仓库环境默认 `swift` 可能解析到 Command Line Tools。Task 4 的主入口 `./scripts/dev/smoke-check.sh` 在未显式设置时会自动优先使用：
+
+```bash
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
+```
+
+如果你需要手动执行 Swift 命令，建议沿用同一策略；如果本机 Xcode 路径不同，可先自行导出 `DEVELOPER_DIR` 再运行脚本或手工命令。
 
 ## 2. 加载 Chrome 扩展
 
@@ -30,8 +38,8 @@ npm install
 
 这个命令会依次执行：
 
-1. `swift build`
-2. `swift run GestureKitHost --self-test`
+1. `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift build`
+2. `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift run GestureKitHost --self-test`
 3. `cd extensions/chrome && npm run build`
 4. `./scripts/dev/install-native-host.sh --extension-id <extension-id> --host-path "<repo>/.build/debug/GestureKitHost"`
 5. `open "chrome-extension://<extension-id>/smoke.html"`
@@ -76,13 +84,13 @@ npm install
 `smoke-check.sh` 不会自动启动 `GestureKitApp`。需要单独打开：
 
 ```bash
-swift run GestureKitApp
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift run GestureKitApp
 ```
 
 需要分析手势识别不稳定时使用详细日志：
 
 ```bash
-GESTUREKIT_DEBUG=1 swift run GestureKitApp
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer GESTUREKIT_DEBUG=1 swift run GestureKitApp
 ```
 
 ## 6. 日志位置
