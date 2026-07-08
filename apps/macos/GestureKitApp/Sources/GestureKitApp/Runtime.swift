@@ -186,6 +186,15 @@ final class GestureKitRuntime {
             return
         }
 
+        if envelope.message.type == .actionResult, let payload = envelope.message.actionResultPayload {
+            let details = payload.details?.map { "\($0.key)=\($0.value)" }.joined(separator: " ") ?? ""
+            logger.info(
+                "action_result action=\(payload.action.rawValue) status=\(payload.status.rawValue) \(details)",
+                rateLimitKey: "action_result_\(payload.action.rawValue)"
+            )
+            return
+        }
+
         guard let payload = envelope.message.settingsUpdatePayload else {
             return
         }

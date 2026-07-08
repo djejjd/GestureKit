@@ -50,7 +50,6 @@ window.addEventListener(
       state.pendingConsumedClick = null;
       event.preventDefault();
       event.stopImmediatePropagation();
-      console.debug("[GestureKit] click consumed by pendingConsumedClick", anchor.href);
       return;
     }
 
@@ -59,26 +58,10 @@ window.addEventListener(
     }
 
     if (shouldProtectLinkClick(event, anchor)) {
-      const now = Date.now();
       protectLinkClick(event, anchor.href);
-      console.debug("[GestureKit] click protected, waiting for gesture confirmation", { url: anchor.href, time: now });
       return;
     }
 
-    const reason = !state.linkClickProtectionEnabled
-      ? "protection_disabled"
-      : !event.cancelable
-        ? "event_not_cancelable"
-        : event.button !== 0
-          ? "non_left_button"
-          : event.metaKey || event.ctrlKey || event.shiftKey || event.altKey
-            ? "modifier_key"
-            : anchor.target && anchor.target !== "_self"
-              ? `target=${anchor.target}`
-              : anchor.download
-                ? "has_download"
-                : "unknown";
-    console.debug("[GestureKit] click passed through (not protected)", { url: anchor.href, reason, protectionEnabled: state.linkClickProtectionEnabled });
     state.lastLinkClick = {
       url: anchor.href,
       timestamp: Date.now()
@@ -125,7 +108,6 @@ export function resolveLinkAtLastPointer(now: number = Date.now(), options: Reso
         `clickAge=${lastClickAge}ms`,
         `url=${result.url.slice(0, 60)}`
       ].join(" ");
-      console.warn("[GestureKit] click_already_fired", { protectionEnabled: state.linkClickProtectionEnabled, clickAge: lastClickAge, url: result.url });
       return { ...result, clickAlreadyFired: true, detail };
     }
   }
