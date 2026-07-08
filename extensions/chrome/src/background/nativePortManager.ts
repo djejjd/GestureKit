@@ -137,7 +137,11 @@ export function createNativePortManager(deps: Dependencies) {
         }
         clearPendingTap();
         if (resolved.clickAlreadyFired) {
-          postActionResult(actionResult(message.id, "open_link_background", "gesture_unstable", { reason: "click_already_fired" }));
+          const detail: Record<string, unknown> = { reason: "click_already_fired" };
+          if ("detail" in resolved && typeof resolved.detail === "string") {
+            detail.resolveDetail = resolved.detail;
+          }
+          postActionResult(actionResult(message.id, "open_link_background", "gesture_unstable", detail));
           return;
         }
         await executeAndPost(message.id, { action: "open_link_background", url: resolved.url });

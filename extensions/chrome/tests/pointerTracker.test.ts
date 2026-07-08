@@ -51,11 +51,12 @@ describe("pointerTracker", () => {
     anchor.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
     const result = module.resolveLinkAtLastPointer(Date.now(), { consumeNextClick: true });
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       status: "success",
       url: "http://localhost:3000/docs",
       clickAlreadyFired: true
     });
+    expect(result).toHaveProperty("detail");
   });
 
   it("does not prevent ordinary clicks before GestureKit asks to consume one", async () => {
@@ -177,7 +178,7 @@ describe("pointerTracker", () => {
     await vi.advanceTimersByTimeAsync(181);
     const result = module.resolveLinkAtLastPointer(Date.now(), { consumeNextClick: true });
 
-    expect(result).toEqual({
+    expect(result).toMatchObject({
       status: "success",
       url: "http://localhost:3000/docs",
       clickAlreadyFired: true
