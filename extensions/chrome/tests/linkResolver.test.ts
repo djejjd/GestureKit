@@ -22,7 +22,8 @@ describe("resolveLinkAtPoint", () => {
 
     const result = resolveLinkAtPoint(10, 20);
 
-    expect(result).toEqual({ status: "no_target" });
+    expect(result).toMatchObject({ status: "no_target" });
+    expect(result).toHaveProperty("detail");
   });
 
   it("rejects javascript links", () => {
@@ -32,7 +33,8 @@ describe("resolveLinkAtPoint", () => {
 
     const result = resolveLinkAtPoint(10, 20);
 
-    expect(result).toEqual({ status: "unsupported_url_scheme" });
+    expect(result).toMatchObject({ status: "unsupported_url_scheme" });
+    expect(result).toHaveProperty("detail");
   });
 
   it("returns link for child element inside anchor", () => {
@@ -51,6 +53,7 @@ describe("resolveLinkAtPoint", () => {
     const anchor = document.getElementById("target") as HTMLAnchorElement;
     document.elementFromPoint = () => anchor;
 
-    expect(resolveLinkAtPoint(1, 1)).toEqual({ status: "unsupported_url_scheme" });
+    expect(resolveLinkAtPoint(1, 1)).toMatchObject({ status: "unsupported_url_scheme" });
+    expect(resolveLinkAtPoint(1, 1)).toHaveProperty("detail");
   });
 });

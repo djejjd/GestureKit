@@ -320,6 +320,14 @@ function diagnosticRow(doc: Document, entry: GestureDiagnosticEntry): HTMLElemen
   ].filter(Boolean).join("  ");
 
   row.append(title, reason, metrics);
+
+  if (entry.message) {
+    const detail = doc.createElement("div");
+    detail.className = "diagnostic-metrics";
+    detail.textContent = entry.message;
+    row.append(detail);
+  }
+
   return row;
 }
 

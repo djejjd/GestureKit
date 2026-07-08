@@ -82,8 +82,15 @@ export function resolveLinkAtLastPointer(now: number = Date.now(), options: Reso
     }
   }
 
-  if (!state.lastPointer || now - state.lastPointer.timestamp > MAX_POINTER_AGE_MS) {
-    return { status: "no_recent_pointer" as const };
+  if (!state.lastPointer) {
+    return { status: "no_recent_pointer", detail: "暂无指针位置（页面加载后鼠标未移动）" };
+  }
+  if (now - state.lastPointer.timestamp > MAX_POINTER_AGE_MS) {
+    const age = now - state.lastPointer.timestamp;
+    return {
+      status: "no_recent_pointer",
+      detail: `指针已过期 ${age}ms（阈值 ${MAX_POINTER_AGE_MS}ms），最后位置 (${state.lastPointer.x.toFixed(0)},${state.lastPointer.y.toFixed(0)})`
+    };
   }
 
   const result = resolveLinkAtPoint(state.lastPointer.x, state.lastPointer.y);

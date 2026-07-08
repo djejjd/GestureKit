@@ -47,7 +47,13 @@ export function createNativePortManager(deps: Dependencies) {
     }
   }
 
-  function scheduleSingleTapFallback(id: string, zone: TapZone, intent: GestureIntent | null, settings: GestureSettings) {
+  function scheduleSingleTapFallback(
+    id: string,
+    zone: TapZone,
+    intent: GestureIntent | null,
+    settings: GestureSettings,
+    resolveDetail?: string
+  ) {
     clearPendingTap();
     pendingTap = {
       startedAt: Date.now(),
@@ -58,7 +64,12 @@ export function createNativePortManager(deps: Dependencies) {
           void executeAndPost(id, intent);
           return;
         }
-        postActionResult(actionResult(id, "open_link_background", "no_target"));
+        postActionResult(actionResult(
+          id,
+          "open_link_background",
+          "no_target",
+          resolveDetail ? { resolveDetail } : undefined
+        ));
       }, zone === "center" ? settings.doubleTapMaxMs : DOUBLE_TAP_WINDOW_MS)
     };
   }
@@ -99,17 +110,25 @@ export function createNativePortManager(deps: Dependencies) {
               return;
             }
             const fallbackIntent = intentFromTapZone(tapZone);
-            scheduleSingleTapFallback(message.id, tapZone, fallbackIntent, settings);
+            const resolveDetail = "detail" in resolved && typeof resolved.detail === "string"
+              ? resolved.detail
+              : undefined;
+            scheduleSingleTapFallback(message.id, tapZone, fallbackIntent, settings, resolveDetail);
             return;
           }
           clearPendingTap();
+          const failureDetail: Record<string, unknown> = {};
+          if ("detail" in resolved && typeof resolved.detail === "string") {
+            failureDetail.resolveDetail = resolved.detail;
+          }
+          if (!settings.edgeTapEnabled && tapZoneFromTouchXIgnoringSetting(message.payload.touchX, resolved.status, settings) !== null) {
+            failureDetail.reason = "edge_tap_disabled";
+          }
           postActionResult(actionResult(
             message.id,
             "open_link_background",
             resolved.status,
-            !settings.edgeTapEnabled && tapZoneFromTouchXIgnoringSetting(message.payload.touchX, resolved.status, settings) !== null
-              ? { reason: "edge_tap_disabled" }
-              : undefined
+            Object.keys(failureDetail).length > 0 ? failureDetail : undefined
           ));
           return;
         }

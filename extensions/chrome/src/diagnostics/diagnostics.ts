@@ -174,6 +174,9 @@ export function diagnosticFromActionResult(
     };
   }
 ): GestureDiagnosticEntry {
+  const detailMessage = typeof message.payload.details?.resolveDetail === "string"
+    ? message.payload.details.resolveDetail
+    : undefined;
   return {
     id: `action-${message.id}-${message.timestamp}`,
     timestamp: message.timestamp,
@@ -181,7 +184,8 @@ export function diagnosticFromActionResult(
     kind: "action",
     action: message.payload.action,
     status: message.payload.status,
-    reason: reasonFromActionResult(message.payload.status, message.payload.details)
+    reason: reasonFromActionResult(message.payload.status, message.payload.details),
+    message: detailMessage
   };
 }
 

@@ -16,7 +16,8 @@ describe("pointerTracker", () => {
   it("returns no_recent_pointer before any pointer move", async () => {
     const module = await import("../src/content/pointerTracker");
 
-    expect(module.resolveLinkAtLastPointer(1000)).toEqual({ status: "no_recent_pointer" });
+    expect(module.resolveLinkAtLastPointer(1000)).toMatchObject({ status: "no_recent_pointer" });
+    expect(module.resolveLinkAtLastPointer(1000)).toHaveProperty("detail");
   });
 
   it("resolves the last fresh pointer position", async () => {
