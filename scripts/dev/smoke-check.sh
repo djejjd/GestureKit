@@ -56,48 +56,45 @@ if [[ -z "$extension_id" ]]; then
   exit 1
 fi
 
-print_command() {
-  printf '%s\n' "$1"
-}
-
-swift_display_prefix() {
-  if [[ -n "$developer_dir" ]]; then
-    printf 'DEVELOPER_DIR=%s ' "$developer_dir"
-  fi
+print_argv() {
+  local -a args=("$@")
+  print -r -- ${(q)args}
 }
 
 run_or_print() {
-  local command="$1"
-  shift
-
   if $dry_run; then
-    print_command "$command"
+    print_argv "$@"
   else
     "$@"
   fi
 }
 
-if [[ -n "$developer_dir" ]]; then
-  run_or_print "$(swift_display_prefix)swift build" env DEVELOPER_DIR="$developer_dir" swift build
-  run_or_print "$(swift_display_prefix)swift run GestureKitHost --self-test" env DEVELOPER_DIR="$developer_dir" swift run GestureKitHost --self-test
-else
-  run_or_print "swift build" swift build
-  run_or_print "swift run GestureKitHost --self-test" swift run GestureKitHost --self-test
-fi
+run_swift() {
+  local subcommand="$1"
+  shift
 
+  if [[ -n "$developer_dir" ]]; then
+    run_or_print env "DEVELOPER_DIR=$developer_dir" swift --package-path "$repo_root" "$subcommand" "$@"
+  else
+    run_or_print swift --package-path "$repo_root" "$subcommand" "$@"
+  fi
+}
+
+run_swift build
+run_swift run GestureKitHost --self-test
+
+chrome_dir="$repo_root/extensions/chrome"
 if $dry_run; then
-  print_command "cd extensions/chrome && npm run build"
+  print -r -- "cd ${(q)chrome_dir} && npm run build"
 else
   (
-    cd "$repo_root/extensions/chrome"
+    cd "$chrome_dir"
     npm run build
   )
 fi
 
-run_or_print "./scripts/dev/install-native-host.sh --extension-id $extension_id --host-path $host_path" \
-  "$repo_root/scripts/dev/install-native-host.sh" \
+run_or_print "$repo_root/scripts/dev/install-native-host.sh" \
   --extension-id "$extension_id" \
   --host-path "$host_path"
 
-run_or_print "open chrome-extension://$extension_id/smoke.html" \
-  open "chrome-extension://$extension_id/smoke.html"
+run_or_print open "chrome-extension://$extension_id/smoke.html"

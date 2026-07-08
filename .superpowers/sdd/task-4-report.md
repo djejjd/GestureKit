@@ -85,3 +85,40 @@ git diff --check
   - `cd extensions/chrome && npm test`: pass, 9 files / 70 tests passed
   - `cd extensions/chrome && npm run build`: pass
   - `git diff --check`: pass
+
+## reviewer follow-up fix 2
+
+- 修复原因：
+  - `smoke-check.sh` 的 Swift 命令仍依赖调用者当前目录，没有把 SwiftPM 上下文钉死到 repo root。
+  - 文档把 `smoke-check.sh` 和 App 启动写成一个线性主流程，但脚本本身不会启动 `GestureKitApp`，导致首次打开 `smoke.html` 时 `app_unavailable` 的语义不清。
+  - `test-smoke-check.sh` 只覆盖固定 `DEVELOPER_DIR` 的 happy path，缺少显式 `DEVELOPER_DIR` 和 `--host-path` 覆盖分支。
+  - dry-run 输出未按 shell-safe 形式展示真实 argv，遇到带空格路径时不利于排障。
+- 修复内容：
+  - `scripts/dev/smoke-check.sh` 现在统一用 `swift --package-path "$repo_root"` 执行 `build` 和 `run GestureKitHost --self-test`，不再依赖调用目录。
+  - dry-run 输出改为 shell-safe argv；`DEVELOPER_DIR`、`--package-path`、`install-native-host.sh` 绝对路径和带空格 `--host-path` 都会按可复制形式展示。
+  - `scripts/dev/test-smoke-check.sh` 现在覆盖三条 dry-run 分支：默认 `DEVELOPER_DIR`、显式注入 `DEVELOPER_DIR`、显式 `--host-path` 覆盖，并把默认 host 路径断言收紧为完整命令。
+  - 安装文档、E2E 清单和排障文档统一拆成“阶段一：预检查”和“阶段二：连通性探针”，明确 `app_unavailable` 在 App 未启动时是预期状态，不等同于脚本失败。
+- 本轮复跑命令：
+
+```bash
+zsh scripts/dev/test-render-native-host-manifest.sh
+zsh scripts/dev/test-install-native-host.sh
+zsh scripts/dev/test-smoke-check.sh
+/bin/zsh -lc 'DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test'
+/bin/zsh -lc 'DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift build'
+/bin/zsh -lc 'DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift run GestureKitHost --self-test'
+cd extensions/chrome && npm test
+cd extensions/chrome && npm run build
+git diff --check
+```
+
+- 本轮复跑结果：
+  - `zsh scripts/dev/test-render-native-host-manifest.sh`: pass
+  - `zsh scripts/dev/test-install-native-host.sh`: pass
+  - `zsh scripts/dev/test-smoke-check.sh`: pass，覆盖默认 `DEVELOPER_DIR`、显式 `DEVELOPER_DIR`、显式 `--host-path` 和 shell-safe dry-run 输出
+  - `/bin/zsh -lc 'DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test'`: pass，36 tests passed
+  - `/bin/zsh -lc 'DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift build'`: pass
+  - `/bin/zsh -lc 'DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift run GestureKitHost --self-test'`: pass
+  - `cd extensions/chrome && npm test`: pass，9 files / 70 tests passed
+  - `cd extensions/chrome && npm run build`: pass
+  - `git diff --check`: pass

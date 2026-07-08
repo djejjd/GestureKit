@@ -28,7 +28,9 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
 4. 选择 `extensions/chrome`。
 5. 记录扩展 ID，后续所有安装和 smoke check 都要用这个 ID。
 
-## 3. 一次性收口构建、自检、manifest 安装和 smoke 页面
+## 3. 阶段一：预检查
+
+这一阶段只负责把构建、自检、扩展构建、manifest 安装和 smoke 页面入口串起来，不负责自动启动 `GestureKitApp`。
 
 推荐直接运行开发入口：
 
@@ -44,6 +46,12 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
 4. `./scripts/dev/install-native-host.sh --extension-id <extension-id> --host-path "<repo>/.build/debug/GestureKitHost"`
 5. `open "chrome-extension://<extension-id>/smoke.html"`
 
+阶段一的成功标准：
+
+- `swift build`、`GestureKitHost --self-test`、扩展构建和 native host manifest 安装都成功。
+- 浏览器能打开 `smoke.html`。
+- 如果此时还没启动 `GestureKitApp`，`smoke.html` 首次出现 `app_unavailable` 属于预期现象，不表示 `smoke-check.sh` 失败。
+
 如果只想确认命令链路，不实际执行，可先 dry run：
 
 ```bash
@@ -58,7 +66,28 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
   --host-path /absolute/path/to/GestureKitHost
 ```
 
-## 4. 手动安装 native host（仅在需要单独排查时）
+## 4. 阶段二：连通性探针
+
+预检查成功后，再单独启动 App：
+
+```bash
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift run GestureKitApp
+```
+
+然后回到已经打开的 `smoke.html`，或者重新打开：
+
+```bash
+open "chrome-extension://<extension-id>/smoke.html"
+```
+
+阶段二的成功标准：
+
+- smoke 页面不再显示 `app_unavailable`。
+- extension 能连到 native host，且 App 侧有正常连接日志。
+
+如果你就是要验证“App 没启动时 extension 会给出什么状态”，可以只做阶段一，不做阶段二。
+
+## 5. 手动安装 native host（仅在需要单独排查时）
 
 `smoke-check.sh` 内部会调用：
 
@@ -78,14 +107,6 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer
 
 - `path` 指向本机 `GestureKitHost` 绝对路径。
 - `allowed_origins` 包含 `chrome-extension://<extension-id>/`。
-
-## 5. 启动 App
-
-`smoke-check.sh` 不会自动启动 `GestureKitApp`。需要单独打开：
-
-```bash
-DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift run GestureKitApp
-```
 
 需要分析手势识别不稳定时使用详细日志：
 

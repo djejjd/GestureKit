@@ -7,12 +7,18 @@
 - 输入设备: 内置触控板或 Magic Trackpad。
 - 显示器: 记录内置屏或外接屏组合。
 
-## 安装与预检查
+## 阶段一：预检查
 
 - [ ] 已按 `docs/operations/gesturekit-v1-local-install.md` 加载 unpacked extension，并记录实际扩展 ID。
 - [ ] 已运行 `./scripts/dev/smoke-check.sh --extension-id <extension-id>`，确认脚本实际使用的 Swift 入口、host 自检、manifest 安装和 `smoke.html` 打开链路都成功。
-- [ ] 已单独启动 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift run GestureKitApp`，确保 App 常驻后再做以下人工手势验证。
 - [ ] 如需复查链路但不实际执行，可运行 `./scripts/dev/smoke-check.sh --extension-id <extension-id> --dry-run`。
+- [ ] 如果此时 `smoke.html` 显示 `app_unavailable`，已按“预检查阶段 App 未启动”的预期处理，而不是误判为脚本失败。
+
+## 阶段二：连通性探针
+
+- [ ] 已单独启动 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift run GestureKitApp`。
+- [ ] 重新打开或刷新 `chrome-extension://<extension-id>/smoke.html` 后，不再出现 `app_unavailable`。
+- [ ] App 常驻正常后，再进行以下人工手势验收。
 
 ## 必测功能
 

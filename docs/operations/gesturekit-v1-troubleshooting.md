@@ -11,9 +11,10 @@
 重点确认：
 
 - 扩展 ID 是当前 `chrome://extensions` 里这次加载的 ID。
-- 默认 host 路径是否仍然是 `$(pwd)/.build/debug/GestureKitHost`。
+- 默认 host 路径是否仍然是仓库根目录下的 `.build/debug/GestureKitHost`。
 - dry-run 里 Swift 命令是否显示为 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift ...`；如果你的 Xcode 不在这个路径，先导出正确的 `DEVELOPER_DIR` 再重跑。
 - 如果你在别的位置构建过 host，改用 `--host-path /absolute/path/to/GestureKitHost`。
+- dry-run 输出现在按 shell-safe 形式展示真实命令；如果路径里有空格，看到反斜杠转义是预期行为。
 
 ## 2. `swift run GestureKitHost --self-test` 失败
 
@@ -69,7 +70,10 @@ open "chrome-extension://<extension-id>/smoke.html"
 
 ## 5. smoke 页面显示 `app_unavailable`
 
-这通常表示扩展能连到 native host，但 App 没起来或本机 IPC 不通。先确认：
+先区分你在哪个阶段：
+
+- 如果你刚跑完 `./scripts/dev/smoke-check.sh --extension-id <extension-id>`，但还没启动 `GestureKitApp`，首次看到 `app_unavailable` 是预期结果，说明阶段一只做到“页面已打开，等待 App”。
+- 如果你已经启动了 `GestureKitApp`，仍然看到 `app_unavailable`，这通常表示扩展能连到 native host，但 App 没起来或本机 IPC 不通。先确认：
 
 ```bash
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift run GestureKitApp
