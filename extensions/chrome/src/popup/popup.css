@@ -24,6 +24,9 @@ output { color: #2563eb; font-weight: 500; font-variant-numeric: tabular-nums; m
 .status .row:last-child { border-bottom: none; }
 .status .row span { color: #6b7a8a; font-size: 13px; }
 .status .row strong { font-weight: 500; color: #1f2937; }
+.dot-online::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #22c55e; margin-right: 6px; vertical-align: middle; }
+.dot-offline::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #ef4444; margin-right: 6px; vertical-align: middle; }
+.dot-sync::before { content: ""; display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #f59e0b; margin-right: 6px; vertical-align: middle; }
 .diagnostics { display: grid; gap: 8px; color: #4b5563; }
 .diagnostics .row { padding: 2px 0; }
 .diagnostics .row strong { font-weight: 500; color: #1f2937; }

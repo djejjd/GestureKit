@@ -163,12 +163,34 @@ function extractSyncStatus(syncValue: unknown, statusValue: unknown): SettingsSy
 
 function renderStatus(doc: Document, value: unknown, settingsSync: SettingsSyncStatus | null) {
   const status = isPopupStatus(value) ? value : {};
-  element(doc, "#nativeStatus").textContent = status.nativeConnected ? "已连接" : "未连接";
-  element(doc, "#appStatus").textContent = status.appConnected ? "在线" : "未连接";
-  element(doc, "#settingsSyncStatus").textContent = settingsSync
-    ? `${phaseLabel(settingsSync.phase)} ${settingsSync.savedSwipeSensitivity}`
-    : "待同步";
-  element(doc, "#lastResult").textContent = status.lastResult ? resultLabel(status.lastResult) : "暂无";
+
+  const nativeEl = element(doc, "#nativeStatus");
+  const appEl = element(doc, "#appStatus");
+  const syncEl = element(doc, "#settingsSyncStatus");
+  const lastEl = element(doc, "#lastResult");
+
+  nativeEl.textContent = status.nativeConnected ? "已连接" : "未连接";
+  nativeEl.className = status.nativeConnected ? "dot-online" : "dot-offline";
+
+  appEl.textContent = status.appConnected ? "在线" : "未连接";
+  appEl.className = status.appConnected ? "dot-online" : "dot-offline";
+
+  if (settingsSync) {
+    syncEl.textContent = `${phaseLabel(settingsSync.phase)} ${settingsSync.savedSwipeSensitivity}`;
+    if (settingsSync.phase === "applied") {
+      syncEl.className = "dot-online";
+    } else if (settingsSync.phase === "failed" || settingsSync.phase === "stale") {
+      syncEl.className = "dot-offline";
+    } else {
+      syncEl.className = "dot-sync";
+    }
+  } else {
+    syncEl.textContent = "待同步";
+    syncEl.className = "dot-offline";
+  }
+
+  lastEl.textContent = status.lastResult ? resultLabel(status.lastResult) : "暂无";
+  lastEl.className = "";
 }
 
 function renderDiagnostics(doc: Document, diagnostics: GestureDiagnosticEntry[]) {
