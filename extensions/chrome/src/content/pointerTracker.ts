@@ -208,7 +208,7 @@ function sharedState(): PointerTrackerState {
     lastLinkClick: null,
     protectedLinkClick: null,
     expiredProtectedClick: null,
-    linkClickProtectionEnabled: false
+    linkClickProtectionEnabled: true
   };
   return target[key]!;
 }

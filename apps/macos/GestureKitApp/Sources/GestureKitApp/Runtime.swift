@@ -286,8 +286,8 @@ final class GestureKitRuntime {
     private func handleActionResult(_ requestId: String, action: String, status: String, detailsText: String) {
         guard pendingRequests[requestId] != nil else { return }
         pendingRequests.removeValue(forKey: requestId)
-        if status == "gesture_unstable" {
-            logger.info("execution_result requestId=\(requestId) action=\(action) status=gesture_unstable (no flash) \(detailsText)")
+        if status == "gesture_unstable" || status == "no_target" {
+            logger.info("execution_result requestId=\(requestId) action=\(action) status=\(status) (no flash) \(detailsText)")
             return
         }
         let success = status == "success"
