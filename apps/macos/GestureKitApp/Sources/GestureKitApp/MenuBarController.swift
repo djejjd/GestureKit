@@ -14,7 +14,13 @@ final class MenuBarController {
         self.control = control
 
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        item.button?.title = "GestureKit"
+        if let icon = NSImage(contentsOf: Bundle.module.url(forResource: "menu_icon", withExtension: "svg")!) {
+            icon.isTemplate = true
+            icon.size = NSSize(width: 18, height: 18)
+            item.button?.image = icon
+        } else {
+            item.button?.title = "GestureKit"
+        }
 
         menu = NSMenu()
         menu.addItem(listeningItem)
