@@ -24,7 +24,7 @@ type Dependencies = {
 const DOUBLE_TAP_WINDOW_MS = 300;
 
 export function createNativePortManager(deps: Dependencies) {
-  let pendingTap: { timer: ReturnType<typeof setTimeout>; startedAt: number; zone: TapZone } | null = null;
+  let pendingTap: { id: string; timer: ReturnType<typeof setTimeout>; startedAt: number; zone: TapZone } | null = null;
   let cooldownUntil = 0;
 
   async function currentSettings() {
@@ -41,9 +41,12 @@ export function createNativePortManager(deps: Dependencies) {
     deps.onActionResult?.(message);
   }
 
-  function clearPendingTap() {
+  function clearPendingTap(reason?: string) {
     if (pendingTap) {
       clearTimeout(pendingTap.timer);
+      if (reason) {
+        postActionResult(actionResult(pendingTap.id, "open_link_background", "gesture_unstable", { reason }));
+      }
       pendingTap = null;
     }
   }
@@ -55,8 +58,9 @@ export function createNativePortManager(deps: Dependencies) {
     settings: GestureSettings,
     resolveDetail?: string
   ) {
-    clearPendingTap();
+    clearPendingTap("superseded_by_tap");
     pendingTap = {
+      id,
       startedAt: Date.now(),
       zone,
       timer: setTimeout(() => {
@@ -85,14 +89,14 @@ export function createNativePortManager(deps: Dependencies) {
 
       if (message.payload.gesture === "three_finger_tap") {
         if (Date.now() < cooldownUntil) {
-          clearPendingTap();
+          clearPendingTap("cooldown");
           deps.cancelPendingTap?.();
           postActionResult(actionResult(message.id, "open_link_background", "gesture_unstable", { reason: "cooldown" }));
           return;
         }
 
         if (!isStableTapDuration(message.payload.durationMs, settings)) {
-          clearPendingTap();
+          clearPendingTap("tap_duration_unstable");
           deps.cancelPendingTap?.();
           postActionResult(actionResult(message.id, "open_link_background", "gesture_unstable", { reason: "tap_duration_unstable" }));
           return;
@@ -104,11 +108,12 @@ export function createNativePortManager(deps: Dependencies) {
           if (tapZone) {
             if (pendingTap?.zone === "center" && tapZone === "center" && settings.doubleTapCloseEnabled) {
               const interval = Date.now() - pendingTap.startedAt;
-              clearPendingTap();
               if (interval >= settings.doubleTapMinMs && interval <= settings.doubleTapMaxMs) {
+                clearPendingTap("converted_to_double_tap_close");
                 await executeAndPost(message.id, { action: "close_tab" });
                 return;
               }
+              clearPendingTap("tap_duration_unstable");
               postActionResult(actionResult(message.id, "open_link_background", "gesture_unstable", { reason: "tap_duration_unstable" }));
               return;
             }
