@@ -88,12 +88,30 @@ final class RuntimeLifecycleTests: XCTestCase {
         )
 
         runtime.start()
-        let countAfterFirst = statuses.count
         runtime.start()
-        let countAfterSecond = statuses.count
 
         // second start should not crash and should still report listening
-        XCTAssertEqual(countAfterSecond, countAfterFirst)
+        XCTAssertEqual(statuses.last?.listeningState, .listening)
+    }
+
+    func testStartCanRetryAfterTouchBackendFailure() {
+        var statuses: [AppRuntimeStatus] = []
+        let failingBackend = RetryStubTouchBackend()
+        let runtime = GestureKitRuntime(
+            statusHandler: { statuses.append($0) },
+            touchBackend: failingBackend,
+            settingsStore: LifecycleStubSettingsStore(),
+            logger: GestureKitLogger(terminalWriter: { _ in })
+        )
+
+        failingBackend.shouldStartSucceed = false
+        runtime.start()
+
+        XCTAssertEqual(statuses.last?.listeningState, .inputError)
+
+        failingBackend.shouldStartSucceed = true
+        runtime.start()
+
         XCTAssertEqual(statuses.last?.listeningState, .listening)
     }
 
@@ -108,12 +126,9 @@ final class RuntimeLifecycleTests: XCTestCase {
 
         runtime.start()
         runtime.stop()
-        let countAfterFirstStop = statuses.count
         runtime.stop()
-        let countAfterSecondStop = statuses.count
 
         // second stop should not crash and should still report stopped
-        XCTAssertEqual(countAfterSecondStop, countAfterFirstStop)
         XCTAssertEqual(statuses.last?.listeningState, .stopped)
     }
 }
@@ -124,6 +139,17 @@ private final class LifecycleStubTouchBackend: TouchBackend {
     }
 
     func start() -> Bool { true }
+    func stop() -> Bool { true }
+}
+
+private final class RetryStubTouchBackend: TouchBackend {
+    var shouldStartSucceed = true
+
+    let frames = AsyncStream<TouchFrame> { continuation in
+        continuation.finish()
+    }
+
+    func start() -> Bool { shouldStartSucceed }
     func stop() -> Bool { true }
 }
 

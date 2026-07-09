@@ -115,6 +115,10 @@ final class GestureKitRuntime {
         }
 
         guard touchBackend.start() else {
+            listeningTask?.cancel()
+            listeningTask = nil
+            eventServer?.stop()
+            eventServer = nil
             publishStatus(listeningState: .inputError, lastError: "touch_backend_start_failed")
             logger.error("touch_backend_start_failed")
             return
