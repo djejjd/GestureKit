@@ -126,7 +126,7 @@ final class LocalEventServer: @unchecked Sendable {
         lock.unlock()
     }
 
-    private func connectionCount() -> Int {
+    func connectionCount() -> Int {
         lock.lock()
         defer { lock.unlock() }
         return connections.count

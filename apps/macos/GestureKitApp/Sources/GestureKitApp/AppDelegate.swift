@@ -17,7 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem = item
 
         runtime = GestureKitRuntime(statusHandler: { [weak item] status in
-            item?.button?.title = status
+            item?.button?.title = "GestureKit: \(status.listeningState)"
         })
         runtime?.start()
     }

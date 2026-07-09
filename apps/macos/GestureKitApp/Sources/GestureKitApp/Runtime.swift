@@ -3,7 +3,7 @@ import GestureKitCore
 
 @MainActor
 final class GestureKitRuntime {
-    private let statusHandler: (String) -> Void
+    private let statusHandler: (AppRuntimeStatus) -> Void
     private var recognizer = GestureRecognizer()
     private let ruleEngine: RuleEngine
     private let appContextResolver = AppContextResolver()
@@ -14,9 +14,10 @@ final class GestureKitRuntime {
     private var listeningTask: Task<Void, Never>?
     private var eventServer: LocalEventServer?
     private let appSessionId: String
+    private var currentStatus: AppRuntimeStatus
 
     init(
-        statusHandler: @escaping (String) -> Void,
+        statusHandler: @escaping (AppRuntimeStatus) -> Void,
         touchBackend: any TouchBackend = MultitouchSupportBackend(),
         settingsStore: any SettingsStore = UserDefaultsSettingsStore(),
         logger: GestureKitLogger = GestureKitLogger(),
@@ -29,6 +30,13 @@ final class GestureKitRuntime {
         self.diagnosticSink = diagnosticSink
         self.ruleEngine = RuleEngine(rules: (try? settingsStore.loadRules()) ?? DefaultRules.v1)
         self.appSessionId = UUID().uuidString
+        self.currentStatus = AppRuntimeStatus(
+            listeningState: .starting,
+            connectionState: .unknown,
+            lastGesture: nil,
+            lastError: nil,
+            logFilePathHint: "~/Library/Logs/GestureKit/GestureKitApp.log"
+        )
     }
 
     func start() {
@@ -41,11 +49,12 @@ final class GestureKitRuntime {
             server.start()
             eventServer = server
         } catch {
-            statusHandler("GestureKit: IPC Error")
+            publishStatus(listeningState: .ipcError, lastError: "ipc_listener_start_failed")
             logger.error("ipc_listener_start_failed error=\"\(error)\"")
+            return
         }
 
-        statusHandler("GestureKit: On")
+        publishStatus(listeningState: .listening)
         logger.info(
             "app_started log_file=\"\(loggerFilePathHint())\" debug=\(ProcessInfo.processInfo.environment["GESTUREKIT_DEBUG"] == "1")",
             terminal: true
@@ -59,8 +68,29 @@ final class GestureKitRuntime {
         eventServer?.stop()
         eventServer = nil
         _ = touchBackend.stop()
-        statusHandler("GestureKit: Off")
+        publishStatus(listeningState: .stopped, connectionState: .disconnected)
         logger.info("app_stopped", terminal: true)
+    }
+
+    func refreshStatus() {
+        let connectionCount = eventServer?.connectionCount() ?? 0
+        publishStatus(connectionState: connectionCount > 0 ? .connected(clientCount: connectionCount) : .disconnected)
+    }
+
+    private func publishStatus(
+        listeningState: AppListeningState? = nil,
+        connectionState: AppConnectionState? = nil,
+        lastGesture: String? = nil,
+        lastError: String? = nil
+    ) {
+        currentStatus = AppRuntimeStatus(
+            listeningState: listeningState ?? currentStatus.listeningState,
+            connectionState: connectionState ?? currentStatus.connectionState,
+            lastGesture: lastGesture ?? currentStatus.lastGesture,
+            lastError: lastError,
+            logFilePathHint: loggerFilePathHint()
+        )
+        statusHandler(currentStatus)
     }
 
     private func startTouchListening() {
@@ -72,7 +102,7 @@ final class GestureKitRuntime {
         }
 
         guard touchBackend.start() else {
-            statusHandler("GestureKit: Input Error")
+            publishStatus(listeningState: .inputError, lastError: "touch_backend_start_failed")
             logger.error("touch_backend_start_failed")
             return
         }
@@ -97,7 +127,6 @@ final class GestureKitRuntime {
         let elementType: ElementType = gesture == .threeFingerTap ? .link : .any
         let context = appContextResolver.currentContext(elementType: elementType)
         guard ruleEngine.match(gesture: gesture, context: context) != nil else {
-            statusHandler(context.browserKind == .chrome ? "GestureKit: No Rule" : "GestureKit: Unsupported App")
             if context.browserKind == .chrome {
                 logger.warn("no_rule gesture=\(gesture.rawValue) appBundleId=\(context.appBundleId)", rateLimitKey: "no_rule_\(gesture.rawValue)")
             } else {
@@ -122,7 +151,7 @@ final class GestureKitRuntime {
         } else {
             logger.info("gesture_published gesture=\(gesture.rawValue) appBundleId=\(context.appBundleId) connections=\(connectionCount)")
         }
-        statusHandler("GestureKit: \(gesture.rawValue)")
+        publishStatus(lastGesture: gesture.rawValue)
     }
 
     func applySettingsUpdate(_ payload: SettingsUpdatePayload) -> SettingsAckPayload {
