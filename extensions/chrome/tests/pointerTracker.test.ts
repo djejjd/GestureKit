@@ -45,6 +45,7 @@ describe("pointerTracker", () => {
 
   it("reports when the link click already fired before GestureKit can consume it", async () => {
     const module = await import("../src/content/pointerTracker");
+    module.setLinkClickProtectionEnabled(false);
     const anchor = document.getElementById("target") as HTMLAnchorElement;
     window.dispatchEvent(new PointerEvent("pointermove", { clientX: 10, clientY: 20 }));
 
