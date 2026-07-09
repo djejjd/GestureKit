@@ -7,7 +7,7 @@ import XCTest
 final class RuntimeProbeTests: XCTestCase {
     func testRuntimeRepliesToProbeRequest() throws {
         let runtime = GestureKitRuntime(
-            statusHandler: { _ in },
+            menuBarHandler: { _ in },
             touchBackend: RuntimeProbeStubTouchBackend(),
             settingsStore: RuntimeProbeStubSettingsStore(),
             logger: GestureKitLogger(terminalWriter: { _ in }),

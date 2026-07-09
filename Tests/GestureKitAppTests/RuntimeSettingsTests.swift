@@ -7,7 +7,7 @@ import XCTest
 final class RuntimeSettingsTests: XCTestCase {
     func testSettingsUpdateAppliesSwipeSensitivityToRecognizer() {
         let runtime = GestureKitRuntime(
-            statusHandler: { _ in },
+            menuBarHandler: { _ in },
             touchBackend: StubTouchBackend(),
             settingsStore: StubSettingsStore(),
             logger: GestureKitLogger(terminalWriter: { _ in })
@@ -39,7 +39,7 @@ final class RuntimeSettingsTests: XCTestCase {
 
     func testSettingsAckIncludesCurrentRuntimeSession() {
         let runtime = GestureKitRuntime(
-            statusHandler: { _ in },
+            menuBarHandler: { _ in },
             touchBackend: StubTouchBackend(),
             settingsStore: StubSettingsStore(),
             logger: GestureKitLogger(terminalWriter: { _ in })
@@ -59,7 +59,7 @@ final class RuntimeSettingsTests: XCTestCase {
 
     func testProbeResponseIncludesAppSessionId() {
         let runtime = GestureKitRuntime(
-            statusHandler: { _ in },
+            menuBarHandler: { _ in },
             touchBackend: StubTouchBackend(),
             settingsStore: StubSettingsStore(),
             logger: GestureKitLogger(terminalWriter: { _ in })
@@ -75,7 +75,7 @@ final class RuntimeSettingsTests: XCTestCase {
     func testUnstableSwipePublishesDiagnosticEvent() {
         var diagnostics: [LocalIPCEnvelope] = []
         let runtime = GestureKitRuntime(
-            statusHandler: { _ in },
+            menuBarHandler: { _ in },
             touchBackend: StubTouchBackend(),
             settingsStore: StubSettingsStore(),
             logger: GestureKitLogger(terminalWriter: { _ in }),

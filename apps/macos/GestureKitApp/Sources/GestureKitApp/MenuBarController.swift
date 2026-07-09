@@ -4,11 +4,12 @@ import AppKit
 final class MenuBarController {
     private let item: NSStatusItem
     private let menu: NSMenu
-    private let listeningItem = NSMenuItem(title: "监听：启动中", action: nil, keyEquivalent: "")
-    private let connectionItem = NSMenuItem(title: "连接：未知", action: nil, keyEquivalent: "")
-    private let gestureItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
-    private let errorItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
+    private let statusItem: NSMenuItem
     private let control: any RuntimeControlling
+    private var currentState: AppMenuBarState = .normal
+    private var flashTimer: Timer?
+    private var pauseTimer: Timer?
+    private var baseIcon: NSImage?
 
     init(control: any RuntimeControlling) {
         self.control = control
@@ -17,29 +18,25 @@ final class MenuBarController {
         if let icon = NSImage(contentsOf: Bundle.module.url(forResource: "menu_icon", withExtension: "svg")!) {
             icon.isTemplate = true
             icon.size = NSSize(width: 18, height: 18)
+            baseIcon = icon
             item.button?.image = icon
         }
         item.button?.title = ""
 
         menu = NSMenu()
-        menu.addItem(listeningItem)
-        menu.addItem(connectionItem)
-        menu.addItem(gestureItem)
+
+        statusItem = NSMenuItem(title: "GestureKit 正常运行", action: nil, keyEquivalent: "")
+        menu.addItem(statusItem)
+
+        let gestureItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
         gestureItem.isHidden = true
-        menu.addItem(errorItem)
-        errorItem.isHidden = true
-        menu.addItem(NSMenuItem.separator())
+        gestureItem.tag = 1
+        menu.addItem(gestureItem)
 
-        menu.addItem(actionItem("刷新状态", #selector(refresh)))
-        menu.addItem(actionItem("启动监听", #selector(startListeningAction)))
-        menu.addItem(actionItem("停止监听", #selector(stopListeningAction)))
         menu.addItem(NSMenuItem.separator())
-
+        menu.addItem(actionItem("暂停手势 10 分钟", #selector(togglePause)))
         menu.addItem(actionItem("打开日志目录", #selector(openLogs)))
-        menu.addItem(actionItem("打开安装说明", #selector(openInstall)))
-        menu.addItem(actionItem("打开排障文档", #selector(openTroubleshooting)))
         menu.addItem(NSMenuItem.separator())
-
         menu.addItem(actionItem("退出", #selector(quit)))
         item.menu = menu
     }
@@ -50,69 +47,198 @@ final class MenuBarController {
         return item
     }
 
-    func apply(status: AppRuntimeStatus) {
-        listeningItem.title = "监听：\(listeningLabel(status.listeningState))"
-        connectionItem.title = "连接：\(connectionLabel(status.connectionState))"
-
-        if let gesture = status.lastGesture {
-            gestureItem.title = "最近手势：\(gestureLabel(gesture))"
-            gestureItem.isHidden = false
-        } else {
-            gestureItem.isHidden = true
-        }
-
-        if let error = status.lastError, !error.isEmpty {
-            errorItem.title = "最近错误：\(error)"
-            errorItem.isHidden = false
-        } else {
-            errorItem.isHidden = true
+    func apply(event: AppMenuBarEvent) {
+        switch event.type {
+        case .gestureRecognized(let gesture):
+            handleGestureRecognized(gesture: gesture)
+        case .gestureWarning(let reason):
+            handleGestureWarning(reason: reason)
+        case .appError(let reason):
+            handleAppError(reason: reason)
+        case .appRecovered:
+            handleAppRecovered()
+        case .paused:
+            handlePaused()
+        case .resumed:
+            handleResumed()
         }
     }
 
-    func statusTitlesForTesting() -> [String] {
-        var titles = [listeningItem.title, connectionItem.title]
-        if !gestureItem.isHidden { titles.append(gestureItem.title) }
-        if !errorItem.isHidden { titles.append(errorItem.title) }
-        return titles.filter { !$0.isEmpty }
+    private func handleGestureRecognized(gesture: String) {
+        guard !isErrorOrPaused else { return }
+        let label = gestureLabelMap[gesture] ?? gesture
+        currentState = .gestureRecognized(gesture: gesture)
+        setTint(.green)
+        statusItem.title = "GestureKit 正常运行"
+        setGestureText("最近手势：\(label)已识别")
+        scheduleFlashReset()
     }
 
-    @objc private func refresh() { control.refreshStatus() }
-    @objc private func startListeningAction() { control.startListening() }
-    @objc private func stopListeningAction() { control.stopListening() }
+    private var isErrorOrPaused: Bool {
+        if case .appError = currentState { return true }
+        if case .paused = currentState { return true }
+        return false
+    }
+
+    private func handleGestureWarning(reason: String) {
+        guard !isErrorOrPaused else { return }
+        currentState = .gestureWarning(reason: reason)
+        setTint(.yellow)
+        statusItem.title = "GestureKit 正常运行"
+        let text = warningText(for: reason)
+        setGestureText("上次手势未生效：\(text)")
+        scheduleFlashReset()
+    }
+
+    private func handleAppError(reason: String) {
+        currentState = .appError(reason: reason)
+        setTint(.red)
+        statusItem.title = "GestureKit 异常"
+        let text = errorText(for: reason)
+        setGestureText(text)
+        cancelFlashReset()
+    }
+
+    private func handleAppRecovered() {
+        currentState = .normal
+        setTint(.default)
+        statusItem.title = "GestureKit 正常运行"
+        setGestureText(nil)
+    }
+
+    private func handlePaused() {
+        currentState = .paused
+        setTint(.gray)
+        statusItem.title = "GestureKit 已暂停"
+        setGestureText(nil)
+        updatePauseMenuItem(isPaused: true)
+        cancelFlashReset()
+    }
+
+    private func handleResumed() {
+        currentState = .normal
+        setTint(.default)
+        statusItem.title = "GestureKit 正常运行"
+        setGestureText(nil)
+        updatePauseMenuItem(isPaused: false)
+    }
+
+    private func setTint(_ color: MenuBarIconTint) {
+        guard let icon = baseIcon?.copy() as? NSImage else { return }
+        icon.isTemplate = (color == .default)
+        if !icon.isTemplate {
+            icon.lockFocus()
+            color.nsColor.set()
+            NSRect(origin: .zero, size: icon.size).fill(using: .sourceAtop)
+            icon.unlockFocus()
+        }
+        item.button?.image = icon
+    }
+
+    private func setGestureText(_ text: String?) {
+        if let item = menu.item(withTag: 1) {
+            if let text {
+                item.title = text
+                item.isHidden = false
+            } else {
+                item.isHidden = true
+            }
+        }
+    }
+
+    private func scheduleFlashReset() {
+        cancelFlashReset()
+        flashTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: false) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.resetToNormal()
+            }
+        }
+    }
+
+    private func cancelFlashReset() {
+        flashTimer?.invalidate()
+        flashTimer = nil
+    }
+
+    private func resetToNormal() {
+        switch currentState {
+        case .gestureRecognized, .gestureWarning:
+            currentState = .normal
+            setTint(.default)
+            setGestureText(nil)
+        default:
+            break
+        }
+    }
+
+    private func updatePauseMenuItem(isPaused: Bool) {
+        for item in menu.items {
+            if item.action == #selector(togglePause) {
+                item.title = isPaused ? "恢复手势" : "暂停手势 10 分钟"
+                break
+            }
+        }
+    }
+
+    @objc private func togglePause() {
+        if case .paused = currentState {
+            control.resumeListening()
+        } else {
+            control.pauseListening()
+        }
+    }
+
     @objc private func openLogs() { control.openLogDirectory() }
-    @objc private func openInstall() { control.openInstallGuide() }
-    @objc private func openTroubleshooting() { control.openTroubleshootingGuide() }
     @objc private func quit() { control.quitApplication() }
 
-    func triggerRefreshForTesting() { control.refreshStatus() }
-    func triggerOpenTroubleshootingForTesting() { control.openTroubleshootingGuide() }
-    func triggerStopForTesting() { control.stopListening() }
-    func triggerStartForTesting() { control.startListening() }
-}
+    func currentStateForTesting() -> AppMenuBarState { currentState }
+    func statusTextForTesting() -> String { statusItem.title }
 
-private func listeningLabel(_ state: AppListeningState) -> String {
-    switch state {
-    case .starting: return "启动中"
-    case .listening: return "运行中"
-    case .stopped: return "已停止"
-    case .inputError: return "输入错误"
-    case .ipcError: return "IPC 错误"
+    func triggerGestureRecognizedForTesting(gesture: String) {
+        apply(event: AppMenuBarEvent(type: .gestureRecognized(gesture: gesture)))
+    }
+    func triggerGestureWarningForTesting(reason: String) {
+        apply(event: AppMenuBarEvent(type: .gestureWarning(reason: reason)))
+    }
+    func triggerAppErrorForTesting(reason: String) {
+        apply(event: AppMenuBarEvent(type: .appError(reason: reason)))
+    }
+    func triggerPausedForTesting() {
+        apply(event: AppMenuBarEvent(type: .paused))
+    }
+    func triggerResumedForTesting() {
+        apply(event: AppMenuBarEvent(type: .resumed))
     }
 }
 
-private func connectionLabel(_ state: AppConnectionState) -> String {
-    switch state {
-    case .unknown: return "未知"
-    case .disconnected: return "未连接"
-    case .connected(let count): return "已连接(\(count))"
+enum MenuBarIconTint {
+    case `default`
+    case green
+    case yellow
+    case red
+    case gray
+
+    var nsColor: NSColor {
+        switch self {
+        case .default: return .controlTextColor
+        case .green: return .systemGreen
+        case .yellow: return .systemYellow
+        case .red: return .systemRed
+        case .gray: return .systemGray
+        }
     }
 }
 
-private func gestureLabel(_ raw: String) -> String {
-    switch raw {
-    case "three_finger_tap": return "点按"
-    case "three_finger_swipe_left": return "左轻扫"
-    case "three_finger_swipe_right": return "右轻扫"
-    default: return raw
+private func warningText(for reason: String) -> String {
+    if let r = AppWarningReason(rawValue: reason) {
+        return appWarningReasonTextMap[r] ?? reason
     }
+    return "未识别为有效手势"
+}
+
+private func errorText(for reason: String) -> String {
+    if let r = AppErrorReason(rawValue: reason) {
+        return appErrorReasonTextMap[r] ?? reason
+    }
+    return reason
 }

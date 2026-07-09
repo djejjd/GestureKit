@@ -4,156 +4,98 @@ import XCTest
 
 @MainActor
 final class MenuBarControllerTests: XCTestCase {
-    func testMenuBarControllerRendersListeningAndConnectionStatus() {
+    func testNormalStateShowsDefaultText() {
         let control = SpyRuntimeControl()
         let controller = MenuBarController(control: control)
 
-        controller.apply(status: AppRuntimeStatus(
-            listeningState: .listening,
-            connectionState: .connected(clientCount: 1),
-            lastGesture: nil,
-            lastError: nil,
-            logFilePathHint: "/tmp/gesturekit.log"
-        ))
-
-        XCTAssertEqual(controller.statusTitlesForTesting(), [
-            "监听：运行中",
-            "连接：已连接(1)"
-        ])
+        XCTAssertEqual(controller.statusTextForTesting(), "GestureKit 正常运行")
     }
 
-    func testMenuBarControllerRendersStoppedAndDisconnected() {
+    func testGestureRecognizedChangesState() {
         let control = SpyRuntimeControl()
         let controller = MenuBarController(control: control)
 
-        controller.apply(status: AppRuntimeStatus(
-            listeningState: .stopped,
-            connectionState: .disconnected,
-            lastGesture: "three_finger_swipe_right",
-            lastError: nil,
-            logFilePathHint: "/tmp/gesturekit.log"
-        ))
+        controller.triggerGestureRecognizedForTesting(gesture: "three_finger_swipe_left")
 
-        let titles = controller.statusTitlesForTesting()
-        XCTAssertTrue(titles.contains("监听：已停止"))
-        XCTAssertTrue(titles.contains("连接：未连接"))
+        XCTAssertEqual(controller.currentStateForTesting(), .gestureRecognized(gesture: "three_finger_swipe_left"))
+        XCTAssertEqual(controller.statusTextForTesting(), "GestureKit 正常运行")
     }
 
-    func testMenuBarControllerHidesLastGestureWhenNil() {
+    func testGestureWarningChangesState() {
         let control = SpyRuntimeControl()
         let controller = MenuBarController(control: control)
 
-        controller.apply(status: AppRuntimeStatus(
-            listeningState: .listening,
-            connectionState: .connected(clientCount: 1),
-            lastGesture: "three_finger_tap",
-            lastError: nil,
-            logFilePathHint: "/tmp/gesturekit.log"
-        ))
-        controller.apply(status: AppRuntimeStatus(
-            listeningState: .listening,
-            connectionState: .connected(clientCount: 1),
-            lastGesture: nil,
-            lastError: nil,
-            logFilePathHint: "/tmp/gesturekit.log"
-        ))
+        controller.triggerGestureWarningForTesting(reason: "dx_too_short")
 
-        let titles = controller.statusTitlesForTesting()
-        XCTAssertFalse(titles.contains { $0.hasPrefix("最近手势：") })
+        XCTAssertEqual(controller.currentStateForTesting(), .gestureWarning(reason: "dx_too_short"))
+        XCTAssertEqual(controller.statusTextForTesting(), "GestureKit 正常运行")
     }
 
-    func testMenuBarControllerShowsLastErrorWhenPresent() {
+    func testAppErrorChangesState() {
         let control = SpyRuntimeControl()
         let controller = MenuBarController(control: control)
 
-        controller.apply(status: AppRuntimeStatus(
-            listeningState: .listening,
-            connectionState: .connected(clientCount: 1),
-            lastGesture: nil,
-            lastError: "unsupported_app",
-            logFilePathHint: "/tmp/gesturekit.log"
-        ))
+        controller.triggerAppErrorForTesting(reason: "listener_stopped")
 
-        let titles = controller.statusTitlesForTesting()
-        XCTAssertTrue(titles.contains("最近错误：unsupported_app"))
+        XCTAssertEqual(controller.currentStateForTesting(), .appError(reason: "listener_stopped"))
+        XCTAssertEqual(controller.statusTextForTesting(), "GestureKit 异常")
     }
 
-    func testMenuBarControllerHidesLastErrorWhenCleared() {
+    func testPauseAndResume() {
         let control = SpyRuntimeControl()
         let controller = MenuBarController(control: control)
 
-        controller.apply(status: AppRuntimeStatus(
-            listeningState: .listening,
-            connectionState: .connected(clientCount: 1),
-            lastGesture: nil,
-            lastError: "unsupported_app",
-            logFilePathHint: "/tmp/gesturekit.log"
-        ))
-        controller.apply(status: AppRuntimeStatus(
-            listeningState: .listening,
-            connectionState: .connected(clientCount: 1),
-            lastGesture: nil,
-            lastError: nil,
-            logFilePathHint: "/tmp/gesturekit.log"
-        ))
+        controller.triggerPausedForTesting()
+        XCTAssertEqual(controller.currentStateForTesting(), .paused)
+        XCTAssertEqual(controller.statusTextForTesting(), "GestureKit 已暂停")
 
-        let titles = controller.statusTitlesForTesting()
-        XCTAssertFalse(titles.contains { $0.hasPrefix("最近错误：") })
+        controller.triggerResumedForTesting()
+        XCTAssertEqual(controller.currentStateForTesting(), .normal)
+        XCTAssertEqual(controller.statusTextForTesting(), "GestureKit 正常运行")
     }
 
-    func testMenuBarControllerInvokesRefreshAndOpenActions() {
+    func testErrorStateNotOverriddenByGesture() {
         let control = SpyRuntimeControl()
         let controller = MenuBarController(control: control)
 
-        controller.triggerRefreshForTesting()
-        controller.triggerOpenTroubleshootingForTesting()
+        controller.triggerAppErrorForTesting(reason: "listener_stopped")
+        controller.triggerGestureRecognizedForTesting(gesture: "three_finger_tap")
 
-        XCTAssertEqual(control.refreshCount, 1)
-        XCTAssertEqual(control.openTroubleshootingCount, 1)
+        // Should stay in error state, not switch to recognized
+        XCTAssertEqual(controller.currentStateForTesting(), .appError(reason: "listener_stopped"))
     }
 
-    func testMenuBarControllerDispatchesStartAndStopActions() {
+    func testPausedStateNotOverriddenByGesture() {
         let control = SpyRuntimeControl()
         let controller = MenuBarController(control: control)
 
-        controller.triggerStopForTesting()
-        controller.triggerStartForTesting()
+        controller.triggerPausedForTesting()
+        controller.triggerGestureWarningForTesting(reason: "dx_too_short")
 
-        XCTAssertEqual(control.stopCount, 1)
-        XCTAssertEqual(control.startCount, 1)
+        // Should stay paused
+        XCTAssertEqual(controller.currentStateForTesting(), .paused)
     }
 
-    func testMenuBarControllerShowsLastGestureWhenPresent() {
+    func testRecoveringFromErrorGoesToNormal() {
         let control = SpyRuntimeControl()
         let controller = MenuBarController(control: control)
 
-        controller.apply(status: AppRuntimeStatus(
-            listeningState: .listening,
-            connectionState: .connected(clientCount: 1),
-            lastGesture: "three_finger_tap",
-            lastError: nil,
-            logFilePathHint: "/tmp/gesturekit.log"
-        ))
+        controller.triggerAppErrorForTesting(reason: "listener_stopped")
+        controller.apply(event: AppMenuBarEvent(type: .appRecovered))
 
-        let titles = controller.statusTitlesForTesting()
-        XCTAssertTrue(titles.contains("最近手势：点按"))
+        XCTAssertEqual(controller.currentStateForTesting(), .normal)
+        XCTAssertEqual(controller.statusTextForTesting(), "GestureKit 正常运行")
     }
 }
 
 @MainActor
 final class SpyRuntimeControl: RuntimeControlling {
-    var refreshCount = 0
-    var startCount = 0
-    var stopCount = 0
+    var pauseCount = 0
+    var resumeCount = 0
     var openLogCount = 0
-    var openInstallCount = 0
-    var openTroubleshootingCount = 0
 
-    func startListening() { startCount += 1 }
-    func stopListening() { stopCount += 1 }
-    func refreshStatus() { refreshCount += 1 }
+    func pauseListening() { pauseCount += 1 }
+    func resumeListening() { resumeCount += 1 }
     func quitApplication() {}
     func openLogDirectory() { openLogCount += 1 }
-    func openInstallGuide() { openInstallCount += 1 }
-    func openTroubleshootingGuide() { openTroubleshootingCount += 1 }
 }

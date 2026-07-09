@@ -3,7 +3,7 @@ import GestureKitCore
 
 @MainActor
 final class GestureKitRuntime {
-    private let statusHandler: (AppRuntimeStatus) -> Void
+    private let menuBarHandler: (AppMenuBarEvent) -> Void
     private var recognizer = GestureRecognizer()
     private let ruleEngine: RuleEngine
     private let appContextResolver = AppContextResolver()
@@ -14,56 +14,43 @@ final class GestureKitRuntime {
     private var listeningTask: Task<Void, Never>?
     private var eventServer: LocalEventServer?
     private let appSessionId: String
-    private var currentStatus: AppRuntimeStatus
+    private var internalState = AppInternalStatus()
+    private var isPaused = false
 
     init(
-        statusHandler: @escaping (AppRuntimeStatus) -> Void,
+        menuBarHandler: @escaping (AppMenuBarEvent) -> Void,
         touchBackend: any TouchBackend = MultitouchSupportBackend(),
         settingsStore: any SettingsStore = UserDefaultsSettingsStore(),
         logger: GestureKitLogger = GestureKitLogger(),
         diagnosticSink: @escaping (LocalIPCEnvelope) -> Void = { _ in }
     ) {
-        self.statusHandler = statusHandler
+        self.menuBarHandler = menuBarHandler
         self.touchBackend = touchBackend
         self.settingsStore = settingsStore
         self.logger = logger
         self.diagnosticSink = diagnosticSink
         self.ruleEngine = RuleEngine(rules: (try? settingsStore.loadRules()) ?? DefaultRules.v1)
         self.appSessionId = UUID().uuidString
-        self.currentStatus = AppRuntimeStatus(
-            listeningState: .starting,
-            connectionState: .unknown,
-            lastGesture: nil,
-            lastError: nil,
-            logFilePathHint: "~/Library/Logs/GestureKit/GestureKitApp.log"
-        )
     }
 
     func start() {
-        guard listeningTask == nil, eventServer == nil else {
-            refreshStatus()
-            return
-        }
+        guard listeningTask == nil, eventServer == nil else { return }
         do {
             let server = try LocalEventServer(logger: logger) { [weak self] envelope in
                 Task { @MainActor [weak self] in
                     self?.handleIPCEnvelope(envelope)
                 }
             }
-            server.onConnectionCountChanged = { [weak self] count in
-                Task { @MainActor [weak self] in
-                    self?.publishStatus(connectionState: count > 0 ? .connected(clientCount: count) : .disconnected)
-                }
-            }
             server.start()
             eventServer = server
         } catch {
-            publishStatus(listeningState: .ipcError, lastError: "ipc_listener_start_failed")
+            internalState.listeningState = .ipcError
+            emit(event: AppMenuBarEvent(type: .appError(reason: AppErrorReason.internalError.rawValue)))
             logger.error("ipc_listener_start_failed error=\"\(error)\"")
             return
         }
 
-        publishStatus(listeningState: .listening)
+        internalState.listeningState = .running
         logger.info(
             "app_started log_file=\"\(loggerFilePathHint())\" debug=\(ProcessInfo.processInfo.environment["GESTUREKIT_DEBUG"] == "1")",
             terminal: true
@@ -73,7 +60,7 @@ final class GestureKitRuntime {
 
     func stop() {
         guard listeningTask != nil || eventServer != nil else {
-            publishStatus(listeningState: .stopped, connectionState: .disconnected)
+            internalState.listeningState = .stopped
             return
         }
         listeningTask?.cancel()
@@ -81,35 +68,31 @@ final class GestureKitRuntime {
         eventServer?.stop()
         eventServer = nil
         _ = touchBackend.stop()
-        publishStatus(listeningState: .stopped, connectionState: .disconnected)
+        internalState.listeningState = .stopped
         logger.info("app_stopped", terminal: true)
     }
 
-    func refreshStatus() {
-        let connectionCount = eventServer?.connectionCount() ?? 0
-        publishStatus(connectionState: connectionCount > 0 ? .connected(clientCount: connectionCount) : .disconnected)
+    func pause() {
+        isPaused = true
+        emit(event: AppMenuBarEvent(type: .paused))
+        logger.info("paused")
     }
 
-    private func publishStatus(
-        listeningState: AppListeningState? = nil,
-        connectionState: AppConnectionState? = nil,
-        lastGesture: String? = nil,
-        lastError: String? = nil
-    ) {
-        currentStatus = AppRuntimeStatus(
-            listeningState: listeningState ?? currentStatus.listeningState,
-            connectionState: connectionState ?? currentStatus.connectionState,
-            lastGesture: lastGesture ?? currentStatus.lastGesture,
-            lastError: lastError,
-            logFilePathHint: loggerFilePathHint()
-        )
-        statusHandler(currentStatus)
+    func resume() {
+        isPaused = false
+        emit(event: AppMenuBarEvent(type: .resumed))
+        logger.info("resumed")
+    }
+
+    private func emit(event: AppMenuBarEvent) {
+        menuBarHandler(event)
     }
 
     private func startTouchListening() {
         listeningTask = Task { @MainActor in
             for await frame in touchBackend.frames {
                 guard !Task.isCancelled else { return }
+                guard !isPaused else { continue }
                 _ = processFrame(frame)
             }
         }
@@ -119,7 +102,8 @@ final class GestureKitRuntime {
             listeningTask = nil
             eventServer?.stop()
             eventServer = nil
-            publishStatus(listeningState: .inputError, lastError: "touch_backend_start_failed")
+            internalState.listeningState = .inputError
+            emit(event: AppMenuBarEvent(type: .appError(reason: AppErrorReason.listenerStopped.rawValue)))
             logger.error("touch_backend_start_failed")
             return
         }
@@ -128,15 +112,30 @@ final class GestureKitRuntime {
 
     @discardableResult
     private func processFrame(_ frame: TouchFrame) -> RecognizedGesture? {
+        guard !isPaused else { return nil }
         guard let event = recognizer.observe(frame) else { return nil }
         publishDiagnostic(for: event)
         guard let gesture = event.gesture else {
+            let reason = warningReason(from: event)
+            emit(event: AppMenuBarEvent(type: .gestureWarning(reason: reason.rawValue)))
             logger.debug(gestureMetrics("gesture_unstable", event: event), rateLimitKey: "gesture_unstable")
             return event
         }
+        emit(event: AppMenuBarEvent(type: .gestureRecognized(gesture: gesture.rawValue)))
         logger.info(gestureMetrics("gesture_recognized gesture=\(gesture.rawValue)", event: event))
         handle(event)
         return event
+    }
+
+    private func warningReason(from event: RecognizedGesture) -> AppWarningReason {
+        switch event.reason {
+        case .distanceTooShort: return .dxTooShort
+        case .tooSlow: return .tooSlow
+        case .tooFast: return .tooLong
+        case .horizontalRatioTooLow: return .dyTooLarge
+        case .cooldown: return .cooldown
+        default: return .unknown
+        }
     }
 
     private func handle(_ event: RecognizedGesture) {
@@ -145,10 +144,8 @@ final class GestureKitRuntime {
         let context = appContextResolver.currentContext(elementType: elementType)
         guard ruleEngine.match(gesture: gesture, context: context) != nil else {
             if context.browserKind == .chrome {
-                publishStatus(lastGesture: gesture.rawValue, lastError: "no_rule")
                 logger.warn("no_rule gesture=\(gesture.rawValue) appBundleId=\(context.appBundleId)", rateLimitKey: "no_rule_\(gesture.rawValue)")
             } else {
-                publishStatus(lastGesture: gesture.rawValue, lastError: "unsupported_app")
                 logger.warn("unsupported_app gesture=\(gesture.rawValue) appBundleId=\(context.appBundleId)", rateLimitKey: "unsupported_app")
             }
             return
@@ -170,7 +167,6 @@ final class GestureKitRuntime {
         } else {
             logger.info("gesture_published gesture=\(gesture.rawValue) appBundleId=\(context.appBundleId) connections=\(connectionCount)")
         }
-        publishStatus(lastGesture: gesture.rawValue)
     }
 
     func applySettingsUpdate(_ payload: SettingsUpdatePayload) -> SettingsAckPayload {
@@ -214,6 +210,8 @@ final class GestureKitRuntime {
     func handleProbeRequestForTesting(id: String) -> GestureKitMessage {
         handleProbeRequest(id).message
     }
+
+    var isCurrentlyPaused: Bool { isPaused }
 
     private func handleProbeRequest(_ id: String) -> LocalIPCEnvelope {
         LocalIPCEnvelope(message: .probeResponse(
@@ -298,12 +296,9 @@ final class GestureKitRuntime {
 
     private func actionType(for gesture: GestureType) -> ActionType? {
         switch gesture {
-        case .threeFingerTap:
-            return .openLinkBackground
-        case .threeFingerSwipeLeft:
-            return .activateLeftTab
-        case .threeFingerSwipeRight:
-            return .activateRightTab
+        case .threeFingerTap: return .openLinkBackground
+        case .threeFingerSwipeLeft: return .activateLeftTab
+        case .threeFingerSwipeRight: return .activateRightTab
         }
     }
 

@@ -7,8 +7,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var menuBar: MenuBarController?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        runtime = GestureKitRuntime(statusHandler: { [weak self] status in
-            self?.menuBar?.apply(status: status)
+        runtime = GestureKitRuntime(menuBarHandler: { [weak self] event in
+            self?.menuBar?.apply(event: event)
         })
         let control = RuntimeControl(runtime: runtime!)
         self.control = control
