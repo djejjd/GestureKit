@@ -78,7 +78,6 @@ final class MenuBarController {
     private func handleChromeExecuted(action: String, success: Bool, detail: String?) {
         guard !isErrorOrPaused else { return }
         if success {
-            currentState = .normal
             setTint(.green)
             let text = chromeActionSuccessText(for: action)
             statusItem.title = "GestureKit 正常运行"
@@ -197,14 +196,10 @@ final class MenuBarController {
     }
 
     private func resetToNormal() {
-        switch currentState {
-        case .gestureRecognized, .gestureWarning:
-            currentState = .normal
-            setTint(.default)
-            setGestureText(nil)
-        default:
-            break
-        }
+        guard !isErrorOrPaused else { return }
+        currentState = .normal
+        setTint(.default)
+        setGestureText(nil)
     }
 
     private func updatePauseMenuItem(isPaused: Bool) {
