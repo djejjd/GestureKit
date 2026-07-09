@@ -13,14 +13,13 @@ final class MenuBarController {
     init(control: any RuntimeControlling) {
         self.control = control
 
-        item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let icon = NSImage(contentsOf: Bundle.module.url(forResource: "menu_icon", withExtension: "svg")!) {
             icon.isTemplate = true
             icon.size = NSSize(width: 18, height: 18)
             item.button?.image = icon
-        } else {
-            item.button?.title = "GestureKit"
         }
+        item.button?.title = ""
 
         menu = NSMenu()
         menu.addItem(listeningItem)
@@ -52,7 +51,6 @@ final class MenuBarController {
     }
 
     func apply(status: AppRuntimeStatus) {
-        item.button?.title = "GestureKit"
         listeningItem.title = "监听：\(listeningLabel(status.listeningState))"
         connectionItem.title = "连接：\(connectionLabel(status.connectionState))"
 
