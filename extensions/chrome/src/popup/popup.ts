@@ -1,6 +1,8 @@
 import {
   GESTURE_SETTINGS_PRESETS,
+  GESTURE_SETTINGS_STORAGE_KEY,
   loadGestureSettings,
+  normalizeGestureSettings,
   saveGestureSettings,
   type GestureSettings,
   type GestureSettingsMode,
@@ -38,23 +40,61 @@ type PopupStatus = {
 const STATUS_STORAGE_KEY = "gesturekitStatus";
 
 export async function initializeGestureSettingsPopup(doc: Document, storage: PopupStorage): Promise<void> {
-  const [settings, statusResult] = await Promise.all([
+  const [initialSettings, statusResult] = await Promise.all([
     loadGestureSettings(storage),
     storage.get([STATUS_STORAGE_KEY, SETTINGS_SYNC_STATUS_STORAGE_KEY, DIAGNOSTICS_STORAGE_KEY])
   ]);
+  let settings = initialSettings;
   let diagnostics = normalizeDiagnostics(statusResult[DIAGNOSTICS_STORAGE_KEY]);
-  const summary = summarizeDiagnostics(diagnostics);
-  const syncStatus = extractSyncStatus(statusResult[SETTINGS_SYNC_STATUS_STORAGE_KEY], statusResult[STATUS_STORAGE_KEY]);
-  renderSettings(doc, settings);
-  renderStatus(doc, statusResult[STATUS_STORAGE_KEY], syncStatus);
-  renderDiagnostics(doc, diagnostics);
-  renderRecommendationCard(doc, settings, summary, syncStatus);
-  bindEvents(doc, storage, () => diagnostics, (next) => {
-    diagnostics = next;
-    const newSummary = summarizeDiagnostics(diagnostics);
+  let statusValue = statusResult[STATUS_STORAGE_KEY];
+  let syncStatus = extractSyncStatus(statusResult[SETTINGS_SYNC_STATUS_STORAGE_KEY], statusValue);
+
+  const renderAll = () => {
+    const summary = summarizeDiagnostics(diagnostics);
+    renderSettings(doc, settings);
+    renderStatus(doc, statusValue, syncStatus);
     renderDiagnostics(doc, diagnostics);
-    renderRecommendationCard(doc, settings, newSummary, syncStatus);
+    renderRecommendationCard(doc, settings, summary, syncStatus);
+  };
+
+  renderAll();
+  bindEvents(doc, storage, {
+    getSettings: () => settings,
+    setSettings: (next) => {
+      settings = next;
+    },
+    getDiagnostics: () => diagnostics,
+    setDiagnostics: (next) => {
+      diagnostics = next;
+    },
+    setSyncStatus: (next) => {
+      syncStatus = next;
+    },
+    renderAll
   });
+
+  const storageListener = (changes: Record<string, chrome.storage.StorageChange>, areaName: string) => {
+    if (areaName !== "local") {
+      return;
+    }
+
+    if (changes[GESTURE_SETTINGS_STORAGE_KEY]) {
+      settings = normalizeGestureSettings(changes[GESTURE_SETTINGS_STORAGE_KEY].newValue);
+    }
+    if (changes[DIAGNOSTICS_STORAGE_KEY]) {
+      diagnostics = normalizeDiagnostics(changes[DIAGNOSTICS_STORAGE_KEY].newValue);
+    }
+    if (changes[SETTINGS_SYNC_STATUS_STORAGE_KEY]) {
+      syncStatus = extractSyncStatus(changes[SETTINGS_SYNC_STATUS_STORAGE_KEY].newValue, statusValue);
+    }
+    if (changes[STATUS_STORAGE_KEY]) {
+      statusValue = changes[STATUS_STORAGE_KEY].newValue;
+    }
+
+    renderAll();
+  };
+
+  chrome.storage?.onChanged?.addListener?.(storageListener);
 
   try {
     chrome.runtime?.sendMessage?.({ type: "gesturekit.runConnectionProbe" });
@@ -66,8 +106,14 @@ export async function initializeGestureSettingsPopup(doc: Document, storage: Pop
 function bindEvents(
   doc: Document,
   storage: PopupStorage,
-  getDiagnostics: () => GestureDiagnosticEntry[],
-  setDiagnostics: (diagnostics: GestureDiagnosticEntry[]) => void
+  state: {
+    getSettings(): GestureSettings;
+    setSettings(settings: GestureSettings): void;
+    getDiagnostics(): GestureDiagnosticEntry[];
+    setDiagnostics(diagnostics: GestureDiagnosticEntry[]): void;
+    setSyncStatus(status: SettingsSyncStatus | null): void;
+    renderAll(): void;
+  }
 ) {
   select(doc, "#mode").addEventListener("change", () => {
     const mode = select(doc, "#mode").value === "efficient" ? "efficient" : "safe";
@@ -114,22 +160,23 @@ function bindEvents(
       const settings = await loadGestureSettings(storage);
       const statusResult = await storage.get([SETTINGS_SYNC_STATUS_STORAGE_KEY]);
       const syncStatus = extractSyncStatus(statusResult[SETTINGS_SYNC_STATUS_STORAGE_KEY], null);
-      await navigator.clipboard?.writeText(formatPopupDiagnostics(settings, getDiagnostics(), syncStatus));
+      await navigator.clipboard?.writeText(formatPopupDiagnostics(settings, state.getDiagnostics(), syncStatus));
     })();
   });
 
   element(doc, "#clearDiagnostics").addEventListener("click", () => {
     void clearDiagnostics(storage).then(() => {
-      setDiagnostics([]);
+      state.setDiagnostics([]);
       const toggle = element(doc, "#diagnosticsToggle");
       toggle.setAttribute("aria-expanded", "false");
       toggle.textContent = "展开";
       element(doc, "#diagnosticsPanel").hidden = true;
+      state.renderAll();
     });
   });
 
   element(doc, "#applyRecommendedSettings").addEventListener("click", () => {
-    void applyRecommendedSettings(doc, storage);
+    void applyRecommendedSettings(doc, storage, state);
   });
 }
 
@@ -266,7 +313,15 @@ function renderRecommendationCard(
   button.textContent = syncStatus?.phase === "applied" ? "重新应用推荐设置" : "应用推荐设置";
 }
 
-async function applyRecommendedSettings(doc: Document, storage: PopupStorage) {
+async function applyRecommendedSettings(
+  doc: Document,
+  storage: PopupStorage,
+  state: {
+    setSettings(settings: GestureSettings): void;
+    setSyncStatus(status: SettingsSyncStatus | null): void;
+    renderAll(): void;
+  }
+) {
   const settings = await loadGestureSettings(storage);
   const statusResult = await storage.get([DIAGNOSTICS_STORAGE_KEY]);
   const diagnostics = normalizeDiagnostics(statusResult[DIAGNOSTICS_STORAGE_KEY]);
@@ -285,8 +340,19 @@ async function applyRecommendedSettings(doc: Document, storage: PopupStorage) {
   }
 
   const saved = await saveGestureSettings(storage, next);
-  renderSettings(doc, saved);
-  renderRecommendationCard(doc, saved, summary, null);
+  state.setSettings(saved);
+  state.setSyncStatus({
+    phase: "saved_only",
+    savedSwipeSensitivity: saved.swipeSensitivity,
+    runtimeSwipeSensitivity: null,
+    currentAppSessionId: null,
+    requestedAt: null,
+    appliedAt: null,
+    messageId: null,
+    deltaSummary: [],
+    message: undefined
+  });
+  state.renderAll();
 
   try {
     chrome.runtime?.sendMessage?.({ type: "gesturekit.runConnectionProbe" });

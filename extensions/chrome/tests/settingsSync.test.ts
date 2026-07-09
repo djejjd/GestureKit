@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  createSavedOnlySettingsSyncStatus,
   createSettingsUpdateMessage,
   createPendingSettingsSyncStatus,
   settingsSyncStatusFromAck,
@@ -50,10 +51,18 @@ describe("settings sync", () => {
   });
 
   it("marks settings as pending when storage changes before ack", () => {
-    const status = createPendingSettingsSyncStatus(recommendedSettings, 100);
+    const status = createPendingSettingsSyncStatus(recommendedSettings, "settings-100", null, 100);
 
     expect(status.phase).toBe("pending");
     expect(status.runtimeSwipeSensitivity).toBeNull();
+    expect(status.savedSwipeSensitivity).toBe("sensitive");
+    expect(status.messageId).toBe("settings-100");
+  });
+
+  it("marks settings as saved_only immediately after extension save", () => {
+    const status = createSavedOnlySettingsSyncStatus(recommendedSettings, null);
+
+    expect(status.phase).toBe("saved_only");
     expect(status.savedSwipeSensitivity).toBe("sensitive");
   });
 
@@ -76,7 +85,17 @@ describe("settings sync", () => {
         }
       },
       error: null
-    }, recommendedSettings);
+    }, recommendedSettings, {
+      phase: "pending",
+      savedSwipeSensitivity: "sensitive",
+      runtimeSwipeSensitivity: null,
+      currentAppSessionId: null,
+      requestedAt: 300,
+      appliedAt: null,
+      messageId: "settings-1",
+      deltaSummary: [],
+      message: undefined
+    });
 
     expect(status.phase).toBe("applied");
     expect(status.runtimeSwipeSensitivity).toBe("sensitive");
@@ -104,7 +123,17 @@ describe("settings sync", () => {
         message: "thresholds out of range"
       },
       error: null
-    }, recommendedSettings);
+    }, recommendedSettings, {
+      phase: "pending",
+      savedSwipeSensitivity: "sensitive",
+      runtimeSwipeSensitivity: null,
+      currentAppSessionId: null,
+      requestedAt: 300,
+      appliedAt: null,
+      messageId: "settings-fail",
+      deltaSummary: [],
+      message: undefined
+    });
 
     expect(status.phase).toBe("failed");
     expect(status.message).toBe("thresholds out of range");
@@ -119,6 +148,42 @@ describe("settings sync", () => {
 
     expect(failed.phase).toBe("failed");
     expect(failed.message).toBe("native_host_disconnected");
+  });
+
+  it("ignores ack when it does not match the current pending request", () => {
+    const currentStatus = {
+      phase: "pending" as const,
+      savedSwipeSensitivity: "sensitive" as const,
+      runtimeSwipeSensitivity: null,
+      currentAppSessionId: null,
+      requestedAt: 100,
+      appliedAt: null,
+      messageId: "settings-new",
+      deltaSummary: [],
+      message: undefined
+    };
+
+    const status = settingsSyncStatusFromAck({
+      version: 1,
+      id: "settings-old",
+      type: "settings_ack",
+      timestamp: 456,
+      payload: {
+        applied: true,
+        swipeSensitivity: "standard",
+        appSessionId: "session-old",
+        recognitionSettings: {
+          swipeSensitivity: "standard",
+          swipeMinDistance: 0.09,
+          swipeHorizontalRatio: 1.5,
+          swipeMinDurationMs: 60,
+          swipeMaxDurationMs: 420
+        }
+      },
+      error: null
+    }, recommendedSettings, currentStatus);
+
+    expect(status).toEqual(currentStatus);
   });
 
   it("marks settings as stale when probe sees a new app session", () => {

@@ -4,6 +4,7 @@ import { createNativePortManager } from "./nativePortManager";
 import { runConnectionProbe } from "./connectionProbe";
 import { GESTURE_SETTINGS_STORAGE_KEY, loadGestureSettings } from "../settings/gestureSettings";
 import {
+  createSavedOnlySettingsSyncStatus,
   createPendingSettingsSyncStatus,
   createSettingsUpdateMessage,
   isSettingsAckMessage,
@@ -116,18 +117,35 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
 async function syncGestureSettings() {
   const settings = await loadGestureSettings(chrome.storage.local);
+  const result = await chrome.storage.local.get(SETTINGS_SYNC_STATUS_STORAGE_KEY);
+  const previousStatus = isSettingsSyncStatus(result[SETTINGS_SYNC_STATUS_STORAGE_KEY])
+    ? result[SETTINGS_SYNC_STATUS_STORAGE_KEY]
+    : null;
+  const message = createSettingsUpdateMessage(settings);
   await chrome.storage.local.set({
-    [SETTINGS_SYNC_STATUS_STORAGE_KEY]: createPendingSettingsSyncStatus(settings, Date.now())
+    [SETTINGS_SYNC_STATUS_STORAGE_KEY]: createSavedOnlySettingsSyncStatus(settings, previousStatus)
   });
-  port.postMessage(createSettingsUpdateMessage(settings));
+  await chrome.storage.local.set({
+    [SETTINGS_SYNC_STATUS_STORAGE_KEY]: createPendingSettingsSyncStatus(
+      settings,
+      message.id,
+      previousStatus,
+      Date.now()
+    )
+  });
+  port.postMessage(message);
 }
 
 port.onMessage.addListener((message) => {
   if (isSettingsAckMessage(message)) {
     void (async () => {
       const settings = await loadGestureSettings(chrome.storage.local);
+      const result = await chrome.storage.local.get(SETTINGS_SYNC_STATUS_STORAGE_KEY);
+      const currentStatus = isSettingsSyncStatus(result[SETTINGS_SYNC_STATUS_STORAGE_KEY])
+        ? result[SETTINGS_SYNC_STATUS_STORAGE_KEY]
+        : null;
       await chrome.storage.local.set({
-        [SETTINGS_SYNC_STATUS_STORAGE_KEY]: settingsSyncStatusFromAck(message, settings)
+        [SETTINGS_SYNC_STATUS_STORAGE_KEY]: settingsSyncStatusFromAck(message, settings, currentStatus)
       });
     })();
     return;

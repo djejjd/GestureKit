@@ -44,25 +44,54 @@ export function createSettingsUpdateMessage(
 
 export function createPendingSettingsSyncStatus(
   settings: GestureSettings,
+  messageId: string,
+  previous: SettingsSyncStatus | null,
   timestamp: number
 ): SettingsSyncStatus {
   return {
     phase: "pending",
     savedSwipeSensitivity: settings.swipeSensitivity,
-    runtimeSwipeSensitivity: null,
-    currentAppSessionId: null,
+    runtimeSwipeSensitivity: previous?.runtimeSwipeSensitivity ?? null,
+    currentAppSessionId: previous?.currentAppSessionId ?? null,
     requestedAt: timestamp,
     appliedAt: null,
+    messageId,
+    deltaSummary: previous?.deltaSummary ?? [],
+    message: undefined
+  };
+}
+
+export function createSavedOnlySettingsSyncStatus(
+  settings: GestureSettings,
+  previous: SettingsSyncStatus | null
+): SettingsSyncStatus {
+  return {
+    phase: "saved_only",
+    savedSwipeSensitivity: settings.swipeSensitivity,
+    runtimeSwipeSensitivity: previous?.runtimeSwipeSensitivity ?? null,
+    currentAppSessionId: previous?.currentAppSessionId ?? null,
+    requestedAt: null,
+    appliedAt: previous?.appliedAt ?? null,
     messageId: null,
-    deltaSummary: [],
+    deltaSummary: previous?.deltaSummary ?? [],
     message: undefined
   };
 }
 
 export function settingsSyncStatusFromAck(
   message: SettingsAckMessage,
-  settings: GestureSettings
+  settings: GestureSettings,
+  currentStatus: SettingsSyncStatus | null
 ): SettingsSyncStatus {
+  if (currentStatus) {
+    if (currentStatus.phase !== "pending") {
+      return currentStatus;
+    }
+    if (currentStatus.messageId !== message.id) {
+      return currentStatus;
+    }
+  }
+
   const effective = resolveEffectiveSwipeRecognition(settings);
   const recommended: Parameters<typeof describeRecognitionDelta>[1] = {
     ...message.payload.recognitionSettings,

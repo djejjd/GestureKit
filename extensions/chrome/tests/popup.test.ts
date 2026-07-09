@@ -4,6 +4,8 @@ import { initializeGestureSettingsPopup } from "../src/popup/popup";
 import { SETTINGS_SYNC_STATUS_STORAGE_KEY } from "../src/background/settingsSync";
 import { DIAGNOSTICS_STORAGE_KEY, type GestureDiagnosticEntry } from "../src/diagnostics/diagnostics";
 
+const storageListeners: Array<(changes: Record<string, { oldValue?: unknown; newValue?: unknown }>, areaName: string) => void> = [];
+
 function setupDom() {
   document.body.innerHTML = `
     <select id="mode">
@@ -87,10 +89,27 @@ async function flushPromises() {
 describe("gesture settings popup", () => {
   beforeEach(() => {
     setupDom();
+    storageListeners.length = 0;
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
       value: {
         writeText: vi.fn(async () => {})
+      }
+    });
+    Object.defineProperty(globalThis, "chrome", {
+      configurable: true,
+      value: {
+        runtime: {
+          sendMessage: vi.fn(async () => ({ status: "connected" }))
+        },
+        storage: {
+          onChanged: {
+            addListener: vi.fn((listener: (changes: Record<string, { oldValue?: unknown; newValue?: unknown }>, areaName: string) => void) => {
+              storageListeners.push(listener);
+            }),
+            removeListener: vi.fn()
+          }
+        }
       }
     });
   });
@@ -318,6 +337,7 @@ describe("gesture settings popup", () => {
         })
       })
     });
+    expect(document.querySelector("#recommendationSavedStatus")?.textContent).toContain("已保存");
   });
 
   it("does not apply recommendation when confirm is cancelled", async () => {
@@ -357,6 +377,36 @@ describe("gesture settings popup", () => {
     await initializeGestureSettingsPopup(document, storage);
 
     expect(document.querySelector("#recommendationFailureReason")?.textContent).toContain("native_host_disconnected");
+  });
+
+  it("refreshes recommendation status when storage sync state changes", async () => {
+    const storage = storageWith(
+      GESTURE_SETTINGS_PRESETS.safe,
+      undefined,
+      [swipeDiagnostic("diag-1", "success"), swipeDiagnostic("diag-2", "gesture_unstable")]
+    );
+
+    await initializeGestureSettingsPopup(document, storage);
+
+    storageListeners[0]?.({
+      [SETTINGS_SYNC_STATUS_STORAGE_KEY]: {
+        oldValue: undefined,
+        newValue: {
+          phase: "applied",
+          savedSwipeSensitivity: "sensitive",
+          runtimeSwipeSensitivity: "sensitive",
+          currentAppSessionId: "session-1",
+          requestedAt: 100,
+          appliedAt: 150,
+          messageId: "settings-1",
+          deltaSummary: [],
+          message: undefined
+        }
+      }
+    }, "local");
+
+    expect(document.querySelector("#recommendationSavedStatus")?.textContent).toContain("已应用");
+    expect(document.querySelector("#recommendationRuntimeStatus")?.textContent).toContain("sensitive");
   });
 });
 
