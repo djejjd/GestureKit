@@ -386,4 +386,33 @@ describe("createNativePortManager", () => {
     expect(executeAction).toHaveBeenCalledTimes(1);
     expect(executeAction).toHaveBeenCalledWith({ action: "activate_left_tab" });
   });
+
+  it("cancels edge-tap pending action with original action on supersede", async () => {
+    vi.useFakeTimers();
+    const postMessage = vi.fn();
+    const executeAction = vi.fn();
+    const manager = createNativePortManager({
+      port: { postMessage },
+      resolveLastPointer: vi.fn(async () => ({ status: "no_target" })),
+      executeAction
+    });
+
+    // First tap: left edge, pending action = activate_left_tab
+    await manager.handleNativeMessage(gestureMessage("three_finger_tap", { touchX: 0.2, durationMs: 96 }));
+    // Second tap comes before the 300ms window expires, cancels the first
+    await vi.advanceTimersByTimeAsync(50);
+    await manager.handleNativeMessage(gestureMessage("three_finger_tap", { touchX: 0.75, durationMs: 96 }));
+
+    // The first pending tap was cancelled with its original action
+    const cancelMessages = postMessage.mock.calls
+      .map((call: unknown[]) => (call[0] as { payload: { action: string; status: string; details?: Record<string, unknown> } }).payload)
+      .filter((p: { action: string; status: string }) => p.status === "gesture_unstable" && p.action === "activate_left_tab");
+
+    expect(cancelMessages.length).toBe(1);
+    expect(cancelMessages[0]).toMatchObject({
+      action: "activate_left_tab",
+      status: "gesture_unstable",
+      details: { reason: "superseded_by_tap" }
+    });
+  });
 });

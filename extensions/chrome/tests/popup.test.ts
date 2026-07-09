@@ -403,6 +403,48 @@ describe("gesture settings popup", () => {
     expect(document.querySelector("#recommendationSavedStatus")?.textContent).toContain("已应用");
     expect(document.querySelector("#recommendationRuntimeStatus")?.textContent).toContain("sensitive");
   });
+
+  it("updates diagnostics suggestion when appConnected changes via storage", async () => {
+    const storageListeners: Array<(changes: Record<string, { newValue: unknown }>, areaName: string) => void> = [];
+    vi.stubGlobal("chrome", {
+      storage: {
+        local: {
+          get: vi.fn(async () => ({})),
+          set: vi.fn(async () => {}),
+        },
+        onChanged: {
+          addListener: vi.fn((listener: (changes: Record<string, { newValue: unknown }>, areaName: string) => void) => {
+            storageListeners.push(listener);
+          })
+        }
+      },
+      runtime: {
+        sendMessage: vi.fn()
+      }
+    });
+
+    const storage = storageWith(
+      GESTURE_SETTINGS_PRESETS.safe,
+      { nativeConnected: true, appConnected: false },
+      []
+    );
+    await initializeGestureSettingsPopup(document, storage);
+
+    expect(document.querySelector("#diagnosticsSuggestion")?.textContent).toBe(
+      "App 未连接，请先启动 GestureKit App"
+    );
+
+    storage.state.gesturekitStatus = { nativeConnected: true, appConnected: true };
+    storageListeners[0]?.(
+      { gesturekitStatus: { newValue: { nativeConnected: true, appConnected: true } } },
+      "local"
+    );
+    await flushPromises();
+
+    expect(document.querySelector("#diagnosticsSuggestion")?.textContent).not.toBe(
+      "App 未连接，请先启动 GestureKit App"
+    );
+  });
 });
 
 function swipeDiagnostic(id: string, status: "success" | "gesture_unstable"): GestureDiagnosticEntry {
