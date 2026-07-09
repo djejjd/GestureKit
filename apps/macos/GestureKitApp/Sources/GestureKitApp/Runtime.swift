@@ -46,6 +46,11 @@ final class GestureKitRuntime {
                     self?.handleIPCEnvelope(envelope)
                 }
             }
+            server.onConnectionCountChanged = { [weak self] count in
+                Task { @MainActor [weak self] in
+                    self?.publishStatus(connectionState: count > 0 ? .connected(clientCount: count) : .disconnected)
+                }
+            }
             server.start()
             eventServer = server
         } catch {

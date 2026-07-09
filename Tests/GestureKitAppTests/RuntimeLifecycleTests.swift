@@ -59,10 +59,23 @@ final class RuntimeLifecycleTests: XCTestCase {
             logger: GestureKitLogger(terminalWriter: { _ in })
         )
 
-        // statusHandler fires on start, which publishes .listening
         runtime.start()
 
         XCTAssertEqual(statuses.first?.listeningState, .listening)
+    }
+
+    func testRefreshStatusPublishesDisconnectedWhenNoClientsConnected() {
+        var statuses: [AppRuntimeStatus] = []
+        let runtime = GestureKitRuntime(
+            statusHandler: { statuses.append($0) },
+            touchBackend: LifecycleStubTouchBackend(),
+            settingsStore: LifecycleStubSettingsStore(),
+            logger: GestureKitLogger(terminalWriter: { _ in })
+        )
+
+        runtime.refreshStatus()
+
+        XCTAssertEqual(statuses.last?.connectionState, .disconnected)
     }
 }
 

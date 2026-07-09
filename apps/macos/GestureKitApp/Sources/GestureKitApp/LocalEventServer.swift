@@ -8,6 +8,7 @@ final class LocalEventServer: @unchecked Sendable {
     private var connections: [NWConnection] = []
     private let logger: GestureKitLogger
     private let onMessage: @Sendable (LocalIPCEnvelope) -> Void
+    var onConnectionCountChanged: ((Int) -> Void)?
 
     init(
         port: NWEndpoint.Port = 17653,
@@ -62,6 +63,7 @@ final class LocalEventServer: @unchecked Sendable {
             switch state {
             case .ready:
                 self.logger.info("ipc_client_connected connections=\(self.connectionCount())")
+                self.notifyConnectionCountChanged()
             case .failed(let error):
                 self.logger.warn("ipc_client_failed error=\"\(error)\"", rateLimitKey: "ipc_client_failed")
                 self.remove(connection)
@@ -123,7 +125,14 @@ final class LocalEventServer: @unchecked Sendable {
     private func remove(_ connection: NWConnection) {
         lock.lock()
         connections.removeAll { $0 === connection }
+        let count = connections.count
         lock.unlock()
+        onConnectionCountChanged?(count)
+    }
+
+    private func notifyConnectionCountChanged() {
+        let count = connectionCount()
+        onConnectionCountChanged?(count)
     }
 
     func connectionCount() -> Int {
