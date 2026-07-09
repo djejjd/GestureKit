@@ -72,7 +72,7 @@ final class RuntimeSettingsTests: XCTestCase {
         XCTAssertEqual((message.probeResponsePayload?.appSessionId?.count ?? 0) > 0, true)
     }
 
-    func testUnstableSwipePublishesDiagnosticEvent() {
+    func testUnstableSwipeDoesNotPublishDiagnosticEvent() {
         var diagnostics: [LocalIPCEnvelope] = []
         let runtime = GestureKitRuntime(
             menuBarHandler: { _ in },
@@ -94,10 +94,7 @@ final class RuntimeSettingsTests: XCTestCase {
         ]))
         _ = runtime.processFrameForTesting(.frame(time: 0.26, activeTouches: []))
 
-        XCTAssertEqual(diagnostics.count, 1)
-        XCTAssertEqual(diagnostics.first?.message.diagnosticEventPayload?.status, .gestureUnstable)
-        XCTAssertEqual(diagnostics.first?.message.diagnosticEventPayload?.reason, .distanceTooShort)
-        XCTAssertEqual(diagnostics.first?.message.diagnosticEventPayload?.thresholds?.swipeSensitivity, .standard)
+        XCTAssertEqual(diagnostics.count, 0)
     }
 }
 

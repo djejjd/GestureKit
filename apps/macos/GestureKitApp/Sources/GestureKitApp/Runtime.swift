@@ -116,13 +116,13 @@ final class GestureKitRuntime {
     private func processFrame(_ frame: TouchFrame) -> RecognizedGesture? {
         guard !isPaused else { return nil }
         guard let event = recognizer.observe(frame) else { return nil }
-        publishDiagnostic(for: event)
         guard let gesture = event.gesture else {
             let reason = warningReason(from: event)
             emit(event: AppMenuBarEvent(type: .gestureWarning(reason: reason.rawValue)))
             logger.debug(gestureMetrics("gesture_unstable", event: event), rateLimitKey: "gesture_unstable")
             return event
         }
+        publishDiagnostic(for: event)
         emit(event: AppMenuBarEvent(type: .gestureRecognized(gesture: gesture.rawValue)))
         logger.info(gestureMetrics("gesture_recognized gesture=\(gesture.rawValue)", event: event))
         handle(event)
