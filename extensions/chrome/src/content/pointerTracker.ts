@@ -214,17 +214,10 @@ function sharedState(): PointerTrackerState {
 }
 
 function syncLinkClickProtectionFromStorage() {
-  if (typeof chrome === "undefined" || !chrome.storage?.local) {
-    return;
-  }
-  chrome.storage.onChanged?.addListener((changes, areaName) => {
-    if (areaName !== "local" || !changes[GESTURE_SETTINGS_STORAGE_KEY]) {
-      return;
-    }
-    setLinkClickProtectionEnabled(
-      normalizeGestureSettings(changes[GESTURE_SETTINGS_STORAGE_KEY].newValue).linkClickProtectionEnabled
-    );
-  });
+  // Always on — prevents in-place link navigation.
+  // Popup toggle still shown for future configurability,
+  // but content script ignores storage value to avoid
+  // old presets (which had false) overriding this.
 }
 
 if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {

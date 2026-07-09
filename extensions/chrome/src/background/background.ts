@@ -69,10 +69,12 @@ function createManager(port: PortLike) {
     getSettings: () => loadGestureSettings(chrome.storage.local),
     cancelPendingTap,
     onActionResult: (message) => {
-      void appendDiagnostic(
-        chrome.storage.local,
-        diagnosticFromActionResult(message)
-      );
+      if (message.payload.status !== "gesture_unstable" && message.payload.status !== "no_target") {
+        void appendDiagnostic(
+          chrome.storage.local,
+          diagnosticFromActionResult(message)
+        );
+      }
       void chrome.storage.local.set({
         [STATUS_STORAGE_KEY]: {
           nativeConnected: true,

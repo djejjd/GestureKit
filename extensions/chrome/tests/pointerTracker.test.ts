@@ -237,9 +237,10 @@ describe("pointerTracker", () => {
         }
       }
     }, "local");
-    const unprotectedClick = new MouseEvent("click", { bubbles: true, cancelable: true });
-    expect(anchor.dispatchEvent(unprotectedClick)).toBe(true);
-    expect(unprotectedClick.defaultPrevented).toBe(false);
+    // Protection stays active even after storage changes — content script ignores stored value
+    const stillProtectedClick = new MouseEvent("click", { bubbles: true, cancelable: true });
+    expect(anchor.dispatchEvent(stillProtectedClick)).toBe(false);
+    expect(stillProtectedClick.defaultPrevented).toBe(true);
   });
 
   it("does not protect link clicks when link click protection is disabled", async () => {
