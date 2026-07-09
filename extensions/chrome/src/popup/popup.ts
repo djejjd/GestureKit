@@ -49,9 +49,8 @@ export async function initializeGestureSettingsPopup(doc: Document, storage: Pop
   let statusValue = statusResult[STATUS_STORAGE_KEY];
   let syncStatus = extractSyncStatus(statusResult[SETTINGS_SYNC_STATUS_STORAGE_KEY], statusValue);
 
-  const appConnected = isPopupStatus(statusValue) ? Boolean(statusValue.appConnected) : false;
-
   const renderAll = () => {
+    const appConnected = isPopupStatus(statusValue) ? Boolean(statusValue.appConnected) : false;
     const summary = summarizeDiagnostics(diagnostics);
     renderSettings(doc, settings);
     renderStatus(doc, statusValue, syncStatus);
