@@ -68,6 +68,7 @@ final class MenuBarController {
     func statusTitlesForTesting() -> [String] {
         var titles = [listeningItem.title, connectionItem.title]
         if !gestureItem.isHidden { titles.append(gestureItem.title) }
+        if !errorItem.isHidden { titles.append(errorItem.title) }
         return titles.filter { !$0.isEmpty }
     }
 

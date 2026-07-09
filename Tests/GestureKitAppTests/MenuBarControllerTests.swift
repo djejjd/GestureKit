@@ -62,6 +62,45 @@ final class MenuBarControllerTests: XCTestCase {
         XCTAssertFalse(titles.contains { $0.hasPrefix("最近手势：") })
     }
 
+    func testMenuBarControllerShowsLastErrorWhenPresent() {
+        let control = SpyRuntimeControl()
+        let controller = MenuBarController(control: control)
+
+        controller.apply(status: AppRuntimeStatus(
+            listeningState: .listening,
+            connectionState: .connected(clientCount: 1),
+            lastGesture: nil,
+            lastError: "unsupported_app",
+            logFilePathHint: "/tmp/gesturekit.log"
+        ))
+
+        let titles = controller.statusTitlesForTesting()
+        XCTAssertTrue(titles.contains("最近错误：unsupported_app"))
+    }
+
+    func testMenuBarControllerHidesLastErrorWhenCleared() {
+        let control = SpyRuntimeControl()
+        let controller = MenuBarController(control: control)
+
+        controller.apply(status: AppRuntimeStatus(
+            listeningState: .listening,
+            connectionState: .connected(clientCount: 1),
+            lastGesture: nil,
+            lastError: "unsupported_app",
+            logFilePathHint: "/tmp/gesturekit.log"
+        ))
+        controller.apply(status: AppRuntimeStatus(
+            listeningState: .listening,
+            connectionState: .connected(clientCount: 1),
+            lastGesture: nil,
+            lastError: nil,
+            logFilePathHint: "/tmp/gesturekit.log"
+        ))
+
+        let titles = controller.statusTitlesForTesting()
+        XCTAssertFalse(titles.contains { $0.hasPrefix("最近错误：") })
+    }
+
     func testMenuBarControllerShowsLastGestureWhenPresent() {
         let control = SpyRuntimeControl()
         let controller = MenuBarController(control: control)

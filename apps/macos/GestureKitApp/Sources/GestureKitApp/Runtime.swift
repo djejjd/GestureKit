@@ -133,8 +133,10 @@ final class GestureKitRuntime {
         let context = appContextResolver.currentContext(elementType: elementType)
         guard ruleEngine.match(gesture: gesture, context: context) != nil else {
             if context.browserKind == .chrome {
+                publishStatus(lastGesture: gesture.rawValue, lastError: "no_rule")
                 logger.warn("no_rule gesture=\(gesture.rawValue) appBundleId=\(context.appBundleId)", rateLimitKey: "no_rule_\(gesture.rawValue)")
             } else {
+                publishStatus(lastGesture: gesture.rawValue, lastError: "unsupported_app")
                 logger.warn("unsupported_app gesture=\(gesture.rawValue) appBundleId=\(context.appBundleId)", rateLimitKey: "unsupported_app")
             }
             return
