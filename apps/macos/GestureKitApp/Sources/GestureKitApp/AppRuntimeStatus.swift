@@ -27,6 +27,7 @@ public enum AppMenuBarEventType: Equatable, Sendable {
     case appRecovered
     case paused
     case resumed
+    case chromeExecuted(action: String, success: Bool, detail: String?)
 }
 
 public struct AppMenuBarEvent: Equatable, Sendable {
@@ -78,3 +79,26 @@ public let gestureLabelMap: [String: String] = [
     "three_finger_swipe_left": "三指左滑",
     "three_finger_swipe_right": "三指右滑"
 ]
+
+public func chromeActionSuccessText(for action: String) -> String {
+    switch action {
+    case "activate_left_tab": return "已切换到左侧标签页"
+    case "activate_right_tab": return "已切换到右侧标签页"
+    case "close_tab": return "已关闭当前标签页"
+    case "open_link_background": return "链接已在新标签页打开"
+    default: return "Chrome 动作已执行"
+    }
+}
+
+public func chromeActionFailureText(for status: String) -> String {
+    switch status {
+    case "edge_reached": return "没有可切换的标签页"
+    case "page_unavailable": return "当前页面不可用"
+    case "no_target": return "当前位置未检测到链接"
+    case "no_recent_pointer": return "无最近鼠标位置"
+    case "unsupported_url_scheme": return "链接类型不支持"
+    case "app_unavailable": return "Extension 未连接"
+    case "native_host_disconnected": return "Native Host 已断开"
+    default: return "Chrome 执行失败"
+    }
+}

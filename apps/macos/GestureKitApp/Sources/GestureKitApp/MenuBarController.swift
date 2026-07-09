@@ -61,6 +61,8 @@ final class MenuBarController {
             handlePaused()
         case .resumed:
             handleResumed()
+        case .chromeExecuted(let action, let success, let detail):
+            handleChromeExecuted(action: action, success: success, detail: detail)
         }
     }
 
@@ -68,10 +70,28 @@ final class MenuBarController {
         guard !isErrorOrPaused else { return }
         let label = gestureLabelMap[gesture] ?? gesture
         currentState = .gestureRecognized(gesture: gesture)
-        setTint(.green)
+        // No color flash — wait for Chrome execution result
         statusItem.title = "GestureKit 正常运行"
         setGestureText("最近手势：\(label)已识别")
-        scheduleFlashReset()
+    }
+
+    private func handleChromeExecuted(action: String, success: Bool, detail: String?) {
+        guard !isErrorOrPaused else { return }
+        if success {
+            currentState = .normal
+            setTint(.green)
+            let text = chromeActionSuccessText(for: action)
+            statusItem.title = "GestureKit 正常运行"
+            setGestureText(text)
+            scheduleFlashReset()
+        } else {
+            currentState = .gestureWarning(reason: detail ?? action)
+            setTint(.yellow)
+            statusItem.title = "GestureKit 正常运行"
+            let reasonText = detail ?? "Chrome 执行失败"
+            setGestureText("上次动作未完成：\(reasonText)")
+            scheduleFlashReset()
+        }
     }
 
     private var isErrorOrPaused: Bool {

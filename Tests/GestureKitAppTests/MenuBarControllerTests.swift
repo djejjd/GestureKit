@@ -121,6 +121,40 @@ final class MenuBarControllerTests: XCTestCase {
         XCTAssertEqual(controller.statusTextForTesting(), "GestureKit 正常运行")
         XCTAssertFalse(controller.isPauseTimerActiveForTesting())
     }
+
+    func testChromeExecutionSuccessShowsGreenAndActionText() {
+        let control = SpyRuntimeControl()
+        let controller = MenuBarController(control: control)
+
+        controller.apply(event: AppMenuBarEvent(type: .chromeExecuted(
+            action: "activate_left_tab", success: true, detail: nil
+        )))
+
+        XCTAssertEqual(controller.currentStateForTesting(), .normal)
+        XCTAssertEqual(controller.statusTextForTesting(), "GestureKit 正常运行")
+    }
+
+    func testChromeExecutionFailureShowsWarningAndReason() {
+        let control = SpyRuntimeControl()
+        let controller = MenuBarController(control: control)
+
+        controller.apply(event: AppMenuBarEvent(type: .chromeExecuted(
+            action: "activate_left_tab", success: false, detail: "没有可切换的标签页"
+        )))
+
+        XCTAssertEqual(controller.currentStateForTesting(), .gestureWarning(reason: "没有可切换的标签页"))
+        XCTAssertEqual(controller.statusTextForTesting(), "GestureKit 正常运行")
+    }
+
+    func testGestureRecognizedDoesNotFlashGreen() {
+        let control = SpyRuntimeControl()
+        let controller = MenuBarController(control: control)
+
+        controller.triggerGestureRecognizedForTesting(gesture: "three_finger_swipe_left")
+
+        XCTAssertEqual(controller.currentStateForTesting(), .gestureRecognized(gesture: "three_finger_swipe_left"))
+        XCTAssertEqual(controller.statusTextForTesting(), "GestureKit 正常运行")
+    }
 }
 
 @MainActor

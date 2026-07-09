@@ -16,6 +16,8 @@ final class GestureKitRuntime {
     private let appSessionId: String
     private var internalState = AppInternalStatus()
     private var isPaused = false
+    private var pendingRequests: [String: (action: String, timestamp: Int64)] = [:]
+    private let executionTimeoutMs: Int64 = 1500
 
     init(
         menuBarHandler: @escaping (AppMenuBarEvent) -> Void,
@@ -150,8 +152,9 @@ final class GestureKitRuntime {
             }
             return
         }
+        let requestId = UUID().uuidString
         let envelope = LocalIPCEnvelope.gesture(
-            id: UUID().uuidString,
+            id: requestId,
             timestamp: Int64(Date().timeIntervalSince1970 * 1000),
             gesture: gesture,
             appBundleId: context.appBundleId,
@@ -165,7 +168,11 @@ final class GestureKitRuntime {
                 rateLimitKey: "published_without_client"
             )
         } else {
+            let action = chromeAction(from: gesture)
+            let now = currentTimestampMs()
+            pendingRequests[requestId] = (action: action, timestamp: now)
             logger.info("gesture_published gesture=\(gesture.rawValue) appBundleId=\(context.appBundleId) connections=\(connectionCount)")
+            scheduleExecutionTimeout(requestId: requestId, action: action, timestamp: now)
         }
     }
 
@@ -238,6 +245,7 @@ final class GestureKitRuntime {
                 "action_result action=\(payload.action.rawValue) status=\(payload.status.rawValue) \(details)",
                 rateLimitKey: "action_result_\(payload.action.rawValue)"
             )
+            handleActionResult(envelope.id, action: payload.action.rawValue, status: payload.status.rawValue, detailsText: details)
             return
         }
 
@@ -251,6 +259,37 @@ final class GestureKitRuntime {
             payload: ack
         ))
         _ = eventServer?.publish(ackEnvelope)
+    }
+
+    private func chromeAction(from gesture: GestureType) -> String {
+        switch gesture {
+        case .threeFingerSwipeLeft: return "activate_right_tab"
+        case .threeFingerSwipeRight: return "activate_left_tab"
+        case .threeFingerTap: return "open_link_background"
+        }
+    }
+
+    private func scheduleExecutionTimeout(requestId: String, action: String, timestamp: Int64) {
+        Task { @MainActor [weak self] in
+            try? await Task.sleep(nanoseconds: UInt64(1_500_000_000))
+            guard let self, pendingRequests[requestId] != nil else { return }
+            pendingRequests.removeValue(forKey: requestId)
+            emit(event: AppMenuBarEvent(type: .chromeExecuted(
+                action: action,
+                success: false,
+                detail: "执行超时"
+            )))
+            logger.warn("execution_timeout requestId=\(requestId) action=\(action)", rateLimitKey: "execution_timeout")
+        }
+    }
+
+    private func handleActionResult(_ requestId: String, action: String, status: String, detailsText: String) {
+        guard pendingRequests[requestId] != nil else { return }
+        pendingRequests.removeValue(forKey: requestId)
+        let success = status == "success"
+        let detail: String? = success ? nil : chromeActionFailureText(for: status)
+        emit(event: AppMenuBarEvent(type: .chromeExecuted(action: action, success: success, detail: detail)))
+        logger.info("execution_result requestId=\(requestId) action=\(action) success=\(success) \(detailsText)")
     }
 
     private func gestureMetrics(_ prefix: String, event: RecognizedGesture) -> String {
