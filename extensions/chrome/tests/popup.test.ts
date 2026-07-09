@@ -31,6 +31,7 @@ function setupDom() {
     <div id="appStatus"></div>
     <div id="settingsSyncStatus"></div>
     <div id="lastResult"></div>
+    <button id="refreshStatus" type="button" class="inline-button">刷新状态</button>
     <div id="swipeSuccessRate"></div>
     <div id="mainFailureReason"></div>
     <div id="diagnosticsSuggestion"></div>

@@ -49,11 +49,13 @@ export async function initializeGestureSettingsPopup(doc: Document, storage: Pop
   let statusValue = statusResult[STATUS_STORAGE_KEY];
   let syncStatus = extractSyncStatus(statusResult[SETTINGS_SYNC_STATUS_STORAGE_KEY], statusValue);
 
+  const appConnected = isPopupStatus(statusValue) ? Boolean(statusValue.appConnected) : false;
+
   const renderAll = () => {
     const summary = summarizeDiagnostics(diagnostics);
     renderSettings(doc, settings);
     renderStatus(doc, statusValue, syncStatus);
-    renderDiagnostics(doc, diagnostics);
+    renderDiagnostics(doc, diagnostics, appConnected);
     renderRecommendationCard(doc, settings, summary, syncStatus);
   };
 
@@ -158,9 +160,12 @@ function bindEvents(
   element(doc, "#copyDiagnostics").addEventListener("click", () => {
     void (async () => {
       const settings = await loadGestureSettings(storage);
-      const statusResult = await storage.get([SETTINGS_SYNC_STATUS_STORAGE_KEY]);
+      const statusResult = await storage.get([STATUS_STORAGE_KEY, SETTINGS_SYNC_STATUS_STORAGE_KEY]);
       const syncStatus = extractSyncStatus(statusResult[SETTINGS_SYNC_STATUS_STORAGE_KEY], null);
-      await navigator.clipboard?.writeText(formatPopupDiagnostics(settings, state.getDiagnostics(), syncStatus));
+      const appConnected = isPopupStatus(statusResult[STATUS_STORAGE_KEY])
+        ? Boolean(statusResult[STATUS_STORAGE_KEY].appConnected)
+        : false;
+      await navigator.clipboard?.writeText(formatPopupDiagnostics(settings, state.getDiagnostics(), syncStatus, appConnected));
     })();
   });
 
@@ -177,6 +182,14 @@ function bindEvents(
 
   element(doc, "#applyRecommendedSettings").addEventListener("click", () => {
     void applyRecommendedSettings(doc, storage, state);
+  });
+
+  element(doc, "#refreshStatus").addEventListener("click", () => {
+    try {
+      chrome.runtime?.sendMessage?.({ type: "gesturekit.runConnectionProbe" });
+    } catch {
+      // probe not available
+    }
   });
 }
 
@@ -246,8 +259,19 @@ function renderStatus(doc: Document, value: unknown, settingsSync: SettingsSyncS
   lastEl.className = "";
 }
 
-function renderDiagnostics(doc: Document, diagnostics: GestureDiagnosticEntry[]) {
+function renderDiagnostics(doc: Document, diagnostics: GestureDiagnosticEntry[], appConnected: boolean) {
   const summary = summarizeDiagnostics(diagnostics);
+  if (diagnostics.length === 0) {
+    element(doc, "#swipeSuccessRate").textContent = "暂无";
+    element(doc, "#mainFailureReason").textContent = "暂无";
+    element(doc, "#diagnosticsSuggestion").textContent = appConnected
+      ? "暂无诊断数据，使用几次手势后这里会显示识别情况"
+      : "App 未连接，请先启动 GestureKit App";
+    element(doc, "#recommendedSensitivity").textContent = "标准";
+    element(doc, "#recommendedMinDistance").textContent = "暂无";
+    element(doc, "#diagnosticsList").replaceChildren();
+    return;
+  }
   element(doc, "#swipeSuccessRate").textContent = summary.swipeSuccessText;
   element(doc, "#mainFailureReason").textContent = summary.mainFailureReason;
   element(doc, "#diagnosticsSuggestion").textContent = summary.suggestion;
@@ -364,7 +388,8 @@ async function applyRecommendedSettings(
 function formatPopupDiagnostics(
   settings: GestureSettings,
   diagnostics: GestureDiagnosticEntry[],
-  syncStatus: SettingsSyncStatus | null
+  syncStatus: SettingsSyncStatus | null,
+  appConnected: boolean
 ): string {
   const summary = summarizeDiagnostics(diagnostics);
   const current = resolveEffectiveSwipeRecognition(settings);
@@ -380,7 +405,9 @@ function formatPopupDiagnostics(
     : null;
 
   return [
-    "GestureKit Settings",
+    "GestureKit Diagnostics",
+    `App: ${appConnected ? "online" : "offline"}`,
+    `Sync: ${syncStatus ? syncStatus.phase : "unknown"}`,
     `mode=${settings.mode}`,
     `swipeSensitivity=${settings.swipeSensitivity}`,
     `edgeTapEnabled=${settings.edgeTapEnabled}`,
