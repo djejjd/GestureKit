@@ -87,12 +87,36 @@ public struct GestureEventPayload: Codable, Equatable, Sendable {
 public struct ActionResultPayload: Codable, Equatable, Sendable {
     public let action: ActionType
     public let status: ActionStatus
-    public let details: [String: String]?
+    public let details: [String: DetailValue]?
 
-    public init(action: ActionType, status: ActionStatus, details: [String: String]?) {
+    public init(action: ActionType, status: ActionStatus, details: [String: DetailValue]?) {
         self.action = action
         self.status = status
         self.details = details
+    }
+}
+
+public enum DetailValue: Codable, Equatable, Sendable {
+    case string(String)
+    case int(Int)
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.singleValueContainer()
+        if let s = try? container.decode(String.self) {
+            self = .string(s)
+        } else if let i = try? container.decode(Int.self) {
+            self = .int(i)
+        } else {
+            throw DecodingError.typeMismatch(DetailValue.self, DecodingError.Context(codingPath: decoder.codingPath, debugDescription: "Expected String or Int"))
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .string(let s): try container.encode(s)
+        case .int(let i): try container.encode(i)
+        }
     }
 }
 

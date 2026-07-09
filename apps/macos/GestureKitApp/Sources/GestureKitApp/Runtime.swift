@@ -240,7 +240,7 @@ final class GestureKitRuntime {
         }
 
         if envelope.message.type == .actionResult, let payload = envelope.message.actionResultPayload {
-            let details = payload.details?.map { "\($0.key)=\($0.value)" }.joined(separator: " ") ?? ""
+            let details = payload.details?.map { "\($0.key)=\(detailValueText($0.value))" }.joined(separator: " ") ?? ""
             logger.info(
                 "action_result action=\(payload.action.rawValue) status=\(payload.status.rawValue) \(details)",
                 rateLimitKey: "action_result_\(payload.action.rawValue)"
@@ -348,6 +348,13 @@ final class GestureKitRuntime {
 
     private func loggerFilePathHint() -> String {
         "~/Library/Logs/GestureKit/GestureKitApp.log"
+    }
+
+    private func detailValueText(_ value: DetailValue) -> String {
+        switch value {
+        case .string(let s): return s
+        case .int(let i): return "\(i)"
+        }
     }
 
     private func currentTimestampMs() -> Int64 {
