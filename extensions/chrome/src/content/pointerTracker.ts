@@ -217,11 +217,6 @@ function syncLinkClickProtectionFromStorage() {
   if (typeof chrome === "undefined" || !chrome.storage?.local) {
     return;
   }
-  void chrome.storage.local.get(GESTURE_SETTINGS_STORAGE_KEY).then((result) => {
-    setLinkClickProtectionEnabled(
-      normalizeGestureSettings(result[GESTURE_SETTINGS_STORAGE_KEY]).linkClickProtectionEnabled
-    );
-  });
   chrome.storage.onChanged?.addListener((changes, areaName) => {
     if (areaName !== "local" || !changes[GESTURE_SETTINGS_STORAGE_KEY]) {
       return;
