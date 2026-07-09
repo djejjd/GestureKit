@@ -2,6 +2,7 @@ import { executeGestureAction } from "./actionExecutor";
 import { chromeApi } from "./chromeApi";
 import { createNativePortManager } from "./nativePortManager";
 import { runConnectionProbe } from "./connectionProbe";
+import { createReconnectableNativePort, type PortLike } from "./reconnectableNativePort";
 import { GESTURE_SETTINGS_STORAGE_KEY, loadGestureSettings } from "../settings/gestureSettings";
 import {
   createSavedOnlySettingsSyncStatus,
@@ -24,6 +25,8 @@ import {
 const HOST_NAME = "com.gesturekit.host";
 const STATUS_STORAGE_KEY = "gesturekitStatus";
 
+let manager: ReturnType<typeof createNativePortManager>;
+
 async function resolveLastPointer() {
   const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
   if (!tab?.id) {
@@ -40,7 +43,6 @@ async function resolveLastPointer() {
   }
 }
 
-const port = chrome.runtime.connectNative(HOST_NAME);
 void chrome.storage.local.set({
   [STATUS_STORAGE_KEY]: {
     nativeConnected: true,
@@ -59,26 +61,93 @@ function cancelPendingTap() {
   })();
 }
 
-const manager = createNativePortManager({
-  port,
-  resolveLastPointer,
-  executeAction: (intent) => executeGestureAction(chromeApi, intent),
-  getSettings: () => loadGestureSettings(chrome.storage.local),
-  cancelPendingTap,
-  onActionResult: (message) => {
-    void appendDiagnostic(
-      chrome.storage.local,
-      diagnosticFromActionResult(message)
-    );
-    void chrome.storage.local.set({
-      [STATUS_STORAGE_KEY]: {
-        nativeConnected: true,
-        appConnected: true,
-        lastResult: `${message.payload.action} ${message.payload.status}`,
-        timestamp: Date.now()
-      }
+function createManager(port: PortLike) {
+  return createNativePortManager({
+    port,
+    resolveLastPointer,
+    executeAction: (intent) => executeGestureAction(chromeApi, intent),
+    getSettings: () => loadGestureSettings(chrome.storage.local),
+    cancelPendingTap,
+    onActionResult: (message) => {
+      void appendDiagnostic(
+        chrome.storage.local,
+        diagnosticFromActionResult(message)
+      );
+      void chrome.storage.local.set({
+        [STATUS_STORAGE_KEY]: {
+          nativeConnected: true,
+          appConnected: true,
+          lastResult: `${message.payload.action} ${message.payload.status}`,
+          timestamp: Date.now()
+        }
+      });
+    }
+  });
+}
+
+function handlePortDisconnect() {
+  const timestamp = Date.now();
+  void appendDiagnostic(chrome.storage.local, {
+    id: `connection-${timestamp}`,
+    timestamp,
+    source: "extension",
+    kind: "connection",
+    status: "native_host_disconnected",
+    reason: "native_host_disconnected",
+    message: chrome.runtime.lastError?.message ?? "Native host disconnected"
+  });
+  void (async () => {
+    const result = await chrome.storage.local.get(SETTINGS_SYNC_STATUS_STORAGE_KEY);
+    const previousStatus = result[SETTINGS_SYNC_STATUS_STORAGE_KEY];
+    await chrome.storage.local.set({
+      [SETTINGS_SYNC_STATUS_STORAGE_KEY]: markSettingsSyncFailed(
+        isSettingsSyncStatus(previousStatus) ? previousStatus : null,
+        "native_host_disconnected",
+        timestamp
+      )
     });
-  }
+  })();
+  void chrome.storage.local.set({
+    [STATUS_STORAGE_KEY]: {
+      nativeConnected: false,
+      appConnected: false,
+      lastResult: "native_host_disconnected",
+      timestamp
+    },
+    gesturekitLastError: {
+      status: "native_host_disconnected",
+      timestamp,
+      message: chrome.runtime.lastError?.message ?? "Native host disconnected"
+    }
+  });
+}
+
+const reconnectablePort = createReconnectableNativePort({
+  connect: () => chrome.runtime.connectNative(HOST_NAME),
+  attach: (port) => {
+    manager = createManager(port);
+    port.onMessage.addListener((message) => {
+      if (isSettingsAckMessage(message)) {
+        void (async () => {
+          const settings = await loadGestureSettings(chrome.storage.local);
+          const result = await chrome.storage.local.get(SETTINGS_SYNC_STATUS_STORAGE_KEY);
+          const currentStatus = isSettingsSyncStatus(result[SETTINGS_SYNC_STATUS_STORAGE_KEY])
+            ? result[SETTINGS_SYNC_STATUS_STORAGE_KEY]
+            : null;
+          await chrome.storage.local.set({
+            [SETTINGS_SYNC_STATUS_STORAGE_KEY]: settingsSyncStatusFromAck(message, settings, currentStatus)
+          });
+        })();
+        return;
+      }
+      if (isDiagnosticEventMessage(message)) {
+        void appendDiagnostic(chrome.storage.local, diagnosticEntryFromMessage(message));
+        return;
+      }
+      void manager.handleNativeMessage(message);
+    });
+  },
+  onDisconnect: handlePortDisconnect
 });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -86,9 +155,17 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return false;
   }
 
-  runConnectionProbe(port)
+  runConnectionProbe(reconnectablePort.ensureConnected() as chrome.runtime.Port)
     .then((probe) => {
       sendResponse(probe);
+      void chrome.storage.local.set({
+        [STATUS_STORAGE_KEY]: {
+          nativeConnected: probe.hostConnected,
+          appConnected: probe.appConnected,
+          lastResult: probe.status,
+          timestamp: Date.now()
+        }
+      });
       void (async () => {
         const result = await chrome.storage.local.get(SETTINGS_SYNC_STATUS_STORAGE_KEY);
         const status = result[SETTINGS_SYNC_STATUS_STORAGE_KEY];
@@ -133,29 +210,8 @@ async function syncGestureSettings() {
       Date.now()
     )
   });
-  port.postMessage(message);
+  reconnectablePort.ensureConnected().postMessage(message);
 }
-
-port.onMessage.addListener((message) => {
-  if (isSettingsAckMessage(message)) {
-    void (async () => {
-      const settings = await loadGestureSettings(chrome.storage.local);
-      const result = await chrome.storage.local.get(SETTINGS_SYNC_STATUS_STORAGE_KEY);
-      const currentStatus = isSettingsSyncStatus(result[SETTINGS_SYNC_STATUS_STORAGE_KEY])
-        ? result[SETTINGS_SYNC_STATUS_STORAGE_KEY]
-        : null;
-      await chrome.storage.local.set({
-        [SETTINGS_SYNC_STATUS_STORAGE_KEY]: settingsSyncStatusFromAck(message, settings, currentStatus)
-      });
-    })();
-    return;
-  }
-  if (isDiagnosticEventMessage(message)) {
-    void appendDiagnostic(chrome.storage.local, diagnosticEntryFromMessage(message));
-    return;
-  }
-  void manager.handleNativeMessage(message);
-});
 
 chrome.storage.onChanged.addListener((changes, areaName) => {
   if (areaName === "local" && changes[GESTURE_SETTINGS_STORAGE_KEY]) {
@@ -164,40 +220,3 @@ chrome.storage.onChanged.addListener((changes, areaName) => {
 });
 
 void syncGestureSettings();
-
-port.onDisconnect.addListener(() => {
-  const timestamp = Date.now();
-  void appendDiagnostic(chrome.storage.local, {
-    id: `connection-${timestamp}`,
-    timestamp,
-    source: "extension",
-    kind: "connection",
-    status: "native_host_disconnected",
-    reason: "native_host_disconnected",
-    message: chrome.runtime.lastError?.message ?? "Native host disconnected"
-  });
-  void (async () => {
-    const result = await chrome.storage.local.get(SETTINGS_SYNC_STATUS_STORAGE_KEY);
-    const previousStatus = result[SETTINGS_SYNC_STATUS_STORAGE_KEY];
-    await chrome.storage.local.set({
-      [SETTINGS_SYNC_STATUS_STORAGE_KEY]: markSettingsSyncFailed(
-        isSettingsSyncStatus(previousStatus) ? previousStatus : null,
-        "native_host_disconnected",
-        timestamp
-      )
-    });
-  })();
-  void chrome.storage.local.set({
-    [STATUS_STORAGE_KEY]: {
-      nativeConnected: false,
-      appConnected: false,
-      lastResult: "native_host_disconnected",
-      timestamp
-    },
-    gesturekitLastError: {
-      status: "native_host_disconnected",
-      timestamp,
-      message: chrome.runtime.lastError?.message ?? "Native host disconnected"
-    }
-  });
-});
