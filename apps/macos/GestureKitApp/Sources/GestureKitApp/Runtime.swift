@@ -40,6 +40,10 @@ final class GestureKitRuntime {
     }
 
     func start() {
+        guard listeningTask == nil, eventServer == nil else {
+            refreshStatus()
+            return
+        }
         do {
             let server = try LocalEventServer(logger: logger) { [weak self] envelope in
                 Task { @MainActor [weak self] in
@@ -68,6 +72,10 @@ final class GestureKitRuntime {
     }
 
     func stop() {
+        guard listeningTask != nil || eventServer != nil else {
+            publishStatus(listeningState: .stopped, connectionState: .disconnected)
+            return
+        }
         listeningTask?.cancel()
         listeningTask = nil
         eventServer?.stop()

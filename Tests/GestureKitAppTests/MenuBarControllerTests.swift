@@ -112,6 +112,17 @@ final class MenuBarControllerTests: XCTestCase {
         XCTAssertEqual(control.openTroubleshootingCount, 1)
     }
 
+    func testMenuBarControllerDispatchesStartAndStopActions() {
+        let control = SpyRuntimeControl()
+        let controller = MenuBarController(control: control)
+
+        controller.triggerStopForTesting()
+        controller.triggerStartForTesting()
+
+        XCTAssertEqual(control.stopCount, 1)
+        XCTAssertEqual(control.startCount, 1)
+    }
+
     func testMenuBarControllerShowsLastGestureWhenPresent() {
         let control = SpyRuntimeControl()
         let controller = MenuBarController(control: control)

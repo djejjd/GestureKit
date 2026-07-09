@@ -222,9 +222,72 @@ npm run build  # Build complete
 - 推荐应用不突破规则 source of truth 边界；
 - `appSessionId` 作为跨端状态锚点已落地。
 
-## 5. P5 修改方向
+## 5. P5 归档
 
-`P5` 聚焦菜单栏状态增强、排障入口和生命周期加固，不重写手势识别主流程。
+### 5.1 P5 目标
+
+`P5` 的目标是把只有最小状态文本的 macOS 菜单栏 App，补齐为稳定的运行入口：能显示监听与连接状态、暴露基础生命周期控制、提供日志与排障入口，不与 Chrome 扩展 popup 的设置/推荐职责冲突。
+
+### 5.2 P5 已完成内容
+
+已完成 5 个 Task：
+
+1. `Task 1`：结构化运行状态模型 — `AppListeningState` / `AppConnectionState` / `AppRuntimeStatus`
+2. `Task 2`：菜单栏控制器与职责收口 — `MenuBarController` / `RuntimeControlling` / `RuntimeControl`
+3. `Task 3`：连接状态与显式刷新入口 — `LocalEventServer.onConnectionCountChanged` / `refreshStatus()`
+4. `Task 4`：日志与排障入口 — 文档验收步骤、菜单栏状态词排障映射
+5. `Task 5`：生命周期菜单项与最终收口 — 启停幂等、进度归档
+
+当前关键产物：
+
+- `apps/macos/GestureKitApp/Sources/GestureKitApp/AppRuntimeStatus.swift` (新增)
+- `apps/macos/GestureKitApp/Sources/GestureKitApp/MenuBarController.swift` (新增)
+- `apps/macos/GestureKitApp/Sources/GestureKitApp/RuntimeControl.swift` (新增)
+- `apps/macos/GestureKitApp/Sources/GestureKitApp/Runtime.swift` (修改)
+- `apps/macos/GestureKitApp/Sources/GestureKitApp/AppDelegate.swift` (重写)
+- `apps/macos/GestureKitApp/Sources/GestureKitApp/LocalEventServer.swift` (修改)
+- `Tests/GestureKitAppTests/RuntimeLifecycleTests.swift` (新增)
+- `Tests/GestureKitAppTests/MenuBarControllerTests.swift` (新增)
+- `docs/operations/gesturekit-v1-e2e-checklist.md` (修改)
+- `docs/operations/gesturekit-v1-troubleshooting.md` (修改)
+
+### 5.3 P5 关键提交记录
+
+```text
+42d41e7 feat: add menu bar troubleshooting actions
+a759691 fix: inject docs base url for stable document path resolution
+90f08cc fix: restore visible no-rule and unsupported-app status in menu bar
+753e1a2 fix: hide last gesture in menu bar when cleared
+df3817e feat: surface connection state in menu bar runtime
+848f1e9 feat: add menu bar controller for runtime lifecycle
+70ca873 feat: add structured app runtime status
+```
+
+### 5.4 P5 已通过验证
+
+Swift：
+
+```bash
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test   # 55 passed
+DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift build  # Build complete
+```
+
+Chrome extension：
+
+```bash
+cd extensions/chrome
+npm test       # 102 passed
+npm run build  # Build complete
+```
+
+### 5.5 P5 当前结论
+
+`P5` 已完成当前目标：
+
+- 菜单栏可显示监听状态、连接状态、最近手势和最近错误；
+- 提供启停监听、刷新状态、打开日志目录和文档入口；
+- Runtime 启动/停止幂等，重复操作不产生副作用；
+- 菜单栏职责严格限定在"运行与生命周期"，不涉及 popup 的设置、推荐、诊断功能。
 
 ## 6. 恢复开发时的建议步骤
 
@@ -245,13 +308,13 @@ npm run build  # Build complete
    zsh scripts/dev/test-smoke-check.sh
    ```
 
-3. 阅读 `P5` 方向文档：
+3. 阅读 `P6` 方向文档：
 
    ```bash
-   sed -n '110,135p' docs/plans/gesturekit-v1-optimization-roadmap.md
+   sed -n '136,155p' docs/plans/gesturekit-v1-optimization-roadmap.md
    ```
 
-4. 再开始写 `P5` 的独立实施计划或直接进入 `P5` 执行。
+4. 再开始写 `P6` 的独立实施计划或直接进入 `P6` 执行。
 
 ## 7. 已知后续事项
 
