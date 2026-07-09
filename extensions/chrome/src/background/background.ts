@@ -69,7 +69,7 @@ function createManager(port: PortLike) {
     getSettings: () => loadGestureSettings(chrome.storage.local),
     cancelPendingTap,
     onActionResult: (message) => {
-      if (message.payload.status !== "gesture_unstable" && message.payload.status !== "no_target") {
+      if (shouldRecordDiagnostic(message)) {
         void appendDiagnostic(
           chrome.storage.local,
           diagnosticFromActionResult(message)
@@ -85,6 +85,14 @@ function createManager(port: PortLike) {
       });
     }
   });
+}
+
+function shouldRecordDiagnostic(message: { payload: { status: string; details?: Record<string, unknown> } }): boolean {
+  if (message.payload.status === "no_target") return false;
+  if (message.payload.status !== "gesture_unstable") return true;
+  const knownReason = typeof message.payload.details?.reason === "string" &&
+    ["superseded_by_tap", "cooldown", "tap_duration_unstable"].includes(message.payload.details.reason);
+  return knownReason;
 }
 
 function handlePortDisconnect() {

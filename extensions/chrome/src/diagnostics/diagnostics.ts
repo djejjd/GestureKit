@@ -215,6 +215,7 @@ export function reasonLabel(reason: DiagnosticReason): string {
     native_host_disconnected: "Native host 已断开",
     page_unavailable: "当前页面不可用",
     no_target: "未命中可打开链接",
+    superseded_by_tap: "被后续点按取代",
     unknown: "未知"
   };
   return labels[reason];
@@ -241,6 +242,9 @@ function suggestionFor(reason: DiagnosticReason | null): string {
   }
   if (reason === "no_target") {
     return "把鼠标停在普通 http/https 链接上";
+  }
+  if (reason === "superseded_by_tap") {
+    return "被后续手势取代，属于正常行为";
   }
   return "继续观察，暂不调整";
 }
@@ -341,5 +345,6 @@ function isDiagnosticReason(value: unknown): value is DiagnosticReason {
     value === "native_host_disconnected" ||
     value === "page_unavailable" ||
     value === "no_target" ||
+    value === "superseded_by_tap" ||
     value === "unknown";
 }

@@ -115,6 +115,7 @@ export type DiagnosticReason =
   | "native_host_disconnected"
   | "page_unavailable"
   | "no_target"
+  | "superseded_by_tap"
   | "unknown";
 
 export type GestureRecognitionThresholds = {
