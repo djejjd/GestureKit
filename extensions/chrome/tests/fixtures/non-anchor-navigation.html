@@ -1,0 +1,12 @@
+<!doctype html>
+<html lang="zh-CN">
+<head><meta charset="utf-8"><title>非 Anchor 导航</title></head>
+<body>
+  <div id="card" data-href="https://example.com/docs" role="link" tabindex="0">Open docs</div>
+  <script>
+    document.getElementById("card")?.addEventListener("click", () => {
+      window.location.href = "https://example.com/docs";
+    });
+  </script>
+</body>
+</html>

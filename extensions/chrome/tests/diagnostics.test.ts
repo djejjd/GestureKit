@@ -3,6 +3,7 @@ import {
   appendDiagnostic,
   DIAGNOSTICS_STORAGE_KEY,
   diagnosticFromActionResult,
+  reasonLabel,
   formatDiagnosticsForClipboard,
   summarizeDiagnostics,
   type GestureDiagnosticEntry
@@ -170,6 +171,38 @@ describe("diagnostics", () => {
     );
 
     expect(text).toContain("applyPhase=applied");
+  });
+
+  it("labels protected_click_expired in Chinese", () => {
+    const entry = diagnosticFromActionResult(actionResult("gesture-1", "open_link_background", "gesture_unstable", {
+      reason: "protected_click_expired"
+    }));
+
+    expect(entry.reason).toBe("protected_click_expired");
+    expect(reasonLabel("protected_click_expired")).toBe("点击保护已过期");
+  });
+
+  it("labels non_anchor_navigation as out-of-scope", () => {
+    const entry = diagnosticFromActionResult(actionResult("gesture-1", "open_link_background", "gesture_unstable", {
+      reason: "non_anchor_navigation"
+    }));
+
+    expect(entry.reason).toBe("non_anchor_navigation");
+    expect(summarizeDiagnostics([entry]).suggestion).toContain("当前阶段不承诺");
+  });
+
+  it("labels pointer_target_mismatch and unsupported_interaction_model in Chinese", () => {
+    expect(reasonLabel("pointer_target_mismatch")).toBe("指针目标与链接不一致");
+    expect(reasonLabel("unsupported_interaction_model")).toBe("当前交互模型暂不支持");
+    expect(reasonLabel("site_retrigger_navigation")).toBe("页面脚本重新触发导航");
+  });
+
+  it("formats new failure reasons in clipboard output", () => {
+    const entry = diagnosticFromActionResult(actionResult("gesture-1", "open_link_background", "gesture_unstable", {
+      reason: "non_anchor_navigation"
+    }));
+
+    expect(formatDiagnosticsForClipboard([entry])).toContain("reason=non_anchor_navigation");
   });
 });
 

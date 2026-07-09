@@ -211,6 +211,11 @@ export function reasonLabel(reason: DiagnosticReason): string {
     tap_duration_unstable: "点按时长不稳定",
     chrome_action_failed: "手势动作未完成",
     click_already_fired: "点击已先触发",
+    protected_click_expired: "点击保护已过期",
+    pointer_target_mismatch: "指针目标与链接不一致",
+    site_retrigger_navigation: "页面脚本重新触发导航",
+    non_anchor_navigation: "非标准链接导航",
+    unsupported_interaction_model: "当前交互模型暂不支持",
     not_chrome: "非 Chrome 前台",
     native_host_disconnected: "Native host 已断开",
     page_unavailable: "当前页面不可用",
@@ -245,6 +250,18 @@ function suggestionFor(reason: DiagnosticReason | null): string {
   }
   if (reason === "superseded_by_tap") {
     return "被后续手势取代，属于正常行为";
+  }
+  if (reason === "protected_click_expired") {
+    return "页面跳转快于手势消费，可先导出诊断继续排查";
+  }
+  if (reason === "non_anchor_navigation" || reason === "unsupported_interaction_model") {
+    return "当前阶段不承诺此类交互，先导出诊断";
+  }
+  if (reason === "site_retrigger_navigation") {
+    return "页面脚本重新触发导航，建议使用普通内容页";
+  }
+  if (reason === "pointer_target_mismatch") {
+    return "指针位置与实际链接不匹配，检查光标是否准确停在链接上";
   }
   return "继续观察，暂不调整";
 }
@@ -341,6 +358,11 @@ function isDiagnosticReason(value: unknown): value is DiagnosticReason {
     value === "tap_duration_unstable" ||
     value === "chrome_action_failed" ||
     value === "click_already_fired" ||
+    value === "protected_click_expired" ||
+    value === "pointer_target_mismatch" ||
+    value === "site_retrigger_navigation" ||
+    value === "non_anchor_navigation" ||
+    value === "unsupported_interaction_model" ||
     value === "not_chrome" ||
     value === "native_host_disconnected" ||
     value === "page_unavailable" ||
