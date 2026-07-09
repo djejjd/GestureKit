@@ -183,7 +183,7 @@ final class MenuBarController {
 
     private func scheduleFlashReset() {
         cancelFlashReset()
-        flashTimer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: false) { [weak self] _ in
+        flashTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { [weak self] _ in
             Task { @MainActor [weak self] in
                 self?.resetToNormal()
             }
