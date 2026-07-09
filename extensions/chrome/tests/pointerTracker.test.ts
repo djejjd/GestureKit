@@ -254,4 +254,39 @@ describe("pointerTracker", () => {
     expect(wasNotCancelled).toBe(true);
     expect(click.defaultPrevented).toBe(false);
   });
+
+  it("returns protected_click_expired when protected navigation expires before consumption", async () => {
+    vi.useFakeTimers();
+    vi.resetModules();
+    const module = await import("../src/content/pointerTracker");
+    module.setLinkClickProtectionEnabled(true);
+    const anchor = document.getElementById("target") as HTMLAnchorElement;
+
+    anchor.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    await vi.advanceTimersByTimeAsync(181);
+
+    const result = module.resolveLinkAtLastPointer(Date.now(), { consumeNextClick: true });
+    expect(result).toMatchObject({
+      status: "success",
+      clickAlreadyFired: true,
+      reason: "protected_click_expired"
+    });
+    vi.useRealTimers();
+  });
+
+  it("returns non_anchor_navigation for card-style targets", async () => {
+    vi.resetModules();
+    document.body.innerHTML = `
+      <div id="card" data-href="https://example.com/docs" role="link" tabindex="0">Open docs</div>
+    `;
+    const card = document.getElementById("card") as HTMLElement;
+    document.elementFromPoint = () => card;
+
+    const module = await import("../src/content/pointerTracker");
+    module.setPointerSnapshotForTesting({ x: 40, y: 20, timestamp: Date.now() });
+
+    expect(module.resolveLinkAtLastPointer(Date.now())).toMatchObject({
+      status: "non_anchor_navigation"
+    });
+  });
 });

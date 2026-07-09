@@ -1,6 +1,7 @@
 export type LinkResolveResult =
   | { status: "success"; url: string; clickAlreadyFired?: boolean; clickProtected?: boolean }
-  | { status: "no_target"; detail?: string }
+  | { status: "no_target"; detail?: string; reason?: "pointer_target_mismatch" }
+  | { status: "non_anchor_navigation"; detail?: string }
   | { status: "unsupported_url_scheme"; detail?: string }
   | { status: "page_unavailable" }
   | { status: "no_recent_pointer"; detail?: string };
@@ -18,6 +19,14 @@ export function resolveLinkAtPoint(x: number, y: number): LinkResolveResult {
     const cls = element.className && typeof element.className === "string"
       ? `.${element.className.trim().split(/\s+/).slice(0, 2).join(".")}`
       : "";
+    const clickable = element.closest("[data-href],[role='link'],button") as HTMLElement | null;
+    if (clickable) {
+      const ctag = clickable.tagName.toLowerCase();
+      return {
+        status: "non_anchor_navigation",
+        detail: `命中 <${ctag}>，但不是标准 <a href>`
+      };
+    }
     return {
       status: "no_target",
       detail: `命中 <${tag}${id}${cls}> 但无上级 <a href>`

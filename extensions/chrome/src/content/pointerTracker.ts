@@ -130,7 +130,13 @@ function consumeExpiredProtectedLinkClick(now: number) {
   }
   const url = state.expiredProtectedClick.url;
   state.expiredProtectedClick = null;
-  return { status: "success" as const, url, clickAlreadyFired: true };
+  return {
+    status: "success" as const,
+    url,
+    clickAlreadyFired: true,
+    reason: "protected_click_expired" as const,
+    detail: "点击保护窗口已过期，页面已继续当前页跳转"
+  };
 }
 
 export function setLinkClickProtectionEnabled(enabled: boolean) {
@@ -197,6 +203,10 @@ export function cancelProtectedClick() {
     clearTimeout(state.protectedLinkClick.timeout);
     state.protectedLinkClick = null;
   }
+}
+
+export function setPointerSnapshotForTesting(snapshot: PointerSnapshot | null) {
+  state.lastPointer = snapshot;
 }
 
 function sharedState(): PointerTrackerState {
