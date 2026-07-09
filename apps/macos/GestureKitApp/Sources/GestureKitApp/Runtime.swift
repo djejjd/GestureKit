@@ -286,6 +286,10 @@ final class GestureKitRuntime {
     private func handleActionResult(_ requestId: String, action: String, status: String, detailsText: String) {
         guard pendingRequests[requestId] != nil else { return }
         pendingRequests.removeValue(forKey: requestId)
+        if status == "gesture_unstable" {
+            logger.info("execution_result requestId=\(requestId) action=\(action) status=gesture_unstable (no flash) \(detailsText)")
+            return
+        }
         let success = status == "success"
         let detail: String? = success ? nil : chromeActionFailureText(for: status)
         emit(event: AppMenuBarEvent(type: .chromeExecuted(action: action, success: success, detail: detail)))
