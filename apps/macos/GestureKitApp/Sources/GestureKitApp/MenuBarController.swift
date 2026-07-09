@@ -113,6 +113,7 @@ final class MenuBarController {
         setGestureText(nil)
         updatePauseMenuItem(isPaused: true)
         cancelFlashReset()
+        startPauseTimer()
     }
 
     private func handleResumed() {
@@ -121,6 +122,21 @@ final class MenuBarController {
         statusItem.title = "GestureKit 正常运行"
         setGestureText(nil)
         updatePauseMenuItem(isPaused: false)
+        cancelPauseTimer()
+    }
+
+    private func startPauseTimer() {
+        cancelPauseTimer()
+        pauseTimer = Timer.scheduledTimer(withTimeInterval: 600, repeats: false) { [weak self] _ in
+            Task { @MainActor [weak self] in
+                self?.control.resumeListening()
+            }
+        }
+    }
+
+    private func cancelPauseTimer() {
+        pauseTimer?.invalidate()
+        pauseTimer = nil
     }
 
     private func setTint(_ color: MenuBarIconTint) {
@@ -189,7 +205,19 @@ final class MenuBarController {
     }
 
     @objc private func openLogs() { control.openLogDirectory() }
-    @objc private func quit() { control.quitApplication() }
+    @objc private func quit() {
+        cancelPauseTimer()
+        control.quitApplication()
+    }
+
+    func isPauseTimerActiveForTesting() -> Bool { pauseTimer != nil }
+
+    func triggerPauseAutoResumeForTesting() {
+        pauseTimer?.invalidate()
+        pauseTimer = nil
+        control.resumeListening()
+        apply(event: AppMenuBarEvent(type: .resumed))
+    }
 
     func currentStateForTesting() -> AppMenuBarState { currentState }
     func statusTextForTesting() -> String { statusItem.title }

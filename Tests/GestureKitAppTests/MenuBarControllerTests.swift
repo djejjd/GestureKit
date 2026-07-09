@@ -86,6 +86,41 @@ final class MenuBarControllerTests: XCTestCase {
         XCTAssertEqual(controller.currentStateForTesting(), .normal)
         XCTAssertEqual(controller.statusTextForTesting(), "GestureKit 正常运行")
     }
+
+    func testPauseStartsTimer() {
+        let control = SpyRuntimeControl()
+        let controller = MenuBarController(control: control)
+
+        controller.triggerPausedForTesting()
+
+        XCTAssertTrue(controller.isPauseTimerActiveForTesting())
+    }
+
+    func testResumeStopsTimer() {
+        let control = SpyRuntimeControl()
+        let controller = MenuBarController(control: control)
+
+        controller.triggerPausedForTesting()
+        controller.triggerResumedForTesting()
+
+        XCTAssertFalse(controller.isPauseTimerActiveForTesting())
+    }
+
+    func testAutoResumeAfterPauseTimeout() {
+        let control = SpyRuntimeControl()
+        let controller = MenuBarController(control: control)
+
+        controller.triggerPausedForTesting()
+        XCTAssertEqual(controller.currentStateForTesting(), .paused)
+        XCTAssertEqual(control.resumeCount, 0)
+
+        controller.triggerPauseAutoResumeForTesting()
+
+        XCTAssertEqual(controller.currentStateForTesting(), .normal)
+        XCTAssertEqual(control.resumeCount, 1)
+        XCTAssertEqual(controller.statusTextForTesting(), "GestureKit 正常运行")
+        XCTAssertFalse(controller.isPauseTimerActiveForTesting())
+    }
 }
 
 @MainActor
