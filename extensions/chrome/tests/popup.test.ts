@@ -20,7 +20,6 @@ function setupDom() {
     <input id="edgeTapEnabled" type="checkbox" />
     <input id="doubleTapCloseEnabled" type="checkbox" />
     <input id="flickSwitchEnabled" type="checkbox" />
-    <input id="linkClickProtectionEnabled" type="checkbox" />
     <input id="edgeWidth" type="range" min="20" max="40" />
     <output id="edgeWidthValue"></output>
     <input id="doubleTapSpeed" type="range" min="240" max="500" />
@@ -142,7 +141,6 @@ describe("gesture settings popup", () => {
     expect((document.querySelector("#mode") as HTMLSelectElement).value).toBe("efficient");
     expect((document.querySelector("#swipeSensitivity") as HTMLSelectElement).value).toBe("sensitive");
     expect((document.querySelector("#doubleTapCloseEnabled") as HTMLInputElement).checked).toBe(false);
-    expect((document.querySelector("#linkClickProtectionEnabled") as HTMLInputElement).checked).toBe(true);
     expect(document.querySelector("#nativeStatus")?.textContent).toBe("已连接");
     expect(document.querySelector("#appStatus")?.textContent).toBe("未连接");
     expect(document.querySelector("#settingsSyncStatus")?.textContent).toBe("已应用 sensitive");
@@ -233,13 +231,10 @@ describe("gesture settings popup", () => {
     await initializeGestureSettingsPopup(document, storage);
 
     const edgeTapEnabled = document.querySelector("#edgeTapEnabled") as HTMLInputElement;
-    const linkClickProtectionEnabled = document.querySelector("#linkClickProtectionEnabled") as HTMLInputElement;
     const cooldown = document.querySelector("#cooldownMs") as HTMLInputElement;
     edgeTapEnabled.checked = false;
-    linkClickProtectionEnabled.checked = false;
     cooldown.value = "180";
     edgeTapEnabled.dispatchEvent(new Event("change"));
-    linkClickProtectionEnabled.dispatchEvent(new Event("change"));
     cooldown.dispatchEvent(new Event("input"));
     cooldown.dispatchEvent(new Event("change"));
     await flushPromises();
@@ -247,7 +242,6 @@ describe("gesture settings popup", () => {
     expect(storage.set).toHaveBeenLastCalledWith({
       [GESTURE_SETTINGS_STORAGE_KEY]: expect.objectContaining({
         edgeTapEnabled: false,
-        linkClickProtectionEnabled: false,
         cooldownMs: 180
       })
     });
