@@ -39,6 +39,29 @@ final class MenuBarControllerTests: XCTestCase {
         XCTAssertTrue(titles.contains("连接：未连接"))
     }
 
+    func testMenuBarControllerHidesLastGestureWhenNil() {
+        let control = SpyRuntimeControl()
+        let controller = MenuBarController(control: control)
+
+        controller.apply(status: AppRuntimeStatus(
+            listeningState: .listening,
+            connectionState: .connected(clientCount: 1),
+            lastGesture: "three_finger_tap",
+            lastError: nil,
+            logFilePathHint: "/tmp/gesturekit.log"
+        ))
+        controller.apply(status: AppRuntimeStatus(
+            listeningState: .listening,
+            connectionState: .connected(clientCount: 1),
+            lastGesture: nil,
+            lastError: nil,
+            logFilePathHint: "/tmp/gesturekit.log"
+        ))
+
+        let titles = controller.statusTitlesForTesting()
+        XCTAssertFalse(titles.contains { $0.hasPrefix("最近手势：") })
+    }
+
     func testMenuBarControllerShowsLastGestureWhenPresent() {
         let control = SpyRuntimeControl()
         let controller = MenuBarController(control: control)

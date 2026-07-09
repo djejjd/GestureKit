@@ -53,6 +53,8 @@ final class MenuBarController {
         if let gesture = status.lastGesture {
             gestureItem.title = "最近手势：\(gestureLabel(gesture))"
             gestureItem.isHidden = false
+        } else {
+            gestureItem.isHidden = true
         }
 
         if let error = status.lastError, !error.isEmpty {
