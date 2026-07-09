@@ -145,7 +145,7 @@ describe("gesture settings popup", () => {
     expect(document.querySelector("#nativeStatus")?.textContent).toBe("已连接");
     expect(document.querySelector("#appStatus")?.textContent).toBe("未连接");
     expect(document.querySelector("#settingsSyncStatus")?.textContent).toBe("已应用 sensitive");
-    expect(document.querySelector("#lastResult")?.textContent).toBe("打开链接成功");
+    expect(document.querySelector("#lastResult")?.textContent).toBe("手势已触发：新标签页打开链接");
   });
 
   it("renders diagnostics summary while keeping settings controls", async () => {

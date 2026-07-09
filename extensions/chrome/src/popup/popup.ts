@@ -470,39 +470,39 @@ function gestureLabel(gesture: GestureDiagnosticEntry["gesture"]): string {
 
 function actionLabel(action: GestureDiagnosticEntry["action"]): string {
   if (action === "open_link_background") {
-    return "打开链接并切换到新标签页";
+    return "手势已触发：新标签页打开链接";
   }
   if (action === "activate_left_tab") {
-    return "切换到左侧标签页";
+    return "手势已触发：左切标签页";
   }
   if (action === "activate_right_tab") {
-    return "切换到右侧标签页";
+    return "手势已触发：右切标签页";
   }
   if (action === "close_tab") {
-    return "关闭当前标签页";
+    return "手势已触发：关闭标签页";
   }
-  return "已记录";
+  return "手势已触发";
 }
 
 function resultLabel(value: string): string {
   const labels: Record<string, string> = {
     "connected": "已连接",
     "native_host_disconnected": "Native host 已断开",
-    "open_link_background success": "打开链接成功",
-    "open_link_background gesture_unstable": "打开链接未执行",
-    "open_link_background no_recent_pointer": "没有最近鼠标位置",
-    "open_link_background no_target": "未命中链接",
-    "open_link_background page_unavailable": "当前页面不可用",
-    "open_link_background unsupported_url_scheme": "链接类型不支持",
-    "activate_left_tab success": "已切换到左侧标签页",
-    "activate_left_tab gesture_unstable": "左切未执行",
-    "activate_left_tab page_unavailable": "左切失败：页面不可用",
-    "activate_right_tab success": "已切换到右侧标签页",
-    "activate_right_tab gesture_unstable": "右切未执行",
-    "activate_right_tab page_unavailable": "右切失败：页面不可用",
-    "close_tab success": "已关闭当前标签页",
-    "close_tab gesture_unstable": "关闭标签页未执行",
-    "close_tab page_unavailable": "关闭失败：页面不可用"
+    "open_link_background success": "手势已触发：新标签页打开链接",
+    "open_link_background gesture_unstable": "手势未生效：时长不稳定",
+    "open_link_background no_recent_pointer": "手势未生效：无最近鼠标位置",
+    "open_link_background no_target": "手势已触发：未命中链接",
+    "open_link_background page_unavailable": "手势未生效：页面不可用",
+    "open_link_background unsupported_url_scheme": "手势已触发：链接类型不支持",
+    "activate_left_tab success": "手势已触发：左切标签页",
+    "activate_left_tab gesture_unstable": "手势未生效：左切",
+    "activate_left_tab page_unavailable": "手势未生效：页面不可用",
+    "activate_right_tab success": "手势已触发：右切标签页",
+    "activate_right_tab gesture_unstable": "手势未生效：右切",
+    "activate_right_tab page_unavailable": "手势未生效：页面不可用",
+    "close_tab success": "手势已触发：关闭标签页",
+    "close_tab gesture_unstable": "手势未生效：关闭标签页",
+    "close_tab page_unavailable": "手势未生效：页面不可用"
   };
   return labels[value] ?? value;
 }

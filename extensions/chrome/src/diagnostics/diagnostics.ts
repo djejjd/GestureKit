@@ -88,10 +88,10 @@ export function summarizeDiagnostics(events: GestureDiagnosticEntry[]): Diagnost
     return {
       swipeSuccessText: "暂无",
       mainFailureReason: mainReason ? reasonLabel(mainReason) : "暂无",
-      suggestion: mainReason ? suggestionFor(mainReason) : "继续使用，等待更多数据",
+      suggestion: mainReason ? suggestionFor(mainReason) : "暂无诊断数据，使用几次手势后这里会显示识别情况",
       recommendedSensitivity: "standard",
       recommendedMinDistance: null,
-      recommendationText: "等待更多轻扫数据"
+      recommendationText: "暂无诊断数据，使用几次手势后这里会显示识别情况"
     };
   }
 
@@ -209,7 +209,7 @@ export function reasonLabel(reason: DiagnosticReason): string {
     edge_tap_disabled: "边缘点按开关关闭",
     double_tap_disabled: "中间双击关闭开关关闭",
     tap_duration_unstable: "点按时长不稳定",
-    chrome_action_failed: "Chrome 动作执行失败",
+    chrome_action_failed: "手势动作未完成",
     click_already_fired: "点击已先触发",
     not_chrome: "非 Chrome 前台",
     native_host_disconnected: "Native host 已断开",
