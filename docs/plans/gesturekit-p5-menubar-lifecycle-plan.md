@@ -1,0 +1,615 @@
+# GestureKit P5 菜单栏状态与生命周期加固实施计划
+
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+
+**Goal:** 把当前只有最小状态文本的 macOS 菜单栏 App，补齐为一个稳定的运行入口：能显示监听与连接状态、暴露基础生命周期控制、提供日志与排障入口，同时不与 Chrome 扩展 popup 的设置/推荐职责冲突。
+
+**Architecture:** 菜单栏 App 只负责“运行与生命周期”，不接管浏览器侧设置。Swift App 内新增结构化运行状态模型，由 `GestureKitRuntime` 推送给 `AppDelegate` / 菜单栏控制器；Chrome 扩展仍保留“手势设置、推荐应用、诊断摘要”，App 侧仅消费连接探针和本地运行状态。
+
+**Tech Stack:** Swift 6.2 / AppKit / XCTest / Chrome Native Messaging 既有协议 / 本地 Markdown 运维文档。
+
+## Global Constraints
+
+- 项目文档默认中文优先。
+- 不新增用户可见手势动作，不做规则编辑器，不做任意动作绑定。
+- App 菜单栏只负责“运行与生命周期”；Chrome 扩展 popup 继续负责“浏览器内配置、推荐应用、诊断摘要”。
+- 菜单栏不提供轻扫灵敏度编辑、不提供推荐应用按钮、不复制扩展诊断明细。
+- 不改变 `connectNative()` + native host shim + App IPC 的既定通信边界。
+- 不把 UI 状态逻辑反向压入 `GestureRecognizer` 或 `GestureKitCore`。
+- 本阶段只做轻量恢复辅助，不做复杂后台重试调度器，不做完整分发/签名链路。
+
+---
+
+## 文件结构
+
+- `apps/macos/GestureKitApp/Sources/GestureKitApp/AppDelegate.swift`
+  - 当前菜单栏入口；后续保留 `NSApplicationDelegate` 职责，改为组装菜单栏控制器和 runtime。
+- `apps/macos/GestureKitApp/Sources/GestureKitApp/Runtime.swift`
+  - 当前手势监听和 IPC 主体；需要输出结构化运行状态，而不再只发单一字符串。
+- `apps/macos/GestureKitApp/Sources/GestureKitApp/MenuBarController.swift`
+  - 新增文件。集中管理 `NSStatusItem`、`NSMenu`、状态文案、菜单点击事件。
+- `apps/macos/GestureKitApp/Sources/GestureKitApp/AppRuntimeStatus.swift`
+  - 新增文件。定义菜单栏需要的结构化状态：监听状态、连接状态、最近错误、日志路径提示。
+- `apps/macos/GestureKitApp/Sources/GestureKitApp/RuntimeControl.swift`
+  - 新增文件。收口菜单栏对 runtime 的 `start/stop/refreshStatus` 操作，避免 `AppDelegate` 直接拼菜单逻辑。
+- `apps/macos/GestureKitApp/Sources/GestureKitApp/DiagnosticsSnapshot.swift`
+  - 新增文件。给菜单栏提供轻量状态摘要，不复用 popup 的详细诊断列表。
+- `apps/macos/GestureKitApp/Sources/GestureKitApp/LocalEventServer.swift`
+  - 可能需要轻量扩展连接计数/最近连接变化回调，用于显示 extension 连接状态。
+- `Tests/GestureKitAppTests/MenuBarControllerTests.swift`
+  - 新增文件。覆盖菜单项文本、状态切换、点击动作分发。
+- `Tests/GestureKitAppTests/RuntimeLifecycleTests.swift`
+  - 新增文件。覆盖 `start/stop/refreshStatus`、运行状态回调、连接状态变化。
+- `Tests/GestureKitAppTests/RuntimeProbeTests.swift`
+  - 需要补齐 probe 驱动下的状态更新覆盖。
+- `docs/operations/gesturekit-v1-e2e-checklist.md`
+  - 增加菜单栏状态与生命周期人工验收步骤。
+- `docs/operations/gesturekit-v1-troubleshooting.md`
+  - 增加菜单栏状态词与排障映射。
+- `docs/plans/gesturekit-v1-progress-archive.md`
+  - P5 完成后补归档。
+
+### Task 1: 结构化运行状态模型
+
+**Files:**
+- Create: `apps/macos/GestureKitApp/Sources/GestureKitApp/AppRuntimeStatus.swift`
+- Modify: `apps/macos/GestureKitApp/Sources/GestureKitApp/Runtime.swift`
+- Create: `Tests/GestureKitAppTests/RuntimeLifecycleTests.swift`
+
+**Interfaces:**
+- Produces:
+
+```swift
+enum AppListeningState: Equatable {
+    case starting
+    case listening
+    case stopped
+    case inputError
+    case ipcError
+}
+
+enum AppConnectionState: Equatable {
+    case unknown
+    case disconnected
+    case connected(clientCount: Int)
+}
+
+struct AppRuntimeStatus: Equatable {
+    let listeningState: AppListeningState
+    let connectionState: AppConnectionState
+    let lastGesture: String?
+    let lastError: String?
+    let logFilePathHint: String
+}
+```
+
+- Produces:
+
+```swift
+@MainActor
+final class GestureKitRuntime {
+    init(
+        statusHandler: @escaping (AppRuntimeStatus) -> Void,
+        ...
+    )
+
+    func refreshStatus()
+}
+```
+
+- [ ] **Step 1: 写失败测试，约束启动状态和停止状态**
+
+```swift
+func testRuntimePublishesListeningAndStoppedStates() {
+    var statuses: [AppRuntimeStatus] = []
+    let runtime = GestureKitRuntime(
+        statusHandler: { statuses.append($0) },
+        touchBackend: StubTouchBackend(),
+        settingsStore: StubSettingsStore(),
+        logger: GestureKitLogger(terminalWriter: { _ in })
+    )
+
+    runtime.start()
+    runtime.stop()
+
+    XCTAssertEqual(statuses.first?.listeningState, .listening)
+    XCTAssertEqual(statuses.last?.listeningState, .stopped)
+}
+```
+
+- [ ] **Step 2: 跑测试确认先红**
+
+Run: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filter RuntimeLifecycleTests`
+
+Expected: FAIL，提示 `AppRuntimeStatus` / 新签名不存在
+
+- [ ] **Step 3: 增加状态模型文件**
+
+```swift
+struct AppRuntimeStatus: Equatable {
+    let listeningState: AppListeningState
+    let connectionState: AppConnectionState
+    let lastGesture: String?
+    let lastError: String?
+    let logFilePathHint: String
+}
+```
+
+- [ ] **Step 4: 在 Runtime 中维护并发布状态**
+
+```swift
+private var currentStatus: AppRuntimeStatus
+
+private func publishStatus(
+    listeningState: AppListeningState? = nil,
+    connectionState: AppConnectionState? = nil,
+    lastGesture: String? = nil,
+    lastError: String? = nil
+) {
+    currentStatus = AppRuntimeStatus(
+        listeningState: listeningState ?? currentStatus.listeningState,
+        connectionState: connectionState ?? currentStatus.connectionState,
+        lastGesture: lastGesture ?? currentStatus.lastGesture,
+        lastError: lastError,
+        logFilePathHint: loggerFilePathHint()
+    )
+    statusHandler(currentStatus)
+}
+```
+
+- [ ] **Step 5: 在 `start/stop/error/probe` 关键点替换旧字符串回调**
+
+```swift
+publishStatus(listeningState: .listening, lastError: nil)
+publishStatus(listeningState: .stopped, connectionState: .disconnected)
+publishStatus(listeningState: .ipcError, lastError: "ipc_listener_start_failed")
+publishStatus(listeningState: .inputError, lastError: "touch_backend_start_failed")
+```
+
+- [ ] **Step 6: 再跑测试确认转绿**
+
+Run: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filter RuntimeLifecycleTests`
+
+Expected: PASS
+
+- [ ] **Step 7: 提交**
+
+```bash
+git add apps/macos/GestureKitApp/Sources/GestureKitApp/AppRuntimeStatus.swift \
+  apps/macos/GestureKitApp/Sources/GestureKitApp/Runtime.swift \
+  Tests/GestureKitAppTests/RuntimeLifecycleTests.swift
+git commit -m "feat: add structured app runtime status"
+```
+
+### Task 2: 菜单栏控制器与职责收口
+
+**Files:**
+- Create: `apps/macos/GestureKitApp/Sources/GestureKitApp/MenuBarController.swift`
+- Create: `apps/macos/GestureKitApp/Sources/GestureKitApp/RuntimeControl.swift`
+- Modify: `apps/macos/GestureKitApp/Sources/GestureKitApp/AppDelegate.swift`
+- Create: `Tests/GestureKitAppTests/MenuBarControllerTests.swift`
+
+**Interfaces:**
+- Produces:
+
+```swift
+protocol RuntimeControlling: AnyObject {
+    func startListening()
+    func stopListening()
+    func refreshStatus()
+    func quitApplication()
+}
+```
+
+- Produces:
+
+```swift
+@MainActor
+final class MenuBarController {
+    init(control: RuntimeControlling)
+    func apply(status: AppRuntimeStatus)
+}
+```
+
+- Menu items:
+
+```swift
+"状态：启动中"
+"监听：运行中 / 已停止 / 输入错误 / IPC 错误"
+"连接：未连接 / 已连接(1) / 未知"
+"最近错误：..."
+"刷新状态"
+"启动监听"
+"停止监听"
+"打开日志目录"
+"打开安装说明"
+"打开排障文档"
+"退出"
+```
+
+- [ ] **Step 1: 写失败测试，约束菜单文本**
+
+```swift
+func testMenuBarControllerRendersListeningAndConnectionStatus() {
+    let control = SpyRuntimeControl()
+    let controller = MenuBarController(control: control)
+
+    controller.apply(status: AppRuntimeStatus(
+        listeningState: .listening,
+        connectionState: .connected(clientCount: 1),
+        lastGesture: nil,
+        lastError: nil,
+        logFilePathHint: "/tmp/gesturekit.log"
+    ))
+
+    XCTAssertEqual(controller.statusTitlesForTesting(), [
+        "监听：运行中",
+        "连接：已连接(1)"
+    ])
+}
+```
+
+- [ ] **Step 2: 跑测试确认先红**
+
+Run: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filter MenuBarControllerTests`
+
+Expected: FAIL，提示 `MenuBarController` 不存在
+
+- [ ] **Step 3: 新建菜单栏控制器与控制协议**
+
+```swift
+protocol RuntimeControlling: AnyObject {
+    func startListening()
+    func stopListening()
+    func refreshStatus()
+    func quitApplication()
+}
+```
+
+- [ ] **Step 4: 在控制器内集中管理菜单项**
+
+```swift
+final class MenuBarController {
+    private let item: NSStatusItem
+    private let menu: NSMenu
+    private let listeningItem = NSMenuItem(...)
+    private let connectionItem = NSMenuItem(...)
+    private let errorItem = NSMenuItem(...)
+    ...
+}
+```
+
+- [ ] **Step 5: 用 `RuntimeControl` 和 `MenuBarController` 重写 `AppDelegate`**
+
+```swift
+final class AppDelegate: NSObject, NSApplicationDelegate {
+    private var runtime: GestureKitRuntime?
+    private var control: RuntimeControl?
+    private var menuBar: MenuBarController?
+}
+```
+
+- [ ] **Step 6: 跑测试确认菜单状态和动作都通过**
+
+Run: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filter MenuBarControllerTests`
+
+Expected: PASS
+
+- [ ] **Step 7: 提交**
+
+```bash
+git add apps/macos/GestureKitApp/Sources/GestureKitApp/MenuBarController.swift \
+  apps/macos/GestureKitApp/Sources/GestureKitApp/RuntimeControl.swift \
+  apps/macos/GestureKitApp/Sources/GestureKitApp/AppDelegate.swift \
+  Tests/GestureKitAppTests/MenuBarControllerTests.swift
+git commit -m "feat: add menu bar controller for runtime lifecycle"
+```
+
+### Task 3: 连接状态与显式刷新入口
+
+**Files:**
+- Modify: `apps/macos/GestureKitApp/Sources/GestureKitApp/Runtime.swift`
+- Modify: `apps/macos/GestureKitApp/Sources/GestureKitApp/LocalEventServer.swift`
+- Modify: `Tests/GestureKitAppTests/RuntimeProbeTests.swift`
+- Modify: `Tests/GestureKitAppTests/RuntimeLifecycleTests.swift`
+
+**Interfaces:**
+- Produces:
+
+```swift
+final class LocalEventServer {
+    var onConnectionCountChanged: ((Int) -> Void)?
+}
+```
+
+- Produces:
+
+```swift
+@MainActor
+final class GestureKitRuntime {
+    func refreshStatus()
+}
+```
+
+- [ ] **Step 1: 写失败测试，约束连接计数状态**
+
+```swift
+func testRefreshStatusPublishesDisconnectedWhenNoClientsConnected() {
+    var statuses: [AppRuntimeStatus] = []
+    let runtime = GestureKitRuntime(
+        statusHandler: { statuses.append($0) },
+        touchBackend: StubTouchBackend(),
+        settingsStore: StubSettingsStore(),
+        logger: GestureKitLogger(terminalWriter: { _ in })
+    )
+
+    runtime.refreshStatus()
+
+    XCTAssertEqual(statuses.last?.connectionState, .disconnected)
+}
+```
+
+- [ ] **Step 2: 跑测试确认先红**
+
+Run: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filter RuntimeProbeTests --filter RuntimeLifecycleTests`
+
+Expected: FAIL，提示 `refreshStatus` / 连接状态断言不成立
+
+- [ ] **Step 3: 让 `LocalEventServer` 报告连接数变化**
+
+```swift
+var onConnectionCountChanged: ((Int) -> Void)?
+
+private func notifyConnectionCountChanged() {
+    onConnectionCountChanged?(connections.count)
+}
+```
+
+- [ ] **Step 4: Runtime 订阅连接数并刷新结构化状态**
+
+```swift
+server.onConnectionCountChanged = { [weak self] count in
+    Task { @MainActor [weak self] in
+        self?.publishStatus(connectionState: count > 0 ? .connected(clientCount: count) : .disconnected)
+    }
+}
+```
+
+- [ ] **Step 5: 增加显式 `refreshStatus()`**
+
+```swift
+func refreshStatus() {
+    let connectionCount = eventServer?.connectionCount ?? 0
+    publishStatus(connectionState: connectionCount > 0 ? .connected(clientCount: connectionCount) : .disconnected)
+}
+```
+
+- [ ] **Step 6: 再跑测试确认转绿**
+
+Run: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filter RuntimeProbeTests --filter RuntimeLifecycleTests`
+
+Expected: PASS
+
+- [ ] **Step 7: 提交**
+
+```bash
+git add apps/macos/GestureKitApp/Sources/GestureKitApp/Runtime.swift \
+  apps/macos/GestureKitApp/Sources/GestureKitApp/LocalEventServer.swift \
+  Tests/GestureKitAppTests/RuntimeProbeTests.swift \
+  Tests/GestureKitAppTests/RuntimeLifecycleTests.swift
+git commit -m "feat: surface connection state in menu bar runtime"
+```
+
+### Task 4: 日志与排障入口
+
+**Files:**
+- Modify: `apps/macos/GestureKitApp/Sources/GestureKitApp/MenuBarController.swift`
+- Modify: `apps/macos/GestureKitApp/Sources/GestureKitApp/AppDelegate.swift`
+- Modify: `Tests/GestureKitAppTests/MenuBarControllerTests.swift`
+- Modify: `docs/operations/gesturekit-v1-e2e-checklist.md`
+- Modify: `docs/operations/gesturekit-v1-troubleshooting.md`
+
+**Interfaces:**
+- Produces menu actions:
+
+```swift
+func openLogDirectory()
+func openInstallGuide()
+func openTroubleshootingGuide()
+```
+
+- Local docs paths:
+
+```text
+docs/operations/gesturekit-v1-local-install.md
+docs/operations/gesturekit-v1-troubleshooting.md
+```
+
+- [ ] **Step 1: 写失败测试，约束菜单动作分发**
+
+```swift
+func testMenuBarControllerInvokesRefreshAndOpenActions() {
+    let control = SpyRuntimeControl()
+    let controller = MenuBarController(control: control)
+
+    controller.triggerRefreshForTesting()
+    controller.triggerOpenTroubleshootingForTesting()
+
+    XCTAssertEqual(control.refreshCount, 1)
+    XCTAssertEqual(control.openTroubleshootingCount, 1)
+}
+```
+
+- [ ] **Step 2: 跑测试确认先红**
+
+Run: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filter MenuBarControllerTests`
+
+Expected: FAIL，提示新动作不存在
+
+- [ ] **Step 3: 在控制协议和菜单中加入口**
+
+```swift
+protocol RuntimeControlling: AnyObject {
+    ...
+    func openLogDirectory()
+    func openInstallGuide()
+    func openTroubleshootingGuide()
+}
+```
+
+- [ ] **Step 4: 用 `NSWorkspace.shared.open` 打开本地文件或目录**
+
+```swift
+func openTroubleshootingGuide() {
+    let url = repoRoot.appendingPathComponent("docs/operations/gesturekit-v1-troubleshooting.md")
+    NSWorkspace.shared.open(url)
+}
+```
+
+- [ ] **Step 5: 更新中文文档**
+
+```md
+1. 打开菜单栏，确认存在“刷新状态 / 打开日志目录 / 打开安装说明 / 打开排障文档”。
+2. 点击“刷新状态”，确认菜单中的连接文案刷新。
+3. 点击文档入口，确认能打开仓库对应文档。
+```
+
+- [ ] **Step 6: 运行测试与文档回归**
+
+Run: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filter MenuBarControllerTests`
+
+Expected: PASS
+
+- [ ] **Step 7: 提交**
+
+```bash
+git add apps/macos/GestureKitApp/Sources/GestureKitApp/MenuBarController.swift \
+  apps/macos/GestureKitApp/Sources/GestureKitApp/AppDelegate.swift \
+  Tests/GestureKitAppTests/MenuBarControllerTests.swift \
+  docs/operations/gesturekit-v1-e2e-checklist.md \
+  docs/operations/gesturekit-v1-troubleshooting.md
+git commit -m "feat: add menu bar troubleshooting actions"
+```
+
+### Task 5: 生命周期菜单项与最终收口
+
+**Files:**
+- Modify: `apps/macos/GestureKitApp/Sources/GestureKitApp/MenuBarController.swift`
+- Modify: `apps/macos/GestureKitApp/Sources/GestureKitApp/RuntimeControl.swift`
+- Modify: `apps/macos/GestureKitApp/Sources/GestureKitApp/Runtime.swift`
+- Modify: `Tests/GestureKitAppTests/MenuBarControllerTests.swift`
+- Modify: `Tests/GestureKitAppTests/RuntimeLifecycleTests.swift`
+- Modify: `docs/plans/gesturekit-v1-progress-archive.md`
+
+**Interfaces:**
+- Produces lifecycle actions:
+
+```swift
+func startListening()
+func stopListening()
+func refreshStatus()
+```
+
+- Behavior rules:
+
+```text
+- 菜单栏可以停止/启动监听，但不管理 native host 安装与 Chrome 扩展设置。
+- 停止监听后状态必须变成“监听：已停止”，连接状态降为“未连接/未知”。
+- 再次启动监听后状态必须恢复为“监听：运行中”。
+```
+
+- [ ] **Step 1: 写失败测试，约束启停菜单动作**
+
+```swift
+func testMenuBarControllerDispatchesStartAndStopActions() {
+    let control = SpyRuntimeControl()
+    let controller = MenuBarController(control: control)
+
+    controller.triggerStopForTesting()
+    controller.triggerStartForTesting()
+
+    XCTAssertEqual(control.stopCount, 1)
+    XCTAssertEqual(control.startCount, 1)
+}
+```
+
+- [ ] **Step 2: 跑测试确认先红**
+
+Run: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test --filter MenuBarControllerTests --filter RuntimeLifecycleTests`
+
+Expected: FAIL，提示生命周期动作不存在或状态未更新
+
+- [ ] **Step 3: 在 `RuntimeControl` 中实现启停**
+
+```swift
+final class RuntimeControl: RuntimeControlling {
+    private weak var runtime: GestureKitRuntime?
+
+    func startListening() { runtime?.start() }
+    func stopListening() { runtime?.stop() }
+    func refreshStatus() { runtime?.refreshStatus() }
+}
+```
+
+- [ ] **Step 4: 让 `Runtime.start()` / `stop()` 幂等**
+
+```swift
+func start() {
+    guard listeningTask == nil else {
+        refreshStatus()
+        return
+    }
+    ...
+}
+
+func stop() {
+    guard listeningTask != nil || eventServer != nil else {
+        publishStatus(listeningState: .stopped, connectionState: .disconnected)
+        return
+    }
+    ...
+}
+```
+
+- [ ] **Step 5: 跑 Swift 全量验证**
+
+Run: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test`
+
+Expected: 全部 `passed`
+
+Run: `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift build`
+
+Expected: `Build complete`
+
+- [ ] **Step 6: 跑扩展回归与格式检查**
+
+Run: `cd extensions/chrome && npm test`
+
+Expected: 所有 Vitest 通过
+
+Run: `cd extensions/chrome && npm run build`
+
+Expected: 构建成功
+
+Run: `git diff --check`
+
+Expected: 无输出
+
+- [ ] **Step 7: 归档并提交**
+
+```bash
+git add apps/macos/GestureKitApp/Sources/GestureKitApp/MenuBarController.swift \
+  apps/macos/GestureKitApp/Sources/GestureKitApp/RuntimeControl.swift \
+  apps/macos/GestureKitApp/Sources/GestureKitApp/Runtime.swift \
+  Tests/GestureKitAppTests/MenuBarControllerTests.swift \
+  Tests/GestureKitAppTests/RuntimeLifecycleTests.swift \
+  docs/plans/gesturekit-v1-progress-archive.md
+git commit -m "feat: harden menu bar lifecycle controls"
+```
+
+## 自检
+
+- 已严格按职责边界拆分：菜单栏只做运行与生命周期，不接管 popup 的设置、推荐、诊断明细。
+- 路线图中的 `P5` 核心要求均有对应任务：状态文案、排障入口、启停控制、边界保持、为后续自启动/打包留结构。
+- 没有扩大到规则编辑器、多浏览器、新动作、打包签名全链路。
+- 计划中新增的类型名和接口名保持一致：`AppRuntimeStatus`、`MenuBarController`、`RuntimeControl`、`RuntimeControlling`。
