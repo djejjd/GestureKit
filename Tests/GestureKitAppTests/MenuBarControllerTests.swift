@@ -101,6 +101,17 @@ final class MenuBarControllerTests: XCTestCase {
         XCTAssertFalse(titles.contains { $0.hasPrefix("最近错误：") })
     }
 
+    func testMenuBarControllerInvokesRefreshAndOpenActions() {
+        let control = SpyRuntimeControl()
+        let controller = MenuBarController(control: control)
+
+        controller.triggerRefreshForTesting()
+        controller.triggerOpenTroubleshootingForTesting()
+
+        XCTAssertEqual(control.refreshCount, 1)
+        XCTAssertEqual(control.openTroubleshootingCount, 1)
+    }
+
     func testMenuBarControllerShowsLastGestureWhenPresent() {
         let control = SpyRuntimeControl()
         let controller = MenuBarController(control: control)
@@ -123,12 +134,15 @@ final class SpyRuntimeControl: RuntimeControlling {
     var refreshCount = 0
     var startCount = 0
     var stopCount = 0
+    var openLogCount = 0
+    var openInstallCount = 0
+    var openTroubleshootingCount = 0
 
     func startListening() { startCount += 1 }
     func stopListening() { stopCount += 1 }
     func refreshStatus() { refreshCount += 1 }
     func quitApplication() {}
-    func openLogDirectory() {}
-    func openInstallGuide() {}
-    func openTroubleshootingGuide() {}
+    func openLogDirectory() { openLogCount += 1 }
+    func openInstallGuide() { openInstallCount += 1 }
+    func openTroubleshootingGuide() { openTroubleshootingCount += 1 }
 }
