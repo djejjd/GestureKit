@@ -24,7 +24,7 @@ type Dependencies = {
 const DOUBLE_TAP_WINDOW_MS = 300;
 
 export function createNativePortManager(deps: Dependencies) {
-  let pendingTap: { id: string; timer: ReturnType<typeof setTimeout>; startedAt: number; zone: TapZone } | null = null;
+  let pendingTap: { id: string; timer: ReturnType<typeof setTimeout>; startedAt: number; zone: TapZone; pendingAction: string } | null = null;
   let cooldownUntil = 0;
 
   async function currentSettings() {
@@ -45,7 +45,7 @@ export function createNativePortManager(deps: Dependencies) {
     if (pendingTap) {
       clearTimeout(pendingTap.timer);
       if (reason) {
-        postActionResult(actionResult(pendingTap.id, "open_link_background", "gesture_unstable", { reason }));
+        postActionResult(actionResult(pendingTap.id, pendingTap.pendingAction, "gesture_unstable", { reason }));
       }
       pendingTap = null;
     }
@@ -63,6 +63,7 @@ export function createNativePortManager(deps: Dependencies) {
       id,
       startedAt: Date.now(),
       zone,
+      pendingAction: intent ? intent.action : "open_link_background",
       timer: setTimeout(() => {
         pendingTap = null;
         if (intent) {
