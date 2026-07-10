@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="utf-8">
+    <title>GestureKit Page Guard Timing Spike</title>
+    <style>
+      body { font: 16px -apple-system, sans-serif; margin: 40px; }
+      #draggable { border: 1px solid #999; width: 180px; }
+      #events { max-height: 280px; overflow: auto; white-space: pre-wrap; }
+    </style>
+  </head>
+  <body>
+    <p><a id="target-link" href="https://example.com/">标准链接</a></p>
+    <p id="selectable">这段文字用于验证三指操作不会触发文本选中。</p>
+    <img id="draggable" draggable="true" alt="可拖动测试图片" src="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='80'%3E%3Crect width='100%25' height='100%25' fill='%23ddd'/%3E%3Ctext x='20' y='45'%3Edrag target%3C/text%3E%3C/svg%3E">
+    <pre id="events"></pre>
+    <script>
+      const events = document.getElementById("events");
+
+      // 统一使用 performance.now，便于与 content script 的页面侧时间线对齐。
+      for (const type of ["click", "selectstart", "dragstart"]) {
+        window.addEventListener(type, (event) => {
+          events.textContent += `${performance.now().toFixed(3)} ${type} target=${event.target.id || event.target.tagName}\n`;
+        }, { capture: true });
+      }
+    </script>
+  </body>
+</html>
