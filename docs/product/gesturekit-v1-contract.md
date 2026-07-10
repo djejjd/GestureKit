@@ -150,7 +150,7 @@ V1 只有在以下条件满足时才能判定完成：
 ### 8.2 架构验收
 
 - 存在独立 native host shim 或等价边界，且 Chrome 侧使用 `connectNative()`。
-- 存在明确 Provider Protocol v2 schema，至少包含 `protocolVersion`、`messageId`、`providerSessionId`、`gestureSessionId`、`operationId`、`type`、`timestamp`、`payload`、`error`；阶段事件另含 `eventId`、`producerSessionId`、`producerSequence` 和 `causedByEventId`。旧 `GestureKitMessage version: 1` 只能存在于 Chrome adapter 迁移边界。
+- 存在明确 Provider Protocol v2 schema，至少包含 `protocolVersion`、`messageId`、`providerSessionId`、`gestureSessionId`、`operationId`、`type`、`timestamp`、`payload`、`error`；阶段事件另含 `eventId`、`producerSessionId`、`producerSequence` 和 `causedByEventId`。协议必须以 `type` 判别 payload，拒绝类型-载荷不匹配、缺失必填键和非法 timestamp；`action_result` 必须携带显式成功、失败或结果未知 outcome。旧 `GestureKitMessage version: 1` 只能存在于 Chrome adapter 迁移边界。
 - 存在 `TouchBackend` 抽象。
 - 存在 `RuleEngine`，全部 V1 动作通过规则匹配触发。
 - 存在 Chrome Provider action executor 或等价浏览器执行边界。
@@ -166,6 +166,9 @@ V1 只有在以下条件满足时才能判定完成：
 
 - RuleEngine 匹配和优先级有单元测试。
 - MessageCodec 或协议 schema 有编解码测试。
+- Swift 与 TypeScript 均有协议负向测试，覆盖 type-payload 不匹配、缺失 `error`、非法 timestamp、缺失 `operationId` 和非法动作终态。
+- Journal 有去重冲突、迁移升级/未来版本拒绝、超时恢复终态事件和三种 `action_result` outcome 测试。
+- 证据包测试证明真实导出文件不含 query、hash、邮箱、token、原始 `targetRef` 或 Provider 自由文本，并验证 `0700` 导出目录与 `0600` 文件权限。
 - Provider v2 的认证、上下文、动作、幂等对账和 telemetry ACK 有契约测试。
 - `ledger.accepted + action_accepted event` 和 `ledger.final + action_result event` 分别有同一事务的故障注入测试。
 - URL scheme 过滤有测试。

@@ -77,7 +77,7 @@ P3 配置与界面迁移
   └─ Task 11: 端到端验收、legacy 清理和发布关口（依赖全部实现任务及 Spike 闸门）
 ```
 
-实际执行顺序固定为：`Task 1/2/2A 并行 → Task 3 → Task 4/5 并行 → Task 6/7 并行 → Task 8 → Task 9 → Task 10 → Task 11`。Task 1 或 Task 2 未经主审核代理确认时，只能继续做不依赖其结论的测试夹具，不能进入生产迁移；Task 2A 为可选能力，未通过不阻塞基础方案，但必须保留 `NoopShield`。
+实际执行顺序固定为：`Task 1/2/2A 并行 → Task 3 契约闭环门 → Task 4 → Task 4 审核闭环门 → Task 5 → Task 6/7 并行 → Task 8 → Task 9 → Task 10 → Task 11`。Task 1 或 Task 2 未经主审核代理确认时，只能继续做不依赖其结论的测试夹具，不能进入生产迁移；Task 2A 为可选能力，未通过不阻塞基础方案，但必须保留 `NoopShield`。Task 3 未通过跨语言载荷判别门时，Task 4/5 均不得开始；Task 4 未通过导出脱敏、迁移和幂等审核门时，Task 5 不得消费其模型或存储。
 
 ## 文件结构
 
@@ -368,6 +368,12 @@ browser.page.reload
 
 `context_snapshot` 必须只带 `contextId`、页面身份、过期时间、标准 target facts 和不透明 `targetRef`。
 
+实现必须遵守架构文档 3.4.1 的完整 type-payload 判别表。`ProviderPayload` 不得通过“尝试依次解码已知结构”的方式猜测类型；必须由 `type` 驱动解码并拒绝不匹配载荷。`action_result` 必须有显式 `succeeded`/`failed`/`result_unknown` outcome，不能只用消息类型表示成功。
+
+- [ ] **Step 3A: 补齐协议负向与跨语言一致性测试**
+
+Swift 与 TypeScript 都必须覆盖：缺少 `error` 键、空 ID、负数/小数/NaN timestamp、未知 type、type-payload 不匹配、`action_request` 缺少 operationId、`action_result` 缺少或非法 outcome。每个样例必须在两端一致拒绝；同时增加所有 17 个消息类型的合法 fixture/round-trip 覆盖，不能以未实现的 payload 占位。
+
 - [ ] **Step 4: 运行跨语言 fixture 测试**
 
 Run: `swift test --filter ProviderProtocolV2Tests`
@@ -394,6 +400,7 @@ git commit -m "feat: add provider protocol v2 models"
 - Create: `apps/macos/GestureKitApp/Sources/GestureKitApp/EvidenceBundleExporter.swift`
 - Test: `Tests/GestureKitAppTests/OperationJournalTests.swift`
 - Test: `Tests/GestureKitAppTests/DiagnosticRedactorTests.swift`
+- Test: `Tests/GestureKitAppTests/EvidenceBundleExporterTests.swift`
 
 **接口：**
 
@@ -428,6 +435,8 @@ func testRecoveryMarksExpiredAcceptedOperationUnknown() throws {
 }
 ```
 
+还必须先写以下失败测试：`action_result` 的三种 outcome 分别归并为成功、失败、结果未知；同一 `eventId` 携带不同 operationId 时不得创建第二个 operation；恢复超时操作后必须存在带原因的终态事件；当前版本打开、旧版本升级、未来版本拒绝；producer sequence 缺口按 producer session 独立计算。
+
 - [ ] **Step 2: 写脱敏失败测试**
 
 ```swift
@@ -447,7 +456,9 @@ App 的 Journal 主库、WAL、SHM 和结构化日志总额超过 45 MB 时，�
 
 - [ ] **Step 4: 实现双重脱敏和证据包**
 
-Provider 输入只接受 host、路径 segment、tag/role 和枚举 failure reason。`DiagnosticRedactor` 必须再次拒绝 `message`、`details`、query、hash、DOM id/class/text。导出 manifest 必须包含 schema/redaction 版本、ID 因果关系、配置 hash、能力版本、时间基准、终态和缺失范围；导出文件权限为 `0600`。
+Provider 输入只接受 host、路径 segment、tag/role 和枚举 failure reason。`DiagnosticRedactor` 必须再次拒绝 `message`、`details`、query、hash、DOM id/class/text。无法解析、无 host 或不允许 scheme 的 URL 必须输出枚举化不可用原因，禁止回退保存原始输入。导出 manifest 必须包含 schema/redaction 版本、ID 因果关系、配置 hash、能力版本、时间基准、终态和缺失范围；导出器必须在实际写入 events、manifest、README 前应用脱敏，并仅在真实应用后标记 `redactionApplied`。导出目录每次均强制 `0700`，导出文件为 `0600`。
+
+`EvidenceBundleExporterTests` 必须使用含 query、hash、邮箱、token 和 `targetRef` 的 fixture，断言这些原文不出现在 `events.json`、`manifest.json` 或 `README.txt`；同时断言目录/文件权限、已存在目录权限修正和 `redactionApplied` 与实际输出一致。
 
 - [ ] **Step 5: 运行任务测试和 Swift 全量测试**
 

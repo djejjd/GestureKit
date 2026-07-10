@@ -159,6 +159,34 @@ Provider 使用与具体浏览器无关的双向 v2 协议。旧 `GestureKitMess
 - 现有 Chrome V1 消息只在 Chrome Provider adapter 内转换为 v2；adapter 负责保存 `id -> messageId / gestureSessionId / operationId` 映射，迁移完成后删除旧协议入口。
 - `context_snapshot` 只提供规则需要的标准事实和不透明 `targetRef`，不得让 Provider 根据用户绑定自行替换动作。
 
+#### 3.4.1 载荷判别与拒绝规则
+
+`type` 与 `payload` 共同构成封闭的判别联合，不能把任意已知载荷与任意已知消息类型组合。JSON Schema、Swift 解码器和 TypeScript 解码器必须使用同一张映射表：
+
+| `type` | 唯一允许的 `payload` | 额外约束 |
+| --- | --- | --- |
+| `provider_hello` | `ProviderHelloPayload` | 声明协议和运行环境 |
+| `provider_challenge` | `ProviderChallengePayload` | 仅认证握手阶段可用 |
+| `provider_authenticate` | `ProviderAuthenticatePayload` | 仅认证握手阶段可用 |
+| `capability_snapshot` | `CapabilitySnapshotPayload` | 能力和版本均为白名单 |
+| `context_request` | `ContextRequestPayload` | 必须关联有效手势会话 |
+| `context_snapshot` | `ContextSnapshotPayload` | 只含白名单页面事实 |
+| `configuration_snapshot` | `ConfigurationSnapshotPayload` | 必须包含配置版本 |
+| `configuration_ack` | `ConfigurationAckPayload` | 必须回显已应用版本 |
+| `action_request` | `ActionDescriptor` | 非空 `operationId`、有效 `contextId` 和 deadline |
+| `action_accepted` | `ActionAcceptedPayload` | 非空 `operationId` |
+| `action_result` | `ActionResultPayload` | 非空 `operationId`、显式 outcome、原因枚举和完成时间 |
+| `telemetry_batch` | `TelemetryBatchPayload` | 每条事件均可独立校验 |
+| `telemetry_ack` | `TelemetryAckPayload` | 仅确认已持久化的 event ID |
+| `health_probe` | `HealthProbePayload` | 无动作副作用 |
+| `health_response` | `HealthResponsePayload` | 关联 probe |
+| `operation_status_request` | `OperationStatusRequestPayload` | 非空 `operationId` |
+| `operation_status_response` | `OperationStatusResponsePayload` | 非空 `operationId` 和显式终态 |
+
+`ActionResultPayload.outcome` 只能是 `succeeded`、`failed` 或 `result_unknown`。Journal 只能依据该字段或自身明确的超时恢复规则写终态，不得仅凭 `action_result` 消息类型推断成功。
+
+所有边界解码必须 fail-closed：缺少 envelope 的 `error` 键（其值可以是 `null`）、空 `messageId`/`providerSessionId`、非有限或非整数/负数 timestamp、未知 `type`、type-payload 不匹配、缺少动作 `operationId` 或载荷中的未声明字段，都必须拒绝并产生结构化拒绝原因，不得以宽松解码、默认动作或自由文本降级继续处理。
+
 配置迁移采用一次性 cutover：App 尚无迁移标记时，可以向旧 Chrome adapter 请求一份 legacy 设置快照，完成校验后与迁移标记、`storeEpoch`、`configurationVersion` 在同一持久化事务中保存。此后 popup 和旧协议禁止写用户配置，任何冲突都由 App 权威快照覆盖；Provider 只能报告“已应用”或结构化失败，不能反向覆盖 App。
 
 ## 4. 手势和动作扩展模型
@@ -275,6 +303,8 @@ candidate_started
 - 旧操作进入 `result_unknown` 后不得阻塞后续新手势。
 - 所有内部状态码只用于协议、数据库和证据包，不直接出现在普通界面。
 
+终态归并规则固定如下：`action_accepted` 只表示 pending；`action_result.outcome = succeeded`、`failed`、`result_unknown` 分别写入同名终态；超过 lease/deadline 且没有可靠最终结果时按最后可靠阶段写入 `operation_interrupted` 或 `result_unknown`。恢复过程必须追加一条带原因枚举的终态阶段事件，以保证导出的证据链能解释终态来源。
+
 ## 6. OperationJournal 与证据包
 
 ### 6.1 持久化
@@ -286,6 +316,8 @@ App 使用 SQLite WAL 模式保存追加式阶段事件。Schema 至少包含 se
 - session、operation 和输入 session 关系使用外键；组合手势保留全部输入关联。
 - 只接受声明过的状态迁移；乱序事件先保存为待归并事实，不覆盖已经确认的终态。
 - App 启动时扫描超过 lease/deadline 的未完成记录，按最后可靠阶段收敛为“操作中断”或“结果未知”，之后才允许进入清理。
+
+重复与迁移也属于持久化正确性边界：相同 `eventId` 或相同 `(producerSessionId, producerSequence)` 的同内容补交必须是严格 no-op，不得创建/更新 operation、时间戳或终态；同一去重键携带冲突因果关系时必须拒绝并记录 `duplicate_conflict`。数据库必须读取 `PRAGMA user_version`，在单一事务内逐版迁移；未知未来版本必须拒绝打开，不能重置或覆盖版本号。每个迁移版本、升级路径和未来版本拒绝都必须有测试。
 
 受管理诊断存储总预算为 50 MB：App 主库、WAL、SHM 和辅助结构化日志合计最多 45 MB，V1 Chrome Provider 的 outbox、operation ledger 和诊断缓存合计最多 5 MB。默认保留策略：
 
@@ -340,9 +372,9 @@ Outbox 规则：
 - URL query、hash 和连续原始触控流。
 - 未经用户明确启用的网络上传。
 
-脱敏必须执行两次：Provider 采集源只产生结构化白名单字段，App 入库前再次校验和脱敏。Provider 自由文本 `message/details` 不得直接持久化；无法映射的字段只记录字段名和拒绝原因。
+脱敏必须执行两次：Provider 采集源只产生结构化白名单字段，App 入库前再次校验和脱敏。Provider 自由文本 `message/details` 不得直接持久化；无法映射的字段只记录字段名和拒绝原因。不能解析、没有 host 或非允许 scheme 的页面输入必须 fail-closed，记录 `invalid_url`/`page_unavailable` 等枚举事实，绝不能原样保存输入字符串、query、hash 或编码后的敏感路径。`targetRef` 只允许在运行时短期使用，Journal、普通 UI 和证据包均不得输出可逆原值。
 
-单次操作可以导出版本化开发者证据包，包含阶段时间线、配置 hash/允许字段、环境版本、脱敏页面上下文以及 schema/redaction 版本。导出前再次脱敏并由用户确认，文件权限使用 `0600`；UI 必须说明导出副本不再受 7 天/50 MB 自动清理控制。证据包必须与普通 UI 分离。
+单次操作可以导出版本化开发者证据包，包含阶段时间线、配置 hash/允许字段、环境版本、脱敏页面上下文以及 schema/redaction 版本。导出前必须对实际写入的 events、manifest 和 README 再次执行脱敏；只有输出已走此路径才可将 `redactionApplied` 标为 true。测试必须断言敏感 fixture 不出现在任何导出文件。导出目录无论新建或已存在均强制为 `0700`，每个导出文件为 `0600`；UI 必须说明导出副本不再受 7 天/50 MB 自动清理控制。证据包必须与普通 UI 分离。
 
 证据包 manifest 至少包含：
 
@@ -351,7 +383,7 @@ Outbox 规则：
 - `gestureSessionId`、输入 session 列表、`operationId`、`eventId`、`causedByEventId`。
 - producer sequence、wall-clock、单调时钟值及各进程时间基准。
 - 配置 `storeEpoch/schemaVersion/configurationVersion/hash` 和执行时能力快照版本。
-- context/guard/action 的结构化阶段、终态、缺失事件范围及缺失原因。
+- context/guard/action 的结构化阶段、终态、缺失事件范围及缺失原因；缺失范围必须按 `producerSessionId` 独立计算。
 - 脱敏页面指纹和目标类型，不包含可逆 targetRef。
 
 ## 7. 可靠性和交互保护
