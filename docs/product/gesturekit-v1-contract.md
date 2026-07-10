@@ -2,12 +2,13 @@
 
 日期：2026-06-23
 
-更新日期：2026-07-07
+更新日期：2026-07-10
 
 相关文档：
 
 - `docs/product/gesturekit-v1-requirements.md`
 - `docs/architecture/gesturekit-v1-technical-design.md`
+- `docs/architecture/gesturekit-reliability-observability-platform-architecture.md`
 - `docs/plans/gesturekit-v1-predevelopment-plan.md`
 - `docs/research/trackpad-gesture-stability-matrix.md`
 - `docs/adr/0001-use-native-host-shim.md`
@@ -39,7 +40,7 @@
 
 ## 3. V1 交付范围
 
-V1 只交付三个用户可见功能：
+V1 交付以下用户可见行为：
 
 - 三指点按普通网页链接，在当前 Chrome 窗口的当前标签右侧打开并自动切换到新标签。
 - 三指点按空白处左/右边缘，切换当前 Chrome 窗口的左/右标签页。
@@ -68,22 +69,26 @@ V1 必须保留扩展空间，但不交付完整扩展能力。
 - JS click handler 导航识别。
 - tab group、pinned tab、split view 的特殊语义处理。
 
-如果开发或审核发现这些能力相关的问题，应记录为后续事项，除非它们阻断 V1 三个核心功能。
+V1 不实现其他浏览器或其他 App Provider，但 Core、手势定义、动作描述和 Provider 接口不得与 Chrome 强绑定。
+
+如果开发或审核发现这些能力相关的问题，应记录为后续事项，除非它们阻断 V1 核心功能。
 
 ## 5. 架构约束
 
 V1 实现必须遵守以下架构边界：
 
-- macOS App 负责触控板输入、手势识别、规则配置、规则匹配和本地事件源。
-- Chrome 扩展负责网页语义、链接识别和 Chrome tab 动作。
+- macOS App 负责触控板输入、手势原语识别、手势组合、规则配置、动作绑定、Provider 路由、本地事件源和持久化诊断。
+- Chrome 扩展是 V1 的首个 `ActionProvider`，负责网页语义、链接识别和 Chrome 动作，不得成为 Core 的固定依赖。
 - Chrome Native Messaging 的连接方向必须是扩展通过 `connectNative()` 连接 native host。
 - V1 使用独立 native host shim 桥接 Chrome stdio 协议和 GestureKit App 本地 IPC。
 - 触控板输入必须通过 `TouchBackend` 抽象，`MultitouchSupportBackend` 不得泄漏到业务规则层。
-- 规则配置的唯一 source of truth 是 macOS App 的 `SettingsStore`。
-- Chrome `chrome.storage.local` 可以保存扩展侧状态、缓存、诊断信息和不改变规则绑定的手感配置。
-- 扩展侧手感配置只允许调节阈值、冷却、开关和轻扫灵敏度，不允许把手势绑定到任意动作。
-- 轻扫灵敏度可以由扩展通过 Native Messaging host 同步到 GestureKit App，但只能影响手势识别阈值，不能改变规则 source of truth。
+- 用户配置的唯一 source of truth 是 macOS App 的 `SettingsStore`，包括规则、动作绑定、阈值、冷却、开关和轻扫灵敏度。
+- Chrome `chrome.storage.local` 或等价扩展存储只允许保存扩展侧状态、配置缓存和待补交诊断，不得成为用户配置或历史诊断主存储。
 - 规则匹配必须通过 `RuleEngine`，不得把核心三条动作硬编码在 UI、输入层或 Chrome 执行层。
+- 手势原语、手势组合、动作绑定和动作执行必须分层；已有原语的次数、方向、区域、时间窗口和动作含义应能通过配置变更。
+- 动作使用标准 `ActionDescriptor`，由 `ProviderRouter` 按能力选择 Provider；Core 不得引用 Chrome API 或 Chrome 专用动作枚举。
+- 每次三指候选从开始阶段建立统一关联 ID，成功、拒绝、中断和结果未知都必须写入 App `OperationJournal`。
+- App `OperationJournal` 是历史诊断的唯一可信源；扩展待补交队列必须在 App 确认持久化后才能删除。
 - V1 不把 native 屏幕坐标转换为 DOM 坐标作为链接识别主路径。
 - 三指点按链接识别主路径是 content script 记录最近网页 viewport pointer 坐标。
 
@@ -92,6 +97,9 @@ V1 实现必须遵守以下架构边界：
 V1 必须遵守：
 
 - 不上传浏览历史、页面内容、原始触控数据或规则配置。
+- 本地诊断允许记录页面域名、移除 query 和 hash 的路径、目标元素类型、脱敏目标地址和事件时序，用于事后定位。
+- 本地诊断不得记录 Cookie、表单值、键盘输入、网页正文或完整 DOM。
+- 结构化操作记录默认最长保留 7 天且数据库最多 50 MB，任一上限达到时清理最旧的已完成操作。
 - 不记录连续原始输入流，除非用户显式开启诊断模式。
 - Native message 只在本机扩展、native host 和 GestureKit App 之间传输。
 - 网页 DOM 命中结果视为不可信输入，URL 必须规范化和过滤。
@@ -104,7 +112,8 @@ V1 权限说明必须精确：
 
 - `MultitouchSupport.framework` 是私有 API，自用和开源实验可接受，不适合 Mac App Store。
 - Accessibility 只在读取 AX、模拟键鼠或控制 UI 时需要。
-- Input Monitoring 只在使用 `CGEventTap` 或公开全局输入监听时需要。
+- Input Monitoring 或 Accessibility 不得成为基础方案的隐式必需权限。原生 `InteractionShield` 必须先通过独立 Spike，明确主动过滤实际权限、误拦截和 fail-open 行为，再决定是否启用。
+- 原生 `InteractionShield` 不得注册键盘事件，不得持久化原始鼠标事件，并必须在 App 异常时最多 800ms 自动放行。
 - Automation 只在使用 AppleScript、ScriptingBridge 或 Apple Events 控制 Chrome 时需要。
 - Chrome `activeTab` 不作为主权限模型。
 - Chrome `<all_urls>` 如在 V1 使用，必须在文档中说明用途和后续收窄方向。
@@ -122,8 +131,9 @@ V1 只有在以下条件满足时才能判定完成：
 - 三指点按未命中链接且落在触控板中间区域时，单点不得执行标签页动作。
 - 三指双击空白处中间区域关闭当前标签页；双击窗口内第一下不得先触发切 tab。关闭 GestureKit 打开的新标签页后优先回到来源标签页，否则优先切到左侧标签页，最左侧再切到右侧标签页。
 - 异常短触、过长点按和动作后的短暂抖动不得执行标签页动作。
-- Chrome 扩展 popup 能切换安全/高效模式，并开关边缘点按、中间双击、快速轻扫，以及默认关闭的“防止链接原地跳转”实验兼容开关。
-- Chrome 扩展 popup 能切换稳健、标准、灵敏三档轻扫灵敏度，并显示最近一次同步到 GestureKit App 的状态。
+- macOS App 主窗口能切换手势方案、功能开关和轻扫灵敏度，并显示当前生效状态。
+- Chrome 扩展 popup 只显示当前页面支持状态、App 与 Provider 连接状态、当前方案和当前页面最近一次结果。
+- macOS App 主窗口能查询最近操作、查看面向用户的失败原因并导出开发者证据包。
 - 三指快速左轻扫能切到同一 Chrome 窗口右侧标签页。
 - 三指快速右轻扫能切到同一 Chrome 窗口左侧标签页。
 - 到达最左或最右标签页时在当前窗口内循环切换：最右左滑到第一个标签页，最左右滑到最后一个标签页。
@@ -136,8 +146,11 @@ V1 只有在以下条件满足时才能判定完成：
 - 存在明确 message schema，包含 `version`、`id`、`type`、`timestamp`、`payload`、`error`。
 - 存在 `TouchBackend` 抽象。
 - 存在 `RuleEngine`，三条 V1 动作通过规则匹配触发。
-- 存在 Chrome action executor 或等价浏览器执行边界。
+- 存在 Chrome Provider action executor 或等价浏览器执行边界。
 - 规则配置只有一个主存储源。
+- 存在标准 `ActionProvider`、能力声明和 `ProviderRouter` 边界，Chrome 是 V1 Provider 实现而不是 Core 依赖。
+- 存在 App `OperationJournal` 和扩展持久化 outbox，历史诊断不依赖 popup 或 Service Worker 生命周期。
+- 存在统一的诊断展示映射，普通界面不得直接显示内部状态码。
 
 ### 8.3 测试验收
 
@@ -147,7 +160,7 @@ V1 只有在以下条件满足时才能判定完成：
 - Chrome tab 左右切换边界有测试。
 - content script 普通链接识别有测试。
 - 至少完成一次手动端到端验证：三指点按链接、边缘三指点按切 tab、中间三指双击关闭 tab、三指快速左轻扫、三指快速右轻扫。
-- `docs/research/trackpad-gesture-stability-matrix.md` 的人工手势稳定性矩阵已完成，且结论没有阻断 V1 三个核心功能。
+- `docs/research/trackpad-gesture-stability-matrix.md` 的人工手势稳定性矩阵已完成，且结论没有阻断 V1 核心功能。
 
 ### 8.4 失败处理验收
 
@@ -157,6 +170,9 @@ V1 只有在以下条件满足时才能判定完成：
 - 当前页面不可注入时有可诊断状态。
 - 最近 pointer 位置过期时有可诊断状态。
 - 当前窗口或活动标签页不可用时有可诊断状态。
+- 未被识别为有效手势的三指候选也有可诊断状态。
+- 动作结果不确定时标记为结果未知，不自动重放，并且不阻塞后续操作。
+- App、native host 或 Provider 短暂断开后，尚未确认持久化的诊断可以补交。
 
 ## 9. 正式开发前关口
 
@@ -179,7 +195,7 @@ V1 只有在以下条件满足时才能判定完成：
 - 审核只判断变更是否满足本契约和已批准设计。
 - V1 非目标不得作为阻塞问题提出。
 - 发现 V1 非目标相关缺陷时，默认记录为 follow-up。
-- Critical 问题必须证明会破坏 V1 三个核心功能、安全边界、隐私边界或已批准架构。
+- Critical 问题必须证明会破坏 V1 核心功能、安全边界、隐私边界或已批准架构。
 - Important 问题应在当前阶段修复，除非用户明确接受为后续事项。
 - Minor 问题不得阻塞验收。
 - 如果审核意见要求扩大范围，必须先更新本契约并获得确认。
@@ -195,6 +211,7 @@ V1 只有在以下条件满足时才能判定完成：
 - 引入 AppleScript、shell command 或通用 App 自动化。
 - 把 native 屏幕坐标转换 DOM 坐标作为链接识别主路径。
 - 扩展支持到其他浏览器或其他 App。
+- 改变 `ActionProvider`、`ActionDescriptor`、手势组合或 `OperationJournal` 的公共契约。
 - 改变安全或隐私承诺。
 
 ## 12. 文档命名和目录规则
@@ -228,9 +245,9 @@ V1 只有在以下条件满足时才能判定完成：
 
 ## 13. 当前契约状态
 
-本契约是 V1 的初始约束。进入实现计划前，应先确认：
+本契约已于 2026-07-10 纳入可靠性、可观测性、通用 Provider 和可配置手势架构。进入实施前必须满足：
 
-- 本契约范围是否被用户接受。
-- V1 产品规格是否被用户接受。
-- V1 技术设计是否与本契约一致。
-- 实施计划是否能映射到本契约的验收标准。
+- 用户完成对书面架构规格的最终审阅。
+- V1 产品规格与本契约保持一致。
+- V1 技术设计与专题架构文档不存在未说明的冲突。
+- 分阶段实施计划能映射到本契约的验收标准。

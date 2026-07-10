@@ -6,11 +6,14 @@
 
 - `docs/product/gesturekit-v1-requirements.md`
 - `docs/product/gesturekit-v1-contract.md`
+- `docs/architecture/gesturekit-reliability-observability-platform-architecture.md`
 - `docs/plans/gesturekit-v1-predevelopment-plan.md`
 - `docs/research/trackpad-gesture-stability-matrix.md`
 - `docs/adr/0001-use-native-host-shim.md`
 - `docs/adr/0002-use-extension-last-pointer-position.md`
 - `docs/adr/0003-use-rules-engine-from-v1.md`
+
+> 2026-07-10 架构演进说明：可靠性证据链、App 主窗口、统一配置主存储、手势组合和通用 `ActionProvider` 边界以 `docs/architecture/gesturekit-reliability-observability-platform-architecture.md` 为准。本文保留 V1 Chrome 实现基线与既有通信、坐标和安全决策。
 
 ## 1. 背景和目标
 
@@ -340,16 +343,16 @@ V1 不允许规则使用任意正则。`urlPattern` 暂时只支持 `*` 和未�
 
 规则和全局设置的唯一 source of truth 是 GestureKit App 的 `SettingsStore`。
 
-Chrome `chrome.storage.local` 只保存：
+Chrome `chrome.storage.local` 或等价扩展持久化只保存：
 
 - 扩展侧连接状态。
-- 最近诊断信息。
-- 扩展侧手感配置：安全/高效模式、轻扫灵敏度、边缘区域宽度、双击速度、动作冷却、手势开关和默认关闭的链接原地跳转保护开关。
-- 最近一次轻扫灵敏度同步状态。
+- App 下发的只读配置缓存和版本。
+- 尚未被 App `OperationJournal` 确认持久化的诊断 outbox。
+- 最近一次配置应用状态。
 - content script 的局部缓存。
 - 必要的页面上下文缓存。
 
-V1 不允许 Chrome 扩展单独编辑规则或绑定任意动作，避免双写和同步冲突。扩展可以通过 `settings_update` 调节 GestureKit App 的轻扫识别阈值；该路径只影响手势稳定性，不影响规则匹配结果。
+V1 不允许 Chrome 扩展单独编辑规则、识别参数或动作绑定，避免双写和同步冲突。全部用户配置由 App `SettingsStore` 持有，并通过 Provider Protocol 的权威配置快照同步到扩展；现有 `settings_update` / `settings_ack` 在迁移期间只作为 adapter 内部兼容消息。
 
 ## 8. Chrome 动作语义
 
