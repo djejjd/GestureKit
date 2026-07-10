@@ -282,6 +282,8 @@ git commit -m "spike: measure page guard timing"
 
 该任务不是实现型 AI 的默认开发任务。实现型 AI 可以准备最小调用适配器和测试夹具，但真实权限申请、签名 App、事件 tap 生命周期和副作用矩阵由主审核代理执行。目标是判断三指滑动期间能否抑制文本选中、图片拖动等系统/网页默认行为，而不是承诺一定启用权限。
 
+当前 Spike 结论见 `docs/research/interaction-shield-spike.md`，状态为 `passed_with_notes`：短 lease 可抑制真实拖动并在结束后恢复输入，但尚未完成全部权限与跨窗口矩阵，因此不得接入默认生产路径。
+
 - 记录 `NoopShield` 基线，以及 `CGEventTapShield` 在 Input Monitoring/Accessibility 各权限组合下的启动、失效、恢复和退出行为。
 - 覆盖普通点击、文本选择、图片拖动、输入框、跨窗口切换和权限撤销；任何权限不可用、事件 tap 超时或行为不确定时必须回退 `NoopShield`，不得阻断普通输入。
 - 产物必须包括正式签名/打包 App、原始命令输出、权限提示截图/说明、事件计时和失败样本；结论只能是 `passed`、`passed_with_notes` 或 `failed`。

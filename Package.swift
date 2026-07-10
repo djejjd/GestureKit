@@ -13,7 +13,8 @@ let package = Package(
         .executable(name: "GestureKitHost", targets: ["GestureKitHost"]),
         .executable(name: "TrackpadInputProbe", targets: ["TrackpadInputProbe"]),
         .executable(name: "ProviderIPCProbe", targets: ["ProviderIPCProbe"]),
-        .executable(name: "CleanTCCProbe", targets: ["CleanTCCProbe"])
+        .executable(name: "CleanTCCProbe", targets: ["CleanTCCProbe"]),
+        .executable(name: "InteractionShieldProbe", targets: ["InteractionShieldProbe"])
     ],
     dependencies: [
         .package(url: "https://github.com/Kyome22/OpenMultiTouchSupport.git", branch: "main")
@@ -58,6 +59,10 @@ let package = Package(
         .executableTarget(
             name: "CleanTCCProbe",
             path: "spikes/clean-tcc/Sources/CleanTCCProbe"
+        ),
+        .executableTarget(
+            name: "InteractionShieldProbe",
+            path: "spikes/interaction-shield/Sources/InteractionShieldProbe"
         ),
         .testTarget(
             name: "GestureKitCoreTests",
