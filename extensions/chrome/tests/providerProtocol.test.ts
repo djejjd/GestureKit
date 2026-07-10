@@ -250,4 +250,24 @@ describe("Provider Protocol v2 — TypeScript", () => {
       decodeProviderEnvelope({ protocolVersion: 2, messageId: "m1" })
     ).toThrow();
   });
+
+  it("rejects missing error, undeclared payload fields, and invalid payload value types", () => {
+    const valid = loadFixture("provider-v2-action-request.json") as Record<string, unknown>;
+
+    const missingError = { ...valid };
+    delete missingError.error;
+    expect(() => decodeProviderEnvelope(missingError)).toThrow("error");
+
+    const extraPayload = {
+      ...valid,
+      payload: { ...(valid.payload as Record<string, unknown>), details: "raw page content" },
+    };
+    expect(() => decodeProviderEnvelope(extraPayload)).toThrow("未声明");
+
+    const invalidPayload = {
+      ...valid,
+      payload: { ...(valid.payload as Record<string, unknown>), deadline: "tomorrow" },
+    };
+    expect(() => decodeProviderEnvelope(invalidPayload)).toThrow("deadline");
+  });
 });

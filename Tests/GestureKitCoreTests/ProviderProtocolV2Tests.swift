@@ -192,6 +192,22 @@ final class ProviderProtocolV2Tests: XCTestCase {
         }
     }
 
+    /// 缺失 error 键不能被当作 null 宽松接受，避免绕过 envelope 契约。
+    func testRejectsEnvelopeMissingErrorKey() throws {
+        let json = """
+        {"protocolVersion":2,"messageId":"m","providerSessionId":"s","type":"action_request","timestamp":1,"operationId":"op","payload":{"actionId":"browser.page.reload","contextId":"ctx","parameters":{},"deadline":2}}
+        """
+        XCTAssertThrowsError(try JSONDecoder().decode(ProviderEnvelope.self, from: Data(json.utf8)))
+    }
+
+    /// payload 的未知字段必须拒绝，不能因 Codable 默认忽略而绕过白名单。
+    func testRejectsPayloadWithUndeclaredField() throws {
+        let json = """
+        {"protocolVersion":2,"messageId":"m","providerSessionId":"s","type":"action_request","timestamp":1,"operationId":"op","payload":{"actionId":"browser.page.reload","contextId":"ctx","parameters":{},"deadline":2,"details":"raw page content"},"error":null}
+        """
+        XCTAssertThrowsError(try JSONDecoder().decode(ProviderEnvelope.self, from: Data(json.utf8)))
+    }
+
     // MARK: - Context Snapshot 约束
 
     /// context_snapshot 只允许携带 contextId、页面身份、过期时间、
