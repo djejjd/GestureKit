@@ -11,14 +11,21 @@ let package = Package(
         .library(name: "GestureKitCore", targets: ["GestureKitCore"]),
         .executable(name: "GestureKitApp", targets: ["GestureKitApp"]),
         .executable(name: "GestureKitHost", targets: ["GestureKitHost"]),
-        .executable(name: "TrackpadInputProbe", targets: ["TrackpadInputProbe"])
+        .executable(name: "TrackpadInputProbe", targets: ["TrackpadInputProbe"]),
+        .executable(name: "ProviderIPCProbe", targets: ["ProviderIPCProbe"]),
+        .executable(name: "CleanTCCProbe", targets: ["CleanTCCProbe"])
     ],
     dependencies: [
         .package(url: "https://github.com/Kyome22/OpenMultiTouchSupport.git", branch: "main")
     ],
     targets: [
+        .systemLibrary(
+            name: "CSQLite",
+            path: "Sources/CSQLite"
+        ),
         .target(
             name: "GestureKitCore",
+            dependencies: ["CSQLite"],
             path: "Sources/GestureKitCore"
         ),
         .executableTarget(
@@ -42,6 +49,15 @@ let package = Package(
                 .product(name: "OpenMultitouchSupport", package: "OpenMultiTouchSupport")
             ],
             path: "spikes/trackpad-input/Sources/TrackpadInputProbe"
+        ),
+        .executableTarget(
+            name: "ProviderIPCProbe",
+            dependencies: ["GestureKitCore"],
+            path: "spikes/provider-ipc/Sources/ProviderIPCProbe"
+        ),
+        .executableTarget(
+            name: "CleanTCCProbe",
+            path: "spikes/clean-tcc/Sources/CleanTCCProbe"
         ),
         .testTarget(
             name: "GestureKitCoreTests",
