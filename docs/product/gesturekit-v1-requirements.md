@@ -2,10 +2,13 @@
 
 日期：2026-07-01
 
+更新日期：2026-07-10
+
 相关文档：
 
 - `docs/product/gesturekit-v1-contract.md`
 - `docs/architecture/gesturekit-v1-technical-design.md`
+- `docs/architecture/gesturekit-reliability-observability-platform-architecture.md`
 - `docs/plans/gesturekit-v1-predevelopment-plan.md`
 - `docs/research/trackpad-gesture-stability-matrix.md`
 
@@ -13,7 +16,7 @@
 
 本规格定义 GestureKit V1 对用户可见行为、边界条件和验收证据的要求。后续正式设计、实施计划、代码开发和审核都必须能映射到本规格。
 
-V1 的目标不是做通用自动化平台，而是先把 Chrome 中最高频的三个触控板手势动作做稳定：
+V1 的目标不是做通用自动化平台，而是先把 Chrome 中以下高频触控板行为做稳定：
 
 - 三指点按链接，打开到新标签页并自动切换过去。
 - 三指点按空白处左/右边缘，切换到相邻标签页。
@@ -74,8 +77,8 @@ V1 当前运行约束：
 
 必须不执行动作的情况：
 
-- 最近 pointer 坐标不存在或过期。
-- 当前页面不可注入。
+- 最近 pointer 坐标不存在或过期时不得执行链接动作；满足触控板区域规则时仍允许执行边缘 fallback。
+- 当前页面不可注入时不得执行链接动作；满足触控板区域规则时仍允许执行边缘 fallback。
 - URL scheme 不支持。
 - 前台 App 不是 Google Chrome Stable，或 bundle id 不是 `com.google.Chrome`。
 
@@ -86,7 +89,7 @@ V1 当前运行约束：
 - 前台 App 是 Google Chrome Stable，bundle id 为 `com.google.Chrome`。
 - 当前 Chrome 窗口存在活跃标签页。
 - 当前 Chrome 窗口至少存在一个标签页。
-- 手势必须是短促的水平轻扫，默认标准档建议时长约 60ms-420ms；慢速拖动不触发标签切换。用户可通过扩展 popup 在稳健、标准、灵敏三档之间切换。
+- 手势必须是短促的水平轻扫，默认标准档建议时长约 60ms-420ms；慢速拖动不触发标签切换。用户可通过 macOS App 在稳健、标准、灵敏三档之间切换。
 
 动作结果：
 
@@ -105,7 +108,7 @@ V1 当前运行约束：
 - 前台 App 是 Google Chrome Stable，bundle id 为 `com.google.Chrome`。
 - 当前 Chrome 窗口存在活跃标签页。
 - 当前 Chrome 窗口至少存在一个标签页。
-- 手势必须是短促的水平轻扫，默认标准档建议时长约 60ms-420ms；慢速拖动不触发标签切换。用户可通过扩展 popup 在稳健、标准、灵敏三档之间切换。
+- 手势必须是短促的水平轻扫，默认标准档建议时长约 60ms-420ms；慢速拖动不触发标签切换。用户可通过 macOS App 在稳健、标准、灵敏三档之间切换。
 
 动作结果：
 
@@ -117,23 +120,28 @@ V1 当前运行约束：
 
 - 当前窗口没有可用标签页时，返回 `page_unavailable` 或等价诊断状态。
 
-### 3.4 Chrome 扩展侧手感配置
+### 3.4 App 配置与 Chrome 当前页状态
 
-V1 允许 Chrome 扩展保存本地手感配置，用于调节扩展侧动作执行阈值。该配置不替代 macOS App 的规则 source of truth，不提供任意手势绑定。
+V1 的全部用户配置由 macOS App `SettingsStore` 保存。Chrome Provider 只缓存 App 下发的只读配置快照，不提供任意手势绑定，也不得反向覆盖 App。
 
 必须支持：
 
 - `安全模式`：默认模式，边缘区域更窄，双击关闭更严格，动作冷却更长。
 - `高效模式`：响应更快，边缘区域更宽，双击窗口更宽，动作冷却更短。
-- 开关：边缘点按切 tab、中间双击关闭 tab、快速轻扫切 tab、防止链接原地跳转。
+- 开关：边缘点按切 tab、中间双击关闭 tab、快速轻扫切 tab。
 - 参数：轻扫灵敏度、边缘区域宽度、双击速度、动作冷却。
-- 状态：Native host 连接状态、GestureKit App 连接状态、轻扫灵敏度同步状态、最近动作结果。
+- App 状态：监听状态、Chrome Provider 状态、配置应用状态、最近动作和历史诊断。
+- Popup 状态：当前页面是否支持、App 与 Chrome Provider 是否连接、当前方案和当前页面最近一次结果。
 
-配置必须保存在 Chrome extension 的 `chrome.storage.local`。修改后影响后续手势，不要求影响已经进入执行中的手势。轻扫灵敏度通过 `settings_update` 消息同步给 GestureKit App，App 应用后通过 `settings_ack` 回传状态。“防止链接原地跳转”默认关闭，开启后只保护普通 `http/https` 链接左键点击，避免三指点按链接时当前页抢先原地跳转。
+配置修改只影响后续手势，不影响已经进入执行中的手势。App 通过 Provider Protocol v2 下发带 `storeEpoch` 和 `configurationVersion` 的权威快照，Provider 只能确认应用成功或返回结构化失败。旧扩展配置最多导入 App 一次，之后 popup 不再写用户配置。
+
+页面交互保护不作为长期常开开关。它只允许由带 `gestureSessionId` 和 lease 的候选会话临时 armed；如果时序 Spike 不能证明在目标 DOM 事件前及时 armed，V1 必须明确降级，不能通过拦截所有普通点击规避。
+
+链接动作只有在页面 guard 已及时 armed 时才允许派发。Guard 时序 Spike 失败时可以继续开发其他能力，但三指点按链接不得作为 V1 已完成能力交付。正常连接下 context snapshot 硬上限为 120ms，链接和边缘单击从原语分类到动作请求硬上限为 150ms；中间双击仲裁窗口默认最多 300ms。
 
 ## 4. 规则雏形
 
-V1 内置三条规则，但必须通过 `RuleEngine` 匹配触发，不允许把手势和动作直接硬编码在输入层或 Chrome 执行层。
+V1 的全部动作必须通过唯一 `RuleEngine` 门面匹配触发，不允许把手势和动作直接硬编码在输入层或 Chrome Provider。Provider 通过 `context_snapshot` 提供页面事实，`RuleEngine` 返回标准 `ActionDescriptor`。
 
 V1 规则字段只要求覆盖：
 
@@ -141,18 +149,22 @@ V1 规则字段只要求覆盖：
 - `enabled`
 - `priority`
 - `scope.appBundleId`
-- `scope.browserKind`
-- `scope.elementType`
-- `gesture.type`
-- `action.type`
+- `scope.providerKind`
+- `scope.targetKind`
+- `gestureDefinitionId`
+- `actionId`
+- `actionParameters`
 
 V1 内置规则：
 
 | 规则 ID | 条件 | 动作 |
 | --- | --- | --- |
-| `chrome-open-link-background` | Chrome + link + `three_finger_tap` | `open_link_background` |
-| `chrome-activate-right-tab` | Chrome + any + `three_finger_swipe_left` | `activate_right_tab` |
-| `chrome-activate-left-tab` | Chrome + any + `three_finger_swipe_right` | `activate_left_tab` |
+| `browser-open-link-adjacent` | Browser Provider + standard link + three-finger tap | `browser.link.open_adjacent` |
+| `browser-edge-left-previous-tab` | Browser Provider + no link + left edge tap | `browser.tab.activate_previous` |
+| `browser-edge-right-next-tab` | Browser Provider + no link + right edge tap | `browser.tab.activate_next` |
+| `browser-center-double-tap-close` | Browser Provider + no link + center double tap | `browser.tab.close_current` |
+| `browser-swipe-left-next-tab` | Browser Provider + three-finger swipe left | `browser.tab.activate_next` |
+| `browser-swipe-right-previous-tab` | Browser Provider + three-finger swipe right | `browser.tab.activate_previous` |
 
 规则匹配必须满足：
 
@@ -180,7 +192,12 @@ V1 的失败必须可诊断，不允许静默失败。
 | `app_unavailable` | GestureKit App 未运行或本地 IPC 不可用。 |
 | `extension_unavailable` | Chrome extension 未安装、未连接或不可用。 |
 | `gesture_unstable` | 手势候选存在，但不满足稳定识别阈值。 |
-| `error` | 其他未分类错误，必须附带可读诊断信息。 |
+| `result_unknown` | Provider 已接受或可能执行动作，但系统无法确认最终结果；不得自动重放。 |
+| `operation_interrupted` | 操作在动作被接受前因 App 或连接中断而结束。 |
+| `provider_auth_failed` | Provider 安装身份或会话认证失败，不允许执行动作。 |
+| `provider_storage_full` | Provider 无法持久化动作账本或关键证据，必须在产生副作用前拒绝动作。 |
+| `telemetry_gap` | 诊断达到容量上限后压缩了低优先级记录，必须标明缺失范围。 |
+| `error` | 其他未分类错误，必须附带结构化原因；用户文案由 App 展示映射生成。 |
 
 状态命名在实现中可以按语言或模块局部调整，但协议、日志和验收文档必须能明确映射。
 
@@ -245,7 +262,7 @@ V1 不交付：
 - Mac App Store 分发。
 - 复杂 iframe、closed shadow DOM、JS click handler 导航识别。
 
-这些方向可以保留扩展空间，但不得作为 V1 阻塞验收项，除非它们破坏三个核心功能。
+这些方向可以保留扩展空间，但不得作为 V1 阻塞验收项，除非它们破坏 V1 核心功能。
 
 ## 8. 验收输出
 
@@ -255,4 +272,9 @@ V1 规格验收需要形成以下证据：
 - 单元测试覆盖规则匹配、协议编解码、URL 过滤、tab 边界、链接识别。
 - 至少一次手动端到端验证覆盖三指点按链接、三指快速左轻扫、三指快速右轻扫。
 - 失败场景至少覆盖无链接、当前窗口或活动标签页不可用、页面不可注入、native host 断开。
+- Page guard 时序 Spike 必须归档候选、IPC、Service Worker、content script 与 DOM 事件的单调时钟；只有 `passed` 才能验收三指点按链接。
+- Clean-TCC Spike 必须覆盖正式签名/打包、重置 TCC、两项权限关闭、首次启动、重启和权限撤销。
+- Operation ledger/outbox 故障矩阵必须覆盖断连 1/10/60 秒、4 个并发来源、100 events/s 持续 60 秒，以及 accepted/final 原子事务提交前后强杀。
+- 每个故障 fixture 必须给出预期终态、最后可靠阶段、副作用是否发生、缺失范围和禁止重放结论，并由证据包完整性校验器验证。
+- Provider 5 MB 预算必须通过 10,000 个去重 tombstone、24 小时离线峰值和 ACK 后回收测试。
 - 文档仍保持中文优先，英文只用于 API、命令、协议字段和必要外部术语。

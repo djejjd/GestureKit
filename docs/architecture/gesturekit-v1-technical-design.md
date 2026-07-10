@@ -138,9 +138,9 @@ Chrome 扩展负责网页语义和 Chrome tab 操作。
 - `Content Script`：记录网页内最近鼠标位置，执行链接命中识别。
 - `ChromeActionExecutor`：执行 `open_link_background`、`activate_left_tab`、`activate_right_tab`。
 
-## 5. Native Messaging 协议
+## 5. Legacy Native Messaging 协议
 
-V1 必须定义显式消息协议，避免 native 端和扩展端隐式耦合。
+本节记录当前 Chrome V1 实现的 legacy `GestureKitMessage version: 1`，用于迁移和兼容测试，不再是目标 Provider 公共协议。目标协议为 `docs/architecture/gesturekit-reliability-observability-platform-architecture.md` 定义的 Provider Protocol v2。
 
 通用消息结构：
 
@@ -170,7 +170,7 @@ V1 必须定义显式消息协议，避免 native 端和扩展端隐式耦合。
 - `payload`：消息内容。
 - `error`：错误对象。正常消息为 `null`。
 
-V1 消息类型：
+Legacy v1 消息类型：
 
 - `hello`：连接握手。
 - `gesture_event`：native host 转发 App 侧手势事件。
@@ -184,7 +184,7 @@ V1 消息类型：
 
 - Native host manifest 的 `allowed_origins` 只能包含 GestureKit 扩展 ID，不能使用通配符。
 - 扩展只接受符合 schema 的消息。
-- Native host 只接受本机 GestureKit App IPC 来源。
+- App 只接受通过 Provider Protocol v2 完成安装身份认证的本地 Provider 会话；`allowed_origins` 不能替代 App IPC 认证。
 - 所有动作执行都必须返回成功、失败或不可用状态，不能静默失败。
 - V1 不允许网页内容直接构造 native message。
 
@@ -222,11 +222,12 @@ Content script 在网页内监听 `pointermove` / `mousemove`，记录最近一�
 
 ```text
 GestureKit App 识别 three_finger_tap
--> RuleEngine 生成 open_link_background 意图
--> Native host 转发 gesture_event
--> Chrome 扩展使用最近的 viewport 坐标做 elementFromPoint
--> Content script 查找链接并返回规范化 URL
--> Background 调用 chrome.tabs.create
+-> App 向选中的 Chrome Provider 请求短时效 context snapshot
+-> Chrome Provider 使用最近的 viewport 坐标做 elementFromPoint
+-> Provider 返回标准页面事实和不透明 targetRef
+-> RuleEngine 根据手势、触控区域和页面事实生成标准 ActionDescriptor
+-> Provider 校验 contextId / targetRef 后调用 chrome.tabs.create
+-> accepted/result 与页面保护阶段进入 outbox 并回传 App Journal
 ```
 
 如果最近位置不存在或过期，返回 `no_recent_pointer`，不做 native 坐标猜测。如果最近位置有效但没有命中支持的链接，返回 `no_target`。
@@ -280,7 +281,9 @@ V1 默认拒绝：
 
 被拒绝时返回 `unsupported_url_scheme`。
 
-## 7. 规则模型
+## 7. Legacy V1 规则模型
+
+本节记录当前代码中的 Chrome 专用规则输入，供迁移 adapter 和回归测试使用。目标规则模型以 `RuleEngine` 为唯一门面，使用标准 `GestureDefinition`、Provider context facts 和 `ActionDescriptor`，见专题架构文档。
 
 V1 内置三条规则，但所有动作都通过规则引擎执行。
 
@@ -427,7 +430,7 @@ V1 扩展需要：
 
 视实现需要：
 
-- `storage`：保存扩展侧状态和诊断。
+- `storage`：保存扩展侧状态、只读配置缓存、operation ledger 和待补交 outbox，不作为历史诊断主存储。
 - `tabs`：读取 tab URL、title 等敏感字段时需要。
 - `scripting`：如果采用程序化注入 content script 才需要。
 
@@ -452,7 +455,7 @@ V1 必须显式处理以下失败：
 用户可见反馈：
 
 - 菜单栏状态显示连接状态。
-- 最近错误写入本地日志或诊断面板。
+- 最近错误写入 App `OperationJournal`，由主窗口显示面向用户的原因。
 - V1 不强制弹出频繁 toast，避免干扰。
 
 ## 11. 设备和系统边界

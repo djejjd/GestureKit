@@ -59,6 +59,7 @@ V1 必须保留扩展空间，但不交付完整扩展能力。
 - Safari 或 Firefox 支持。
 - 多 App 自动化平台。
 - 复杂手势录制。
+- 三击及更多新组合手势的运行时匹配和完整 DIY 编辑器。
 - 云同步。
 - AppleScript 动作。
 - shell command 动作。
@@ -81,12 +82,16 @@ V1 实现必须遵守以下架构边界：
 - Chrome 扩展是 V1 的首个 `ActionProvider`，负责网页语义、链接识别和 Chrome 动作，不得成为 Core 的固定依赖。
 - Chrome Native Messaging 的连接方向必须是扩展通过 `connectNative()` 连接 native host。
 - V1 使用独立 native host shim 桥接 Chrome stdio 协议和 GestureKit App 本地 IPC。
+- App IPC 必须使用已认证 Provider 会话并定向发送，禁止向所有本地连接广播动作；V1 只批准内置 Chrome Provider。
+- App IPC 优先使用权限为 `0600` 的 Unix domain socket；若保留 TCP，必须显式绑定 loopback 并增加独立安装凭据、challenge-response 和 session nonce。
+- V1 Provider 认证防止误连接、陈旧 host、其他 UID 和未注册 Provider，不声称抵御同 UID 恶意进程；凭据必须支持首次生成、HMAC challenge、轮换和撤销，且不得进入日志。
 - 触控板输入必须通过 `TouchBackend` 抽象，`MultitouchSupportBackend` 不得泄漏到业务规则层。
 - 用户配置的唯一 source of truth 是 macOS App 的 `SettingsStore`，包括规则、动作绑定、阈值、冷却、开关和轻扫灵敏度。
-- Chrome `chrome.storage.local` 或等价扩展存储只允许保存扩展侧状态、配置缓存和待补交诊断，不得成为用户配置或历史诊断主存储。
-- 规则匹配必须通过 `RuleEngine`，不得把核心三条动作硬编码在 UI、输入层或 Chrome 执行层。
+- Chrome `chrome.storage.local`、IndexedDB 或等价扩展存储只允许保存扩展侧状态、只读配置缓存、operation ledger 和待补交 outbox，不得成为用户配置或历史诊断主存储。
+- 规则匹配必须通过唯一 `RuleEngine` 门面；`BindingResolver` 是其内部组件，不得形成第二套动作决策。Provider 只提供上下文事实并执行标准动作，不得重新换绑动作。
 - 手势原语、手势组合、动作绑定和动作执行必须分层；已有原语的次数、方向、区域、时间窗口和动作含义应能通过配置变更。
 - 动作使用标准 `ActionDescriptor`，由 `ProviderRouter` 按能力选择 Provider；Core 不得引用 Chrome API 或 Chrome 专用动作枚举。
+- 网页语义通过短时效 `context_request/context_snapshot` 提供；标准动作引用有效 `contextId` 和不透明 `targetRef`，Provider 必须在执行前重新校验页面与目标身份。
 - 每次三指候选从开始阶段建立统一关联 ID，成功、拒绝、中断和结果未知都必须写入 App `OperationJournal`。
 - App `OperationJournal` 是历史诊断的唯一可信源；扩展待补交队列必须在 App 确认持久化后才能删除。
 - V1 不把 native 屏幕坐标转换为 DOM 坐标作为链接识别主路径。
@@ -97,9 +102,10 @@ V1 实现必须遵守以下架构边界：
 V1 必须遵守：
 
 - 不上传浏览历史、页面内容、原始触控数据或规则配置。
-- 本地诊断允许记录页面域名、移除 query 和 hash 的路径、目标元素类型、脱敏目标地址和事件时序，用于事后定位。
-- 本地诊断不得记录 Cookie、表单值、键盘输入、网页正文或完整 DOM。
-- 结构化操作记录默认最长保留 7 天且数据库最多 50 MB，任一上限达到时清理最旧的已完成操作。
+- 本地诊断允许记录页面 host、移除 query/hash 且敏感段使用本机 HMAC 短指纹的路径、枚举化目标类型和事件时序，用于事后定位。
+- 本地诊断不得记录 Cookie、表单值、键盘输入、网页正文、完整 DOM、原始 id/class/text 或未经白名单处理的 Provider 自由文本。
+- Provider 采集源和 App 入库端必须分别执行结构化白名单脱敏。
+- 受管理诊断存储默认最长保留 7 天且合计最多 50 MB：App 主库、WAL、SHM 和辅助结构化日志最多 45 MB，V1 Chrome Provider 的 outbox、operation ledger 和诊断缓存合计最多 5 MB。
 - 不记录连续原始输入流，除非用户显式开启诊断模式。
 - Native message 只在本机扩展、native host 和 GestureKit App 之间传输。
 - 网页 DOM 命中结果视为不可信输入，URL 必须规范化和过滤。
@@ -112,8 +118,9 @@ V1 权限说明必须精确：
 
 - `MultitouchSupport.framework` 是私有 API，自用和开源实验可接受，不适合 Mac App Store。
 - Accessibility 只在读取 AX、模拟键鼠或控制 UI 时需要。
-- Input Monitoring 或 Accessibility 不得成为基础方案的隐式必需权限。原生 `InteractionShield` 必须先通过独立 Spike，明确主动过滤实际权限、误拦截和 fail-open 行为，再决定是否启用。
-- 原生 `InteractionShield` 不得注册键盘事件，不得持久化原始鼠标事件，并必须在 App 异常时最多 800ms 自动放行。
+- Input Monitoring 或 Accessibility 不得成为基础方案的隐式必需权限。基础 TouchBackend 是否无需权限必须通过 clean-TCC、正式签名和打包形态验证。
+- 原生 `InteractionShield` 必须先通过独立 Spike，明确主动过滤实际权限、误拦截和 fail-open 行为；V1 不要求正式接入。
+- 原生 `InteractionShield` 不得注册键盘事件或持久化原始鼠标事件。Fail-open 只保证候选 lease 到期后不再拦截后续事件，已经删除的事件不恢复、不缓存重放。
 - Automation 只在使用 AppleScript、ScriptingBridge 或 Apple Events 控制 Chrome 时需要。
 - Chrome `activeTab` 不作为主权限模型。
 - Chrome `<all_urls>` 如在 V1 使用，必须在文档中说明用途和后续收窄方向。
@@ -143,22 +150,29 @@ V1 只有在以下条件满足时才能判定完成：
 ### 8.2 架构验收
 
 - 存在独立 native host shim 或等价边界，且 Chrome 侧使用 `connectNative()`。
-- 存在明确 message schema，包含 `version`、`id`、`type`、`timestamp`、`payload`、`error`。
+- 存在明确 Provider Protocol v2 schema，至少包含 `protocolVersion`、`messageId`、`providerSessionId`、`gestureSessionId`、`operationId`、`type`、`timestamp`、`payload`、`error`；阶段事件另含 `eventId`、`producerSessionId`、`producerSequence` 和 `causedByEventId`。旧 `GestureKitMessage version: 1` 只能存在于 Chrome adapter 迁移边界。
 - 存在 `TouchBackend` 抽象。
-- 存在 `RuleEngine`，三条 V1 动作通过规则匹配触发。
+- 存在 `RuleEngine`，全部 V1 动作通过规则匹配触发。
 - 存在 Chrome Provider action executor 或等价浏览器执行边界。
 - 规则配置只有一个主存储源。
 - 存在标准 `ActionProvider`、能力声明和 `ProviderRouter` 边界，Chrome 是 V1 Provider 实现而不是 Core 依赖。
+- 存在 Provider 安装身份认证、活动会话注册和定向发送边界。
+- 存在 `context_request/context_snapshot` 两阶段决策，`RuleEngine` 是唯一动作绑定入口。
 - 存在 App `OperationJournal` 和扩展持久化 outbox，历史诊断不依赖 popup 或 Service Worker 生命周期。
+- Provider 在副作用前持久化 operation ledger；重复 `operationId` 返回已有状态，不得再次执行。
 - 存在统一的诊断展示映射，普通界面不得直接显示内部状态码。
 
 ### 8.3 测试验收
 
 - RuleEngine 匹配和优先级有单元测试。
 - MessageCodec 或协议 schema 有编解码测试。
+- Provider v2 的认证、上下文、动作、幂等对账和 telemetry ACK 有契约测试。
+- `ledger.accepted + action_accepted event` 和 `ledger.final + action_result event` 分别有同一事务的故障注入测试。
 - URL scheme 过滤有测试。
 - Chrome tab 左右切换边界有测试。
 - content script 普通链接识别有测试。
+- Page guard 时序 Spike 已归档候选、IPC、Service Worker、content script 和 DOM 事件的单调时钟，并明确判定为 `passed`；`passed_with_notes` 或 `failed` 不得通过三指点按链接验收。
+- Clean-TCC Spike 已使用正式签名/打包形态，在重置 TCC、Input Monitoring 与 Accessibility 均关闭的环境验证首次启动、重启和权限撤销，并记录基础 TouchBackend 与可选 active filter 的权限结论。
 - 至少完成一次手动端到端验证：三指点按链接、边缘三指点按切 tab、中间三指双击关闭 tab、三指快速左轻扫、三指快速右轻扫。
 - `docs/research/trackpad-gesture-stability-matrix.md` 的人工手势稳定性矩阵已完成，且结论没有阻断 V1 核心功能。
 
@@ -173,6 +187,10 @@ V1 只有在以下条件满足时才能判定完成：
 - 未被识别为有效手势的三指候选也有可诊断状态。
 - 动作结果不确定时标记为结果未知，不自动重放，并且不阻塞后续操作。
 - App、native host 或 Provider 短暂断开后，尚未确认持久化的诊断可以补交。
+- App 启动时把超过 lease/deadline 的未完成记录收敛为“操作中断”或“结果未知”，不能永久绕过容量清理。
+- Provider outbox 达到容量上限时不得静默覆盖；必须保留关键动作事件并产生可诊断缺口摘要。
+- App Journal 或 Provider operation ledger 无法持久化关键阶段时必须停止派发或拒绝新动作，不能产生无证据副作用。
+- 链接动作必须以 `guard_armed` 为派发前置条件；page-guard 时序 Spike 未通过时，三指点按链接功能不得通过 V1 验收。
 
 ## 9. 正式开发前关口
 
@@ -184,6 +202,8 @@ V1 只有在以下条件满足时才能判定完成：
 - 非 Chrome 前台输入可观测性和 macOS 三指系统手势冲突已有观察记录。
 - 后续正式产品实现计划已单独产出；现有 `docs/plans/gesturekit-v1-implementation-plan.md` 是 spike 执行计划，不作为正式产品实现计划。
 - Spike 发现已同步到本契约、技术设计或研究文档，不存在未处理的架构冲突。
+- Page guard 时序 Spike 必须为 `passed`，否则三指点按链接仍是阻塞项；原生 `InteractionShield` Spike 不阻塞基础方案。
+- Clean-TCC 权限证据必须归档，未验证前不得把“基础方案无需 Input Monitoring/Accessibility”写成确定结论。
 - 用户明确确认进入正式实现阶段。
 
 如果任一关口失败，不能通过局部代码修补绕过；必须先回到规格、技术设计或手势方案重新评审。
