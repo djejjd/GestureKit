@@ -1,0 +1,159 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://gesturekit.local/schemas/provider-v2.schema.json",
+  "title": "GestureKit Provider Protocol v2 Envelope",
+  "description": "GestureKit Provider Protocol v2 消息信封。Provider 与 App 之间所有通信使用此信封封装。legacy v1（GestureKitMessage version:1）与此版本不兼容。",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "protocolVersion",
+    "messageId",
+    "providerSessionId",
+    "type",
+    "timestamp",
+    "payload",
+    "error"
+  ],
+  "properties": {
+    "protocolVersion": {
+      "const": 2,
+      "description": "协议主版本号。Provider v2 边界仅接受 2，拒绝所有其他值。"
+    },
+    "messageId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "消息级别唯一标识（非操作标识）。用于传输去重和 ACK。"
+    },
+    "providerSessionId": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Provider 认证会话 ID，由 App 在认证握手后分配。"
+    },
+    "gestureSessionId": {
+      "type": ["string", "null"],
+      "description": "关联的手势会话 ID。非手势上下文（如配置同步）可为 null。"
+    },
+    "operationId": {
+      "type": ["string", "null"],
+      "description": "关联的幂等操作 ID。action_request 消息必填；非操作消息可为 null。"
+    },
+    "type": {
+      "type": "string",
+      "enum": [
+        "provider_hello",
+        "provider_challenge",
+        "provider_authenticate",
+        "capability_snapshot",
+        "context_request",
+        "context_snapshot",
+        "configuration_snapshot",
+        "configuration_ack",
+        "action_request",
+        "action_accepted",
+        "action_result",
+        "telemetry_batch",
+        "telemetry_ack",
+        "health_probe",
+        "health_response",
+        "operation_status_request",
+        "operation_status_response"
+      ],
+      "description": "Provider Protocol v2 消息类型。每种类型对应特定的 payload 结构。"
+    },
+    "timestamp": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "消息产生时的 Unix 毫秒时间戳（wall-clock）。"
+    },
+    "payload": {
+      "description": "消息体。具体结构由 type 字段决定。",
+      "oneOf": [
+        {
+          "$comment": "action_request 的 payload 结构：ActionDescriptor",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["actionId", "contextId", "deadline"],
+          "properties": {
+            "actionId": {
+              "type": "string",
+              "enum": [
+                "browser.link.open_adjacent",
+                "browser.tab.activate_previous",
+                "browser.tab.activate_next",
+                "browser.tab.close_current",
+                "browser.history.back",
+                "browser.history.forward",
+                "browser.page.reload"
+              ],
+              "description": "标准动作 ID。Provider 通过能力声明告知支持哪些动作。"
+            },
+            "contextId": {
+              "type": "string",
+              "minLength": 1,
+              "description": "此前通过 context_snapshot 获得的上下文 ID。Provider 必须验证上下文未过期。"
+            },
+            "targetRef": {
+              "type": ["string", "null"],
+              "description": "Provider 内部的不透明目标引用。仅链接动作需要。"
+            },
+            "parameters": {
+              "type": "object",
+              "additionalProperties": { "type": "string" },
+              "description": "动作参数。例如 {\"activate\": \"true\"} 表示新标签自动激活。"
+            },
+            "deadline": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "动作截止时间（Unix 毫秒时间戳）。超过此时间 Provider 应拒绝执行。"
+            }
+          }
+        },
+        {
+          "$comment": "context_snapshot 的 payload 结构",
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["contextId", "pageIdentity", "expiresAt", "targetKind"],
+          "properties": {
+            "contextId": {
+              "type": "string",
+              "minLength": 1
+            },
+            "pageIdentity": {
+              "type": "string",
+              "description": "页面身份标识。通常为脱敏后的页面 host。"
+            },
+            "expiresAt": {
+              "type": "integer",
+              "minimum": 0,
+              "description": "上下文过期时间（Unix 毫秒时间戳）。之后 contextId 不再有效。"
+            },
+            "targetKind": {
+              "type": "string",
+              "enum": ["standard_link", "no_target", "page_unavailable"],
+              "description": "指针命中结果的枚举分类。"
+            },
+            "targetRef": {
+              "type": ["string", "null"],
+              "description": "Provider 内部的不透明目标引用。仅在 targetKind=standard_link 时有值。"
+            }
+          }
+        }
+      ]
+    },
+    "error": {
+      "anyOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["code", "message"],
+          "properties": {
+            "code": { "type": "string", "minLength": 1 },
+            "message": { "type": "string", "minLength": 1 }
+          }
+        }
+      ],
+      "description": "结构化错误。成功消息为 null。"
+    }
+  }
+}

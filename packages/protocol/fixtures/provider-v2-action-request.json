@@ -1,0 +1,19 @@
+{
+  "protocolVersion": 2,
+  "messageId": "fixture-action-request-v2",
+  "providerSessionId": "session-chrome-001",
+  "gestureSessionId": "gesture-session-001",
+  "operationId": "operation-001",
+  "type": "action_request",
+  "timestamp": 1782200000100,
+  "payload": {
+    "actionId": "browser.link.open_adjacent",
+    "contextId": "context-001",
+    "targetRef": "opaque-ref-abc123",
+    "parameters": {
+      "activate": "true"
+    },
+    "deadline": 1782200001100
+  },
+  "error": null
+}
