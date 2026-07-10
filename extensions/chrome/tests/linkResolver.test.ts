@@ -15,14 +15,14 @@ describe("resolveLinkAtPoint", () => {
     });
   });
 
-  it("returns no_target when point is not inside a link", () => {
+  it("returns non_anchor_navigation when point hits a button-style navigation target", () => {
     document.body.innerHTML = `<button id="target">Open</button>`;
     const button = document.getElementById("target") as HTMLButtonElement;
     document.elementFromPoint = () => button;
 
     const result = resolveLinkAtPoint(10, 20);
 
-    expect(result).toMatchObject({ status: "no_target" });
+    expect(result).toMatchObject({ status: "non_anchor_navigation" });
     expect(result).toHaveProperty("detail");
   });
 

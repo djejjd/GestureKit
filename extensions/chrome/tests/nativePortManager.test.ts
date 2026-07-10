@@ -123,6 +123,36 @@ describe("createNativePortManager", () => {
     }));
   });
 
+  it("preserves protected_click_expired instead of downgrading it to click_already_fired", async () => {
+    const postMessage = vi.fn();
+    const executeAction = vi.fn();
+    const manager = createNativePortManager({
+      port: { postMessage },
+      resolveLastPointer: vi.fn(async () => ({
+        status: "success",
+        url: "https://example.com",
+        clickAlreadyFired: true,
+        reason: "protected_click_expired",
+        detail: "点击保护窗口已过期，页面已继续当前页跳转"
+      })),
+      executeAction
+    });
+
+    await manager.handleNativeMessage(gestureMessage("three_finger_tap", { durationMs: 96 }));
+
+    expect(executeAction).not.toHaveBeenCalled();
+    expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      payload: {
+        action: "open_link_background",
+        status: "gesture_unstable",
+        details: {
+          reason: "protected_click_expired",
+          resolveDetail: "点击保护窗口已过期，页面已继续当前页跳转"
+        }
+      }
+    }));
+  });
+
   it("opens a link when the page click was protected by the content script", async () => {
     const postMessage = vi.fn();
     const executeAction = vi.fn(async () => ({ action: "open_link_background", status: "success" }));
@@ -158,6 +188,35 @@ describe("createNativePortManager", () => {
         action: "open_link_background",
         status: "gesture_unstable",
         details: { reason: "tap_duration_unstable" }
+      }
+    }));
+  });
+
+  it("encodes non_anchor_navigation as gesture_unstable with diagnostic reason", async () => {
+    vi.useFakeTimers();
+    const postMessage = vi.fn();
+    const executeAction = vi.fn();
+    const manager = createNativePortManager({
+      port: { postMessage },
+      resolveLastPointer: vi.fn(async () => ({
+        status: "non_anchor_navigation",
+        detail: "命中 <div>，但不是标准 <a href>"
+      })),
+      executeAction
+    });
+
+    await manager.handleNativeMessage(gestureMessage("three_finger_tap", { touchX: 0.5, durationMs: 96 }));
+    await vi.advanceTimersByTimeAsync(360);
+
+    expect(executeAction).not.toHaveBeenCalled();
+    expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({
+      payload: {
+        action: "open_link_background",
+        status: "gesture_unstable",
+        details: {
+          reason: "non_anchor_navigation",
+          resolveDetail: "命中 <div>，但不是标准 <a href>"
+        }
       }
     }));
   });

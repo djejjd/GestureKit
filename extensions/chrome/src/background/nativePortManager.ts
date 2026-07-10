@@ -130,20 +130,26 @@ export function createNativePortManager(deps: Dependencies) {
           if ("detail" in resolved && typeof resolved.detail === "string") {
             failureDetail.resolveDetail = resolved.detail;
           }
+          const resolvedReason = diagnosticReasonFromResolvedFailure(resolved);
+          if (resolvedReason) {
+            failureDetail.reason = resolvedReason;
+          }
           if (!settings.edgeTapEnabled && tapZoneFromTouchXIgnoringSetting(message.payload.touchX, resolved.status, settings) !== null) {
             failureDetail.reason = "edge_tap_disabled";
           }
           postActionResult(actionResult(
             message.id,
             "open_link_background",
-            resolved.status,
+            actionStatusFromResolvedFailure(resolved),
             Object.keys(failureDetail).length > 0 ? failureDetail : undefined
           ));
           return;
         }
         clearPendingTap();
         if (resolved.clickAlreadyFired) {
-          const detail: Record<string, unknown> = { reason: "click_already_fired" };
+          const detail: Record<string, unknown> = {
+            reason: typeof resolved.reason === "string" ? resolved.reason : "click_already_fired"
+          };
           if ("detail" in resolved && typeof resolved.detail === "string") {
             detail.resolveDetail = resolved.detail;
           }
@@ -248,4 +254,25 @@ function actionResult(
     payload: { action, status, ...(details ? { details } : {}) },
     error: null
   };
+}
+
+function actionStatusFromResolvedFailure(
+  resolved: Exclude<ResolveLastPointerResponse, { status: "success" }>
+): ActionResultMessage["payload"]["status"] {
+  if (resolved.status === "non_anchor_navigation") {
+    return "gesture_unstable";
+  }
+  return resolved.status;
+}
+
+function diagnosticReasonFromResolvedFailure(
+  resolved: Exclude<ResolveLastPointerResponse, { status: "success" }>
+): string | null {
+  if ("reason" in resolved && typeof resolved.reason === "string") {
+    return resolved.reason;
+  }
+  if (resolved.status === "non_anchor_navigation") {
+    return "non_anchor_navigation";
+  }
+  return null;
 }
