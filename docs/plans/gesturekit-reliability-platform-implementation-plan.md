@@ -20,7 +20,7 @@
 - 受管理诊断总预算为 50 MB：App 45 MB，V1 Chrome Provider 5 MB；导出副本不计入预算。
 - Provider 采集源和 App 入库端都必须进行结构化白名单脱敏；不得持久化 query/hash、DOM 文本、id/class、Cookie、表单值或自由文本 details。
 - 链接动作必须以 `guard_armed` 为前置条件；page guard 时序 Spike 未通过时，三指点按链接不能通过 V1 验收。
-- `CGEventTapShield` 是可选增强；其 Spike 不阻塞基础方案。
+- `CGEventTapShield` 是“普通操作不受持续延迟影响”的首要保护路径；无权限或 Spike 未通过时，保留 V1 有界链接点击保护并记录降级原因。它不阻塞 Provider 协议开发，但未通过时不得将候选期 page guard 标记为通过。
 - 每个任务遵循 TDD：先写失败测试，确认失败，再写最小实现，运行任务级测试和完整相关套件，最后提交。
 
 ## 执行角色与交接闸门
@@ -215,6 +215,8 @@ git commit -m "spike: verify sqlite and authenticated provider ipc"
 **接口：**
 
 自动化时序测试和页面夹具可由实现型 AI 编写；真实 Chrome 扩展、App、host、DOM 的端到端时序和最终 `passed` 判定由主审核代理执行。任何 candidate 到达 DOM 副作用之后才收到 `guard_armed`，都必须判定为失败并阻断链接动作。
+
+当前结论见 `docs/research/page-guard-timing-spike.md`：现有 V1 链路没有候选开始消息，无法在 DOM 前可靠 armed。V2 改用本地 `InteractionShield` 作为首要保护，page guard 仅保留为辅助证据与降级路径。
 
 ```ts
 export type GuardCommand = {
