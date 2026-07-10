@@ -346,7 +346,9 @@ public struct ProviderEnvelope: Codable, Sendable, Equatable {
         try container.encode(type, forKey: .type)
         try container.encode(timestamp, forKey: .timestamp)
         try container.encode(payload, forKey: .payload)
-        try container.encodeIfPresent(error, forKey: .error)
+        // 必须显式编码 error 字段（即使为 nil），以符合 JSON Schema required 约束
+        // 和 TypeScript decodeProviderEnvelope 的必填字段检查。
+        try container.encode(error, forKey: .error)
     }
 }
 
