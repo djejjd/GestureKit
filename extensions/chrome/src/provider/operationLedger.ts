@@ -8,6 +8,8 @@ export type LedgerRecord = {
   operationId: string;
   state: LedgerState;
   updatedAt: number;
+  terminalAt: number | null;
+  compactedAt: number | null;
 };
 
 /** IndexedDB ledger/outbox 的最小访问接口。 */
@@ -18,6 +20,7 @@ export interface OperationLedgerStore {
   pending(limit: number): Promise<ProviderEvent[]>;
   append(event: ProviderEvent): Promise<void>;
   acknowledge(eventIds: string[]): Promise<void>;
+  compact(now: number): Promise<void>;
 }
 
 /** Provider 无法安全保存关键事件时必须拒绝继续执行。 */
@@ -54,7 +57,7 @@ class IndexedDBOperationLedgerStore implements OperationLedgerStore {
       return existing.state;
     }
     await this.putEvent(transaction, event);
-    ledger.put({ operationId, state: "accepted", updatedAt: event.wallClockMs } satisfies LedgerRecord);
+    ledger.put({ operationId, state: "accepted", updatedAt: event.wallClockMs, terminalAt: null, compactedAt: null } satisfies LedgerRecord);
     await transactionDone(transaction);
     return "accepted";
   }
@@ -62,7 +65,7 @@ class IndexedDBOperationLedgerStore implements OperationLedgerStore {
   async finalize(operationId: string, outcome: ActionResultOutcome, event: ProviderEvent): Promise<void> {
     const transaction = this.db.transaction([LEDGER_STORE, OUTBOX_STORE], "readwrite");
     const state = outcomeToLedgerState(outcome);
-    transaction.objectStore(LEDGER_STORE).put({ operationId, state, updatedAt: event.wallClockMs } satisfies LedgerRecord);
+    transaction.objectStore(LEDGER_STORE).put({ operationId, state, updatedAt: event.wallClockMs, terminalAt: event.wallClockMs, compactedAt: null } satisfies LedgerRecord);
     await this.putEvent(transaction, event);
     await transactionDone(transaction);
   }
@@ -91,6 +94,21 @@ class IndexedDBOperationLedgerStore implements OperationLedgerStore {
   async append(event: ProviderEvent): Promise<void> {
     const transaction = this.db.transaction(OUTBOX_STORE, "readwrite");
     await this.putEvent(transaction, event);
+    await transactionDone(transaction);
+  }
+
+  async compact(now: number): Promise<void> {
+    const transaction = this.db.transaction(LEDGER_STORE, "readwrite");
+    const ledger = transaction.objectStore(LEDGER_STORE);
+    const records = await request<LedgerRecord[]>(ledger.getAll());
+    for (const record of records) {
+      if (record.terminalAt === null) continue;
+      if (record.compactedAt !== null && now - record.terminalAt >= 7 * 24 * 60 * 60 * 1000) {
+        ledger.delete(record.operationId);
+      } else if (record.compactedAt === null && now - record.terminalAt >= 10 * 60 * 1000) {
+        ledger.put({ ...record, compactedAt: now });
+      }
+    }
     await transactionDone(transaction);
   }
 

@@ -49,4 +49,16 @@ describe("OperationLedger", () => {
     await expect(store.status("operation-1")).resolves.toMatchObject({ state: "success" });
     await expect(store.pending(10)).resolves.toEqual([]);
   });
+
+  it("compacts terminal records after ten minutes but keeps accepted operations", async () => {
+    const store = await createOperationLedgerStore(`ledger-${crypto.randomUUID()}`);
+    await store.accept("operation-1", event("event-accepted", "action_accepted"));
+    await store.finalize("operation-1", "succeeded", event("event-result", "action_result"));
+    await store.accept("operation-2", { ...event("event-accepted-2", "action_accepted"), operationId: "operation-2", payload: { operationId: "operation-2", acceptedAt: 1 } });
+
+    await store.compact(10 * 60 * 1000 + 2);
+
+    await expect(store.status("operation-1")).resolves.toMatchObject({ state: "success", compactedAt: 600002 });
+    await expect(store.status("operation-2")).resolves.toMatchObject({ state: "accepted", compactedAt: null });
+  });
 });
