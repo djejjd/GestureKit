@@ -59,3 +59,25 @@ button:active { transform: scale(0.97); }
 .status-tag-failed { background: #fee2e2; color: #991b1b; }
 #resetDefaults { width: 100%; background: #f3f4f6; border-color: #d0d7de; color: #4b5563; }
 #resetDefaults:hover { background: #e5e7eb; }
+
+/* 精简 popup：只保留当前状态、方案和可展开诊断，详细历史移到 macOS 控制中心。 */
+body { width: 340px; background: #101827; color: #edf3f8; font-family: "Avenir Next", "PingFang SC", sans-serif; }
+main { padding: 18px 16px 20px; }
+h1 { color: #f7fbff; font-size: 21px; letter-spacing: .2px; }
+section { background: #182335; border: 1px solid #2a3a50; border-radius: 14px; box-shadow: none; padding: 14px 15px; margin-bottom: 10px; }
+section:hover { border-color: #3a536e; }
+.status { color: #b7c5d4; }
+.status .row { border-color: #2a3a50; }
+.status .row span { color: #8fa3b8; }
+.status .row strong { color: #edf3f8; }
+select, button { background: #202f43; color: #edf3f8; border-color: #3a4e66; }
+select:hover, button:hover { background: #29405b; border-color: #6b8cab; }
+input[type="checkbox"] { accent-color: #55c2a6; }
+input[type="range"] { background: #3a4e66; }
+input[type="range"]::-webkit-slider-thumb { background: #55c2a6; }
+output { color: #72d4b9; }
+.diagnostic { background: #202f43; border-color: #31465d; }
+.diagnostic-title, .status .row strong { color: #edf3f8; }
+.recommendation { background: #19353b; border-color: #2d6b6c; }
+.recommendation strong, #recommendationDelta { color: #a9eee0; }
+.dot-online::before { background: #55c2a6; }
