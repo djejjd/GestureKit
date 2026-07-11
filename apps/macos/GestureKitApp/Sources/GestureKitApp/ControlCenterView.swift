@@ -40,6 +40,25 @@ final class ControlCenterViewModel: ObservableObject {
         }
     }
 
+    /// 选择目录并导出脱敏证据包，不把导出副本纳入自动清理范围。
+    func exportEvidence(for operation: OperationRow) {
+        guard let journal else { return }
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.allowsMultipleSelection = false
+        panel.prompt = "导出证据包"
+        guard panel.runModal() == .OK, let directory = panel.url else { return }
+        do {
+            let timelines = try journal.query(.operation(operation.id), limit: 1)
+            guard let timeline = timelines.first else { return }
+            let target = directory.appendingPathComponent("GestureKit-(operation.id)", isDirectory: true)
+            try EvidenceBundleExporter().export(timeline: timeline, to: target)
+        } catch {
+            loadError = "证据包导出失败，请稍后重试"
+        }
+    }
+
     private static func makeRow(_ timeline: OperationTimeline) -> OperationRow {
         let state = timeline.terminalState.map(stateText) ?? "进行中"
         let color: Color
@@ -59,12 +78,8 @@ final class ControlCenterViewModel: ObservableObject {
     }
 
     private static func stateText(_ state: OperationTerminalState) -> String {
-        switch state {
-        case .succeeded: return "已完成"
-        case .failed: return "失败"
-        case .resultUnknown: return "结果未知"
-        case .operationInterrupted: return "已中断"
-        }
+        let timeline = OperationTimeline(operationId: "", events: [], terminalState: state, startedAt: 0, lastEventAt: 0)
+        return presentDiagnostic(timeline).title
     }
 }
 
@@ -74,7 +89,7 @@ struct ControlCenterView: View {
     @StateObject private var model: ControlCenterViewModel
     @State private var selection = "概览"
 
-    private let pages = ["概览", "操作记录", "Provider", "隐私与存储", "设置"]
+    private let pages = ["概览", "操作记录", "手势预设", "Provider", "隐私与存储", "高级设置"]
 
     init(control: any RuntimeControlling, journal: (any OperationJournaling)? = nil) {
         self.control = control
@@ -140,6 +155,8 @@ struct ControlCenterView: View {
                                 Text("\(operation.eventCount) 个事件").font(.subheadline)
                                 Text(operation.lastEventAt, style: .relative).font(.caption).foregroundStyle(.secondary)
                             }
+                            Button("导出") { model.exportEvidence(for: operation) }
+                                .buttonStyle(.bordered)
                         }
                         .padding(14)
                         .background(.background, in: RoundedRectangle(cornerRadius: 12))
@@ -154,6 +171,14 @@ struct ControlCenterView: View {
         case "隐私与存储":
             statusCard("本地诊断", "双重脱敏已启用", .green)
             statusCard("存储预算", "最多 50 MB · 默认保留 7 天", .secondary)
+        case "手势预设":
+            statusCard("当前预设", "使用配置文件中的标准手势映射", .blue)
+            Text("V1 使用预设保证行为稳定；后续可在此扩展换绑和自定义手势。")
+                .foregroundStyle(.secondary)
+        case "高级设置":
+            statusCard("诊断记录", "失败和结果未知操作会保留证据链", .green)
+            Text("高级选项将在不改变手势识别核心的前提下逐步开放。")
+                .foregroundStyle(.secondary)
         default:
             Text("手势方案与高级选项将在这里管理。")
                 .foregroundStyle(.secondary)
