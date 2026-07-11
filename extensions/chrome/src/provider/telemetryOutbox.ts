@@ -1,5 +1,5 @@
 import type { ProviderEvent } from "./protocol";
-import { createOperationLedgerStore, type OperationLedgerStore } from "./operationLedger";
+import { createOperationLedgerStore, type OperationLedgerOptions, type OperationLedgerStore } from "./operationLedger";
 
 /** Provider 可补交 telemetry 的只关注队列接口。 */
 export interface TelemetryOutbox {
@@ -9,8 +9,8 @@ export interface TelemetryOutbox {
 }
 
 /** 与 ledger 共享数据库，避免关键事件跨库丢失。 */
-export async function createTelemetryOutbox(databaseName?: string): Promise<TelemetryOutbox> {
-  const store = await createOperationLedgerStore(databaseName);
+export async function createTelemetryOutbox(databaseName?: string, options?: OperationLedgerOptions): Promise<TelemetryOutbox> {
+  const store = await createOperationLedgerStore(databaseName, options);
   return new IndexedDBTelemetryOutbox(store);
 }
 

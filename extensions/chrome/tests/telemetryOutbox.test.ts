@@ -27,4 +27,11 @@ describe("TelemetryOutbox", () => {
     await outbox.acknowledge(["event-1"]);
     await expect(outbox.pending(10)).resolves.toMatchObject([{ eventId: "event-2" }]);
   });
+
+  it("reserves capacity for critical action evidence", async () => {
+    const outbox = await createTelemetryOutbox(`outbox-${crypto.randomUUID()}`, { maxOutboxBytes: 500, criticalReserveBytes: 200 });
+    const nonCritical = { ...telemetry("event-health", 1), type: "health_response" as const, payload: { probeSequence: 1, healthy: true }, eventId: "x".repeat(180) };
+
+    await expect(outbox.append(nonCritical)).rejects.toThrow("provider_storage_full");
+  });
 });

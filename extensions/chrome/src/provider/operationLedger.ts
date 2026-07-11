@@ -20,18 +20,30 @@ export interface OperationLedgerStore {
   acknowledge(eventIds: string[]): Promise<void>;
 }
 
+/** Provider 无法安全保存关键事件时必须拒绝继续执行。 */
+export class ProviderStorageFullError extends Error {
+  constructor() {
+    super("provider_storage_full");
+  }
+}
+
+export type OperationLedgerOptions = {
+  maxOutboxBytes?: number;
+  criticalReserveBytes?: number;
+};
+
 const LEDGER_STORE = "ledger";
 const OUTBOX_STORE = "outbox";
 const METADATA_STORE = "metadata";
 
 /** 打开 Provider 单一数据库，确保 ledger 和 outbox 能参加同一个事务。 */
-export async function createOperationLedgerStore(name = "gesturekit-provider-v2"): Promise<OperationLedgerStore> {
+export async function createOperationLedgerStore(name = "gesturekit-provider-v2", options: OperationLedgerOptions = {}): Promise<OperationLedgerStore> {
   const db = await openDatabase(name);
-  return new IndexedDBOperationLedgerStore(db);
+  return new IndexedDBOperationLedgerStore(db, options.maxOutboxBytes ?? 5 * 1024 * 1024, options.criticalReserveBytes ?? 1024 * 1024);
 }
 
 class IndexedDBOperationLedgerStore implements OperationLedgerStore {
-  constructor(private readonly db: IDBDatabase) {}
+  constructor(private readonly db: IDBDatabase, private readonly maxOutboxBytes: number, private readonly criticalReserveBytes: number) {}
 
   async accept(operationId: string, event: ProviderEvent): Promise<LedgerState> {
     const transaction = this.db.transaction([LEDGER_STORE, OUTBOX_STORE], "readwrite");
@@ -41,8 +53,8 @@ class IndexedDBOperationLedgerStore implements OperationLedgerStore {
       await transactionDone(transaction);
       return existing.state;
     }
+    await this.putEvent(transaction, event);
     ledger.put({ operationId, state: "accepted", updatedAt: event.wallClockMs } satisfies LedgerRecord);
-    transaction.objectStore(OUTBOX_STORE).put(event);
     await transactionDone(transaction);
     return "accepted";
   }
@@ -51,7 +63,7 @@ class IndexedDBOperationLedgerStore implements OperationLedgerStore {
     const transaction = this.db.transaction([LEDGER_STORE, OUTBOX_STORE], "readwrite");
     const state = outcomeToLedgerState(outcome);
     transaction.objectStore(LEDGER_STORE).put({ operationId, state, updatedAt: event.wallClockMs } satisfies LedgerRecord);
-    transaction.objectStore(OUTBOX_STORE).put(event);
+    await this.putEvent(transaction, event);
     await transactionDone(transaction);
   }
 
@@ -78,8 +90,20 @@ class IndexedDBOperationLedgerStore implements OperationLedgerStore {
 
   async append(event: ProviderEvent): Promise<void> {
     const transaction = this.db.transaction(OUTBOX_STORE, "readwrite");
-    transaction.objectStore(OUTBOX_STORE).put(event);
+    await this.putEvent(transaction, event);
     await transactionDone(transaction);
+  }
+
+  private async putEvent(transaction: IDBTransaction, event: ProviderEvent): Promise<void> {
+    const outbox = transaction.objectStore(OUTBOX_STORE);
+    const existing = await request<ProviderEvent[]>(outbox.getAll());
+    const totalBytes = existing.reduce((sum, item) => sum + encodedSize(item), 0) + encodedSize(event);
+    const limit = isCriticalEvent(event) ? this.maxOutboxBytes : this.maxOutboxBytes - this.criticalReserveBytes;
+    if (totalBytes > limit) {
+      transaction.abort();
+      throw new ProviderStorageFullError();
+    }
+    outbox.put(event);
   }
 }
 
@@ -118,4 +142,12 @@ function outcomeToLedgerState(outcome: ActionResultOutcome): LedgerState {
     case "failed": return "failed";
     case "result_unknown": return "result_unknown";
   }
+}
+
+function isCriticalEvent(event: ProviderEvent): boolean {
+  return event.type === "action_accepted" || event.type === "action_result";
+}
+
+function encodedSize(event: ProviderEvent): number {
+  return new TextEncoder().encode(JSON.stringify(event)).byteLength;
 }
