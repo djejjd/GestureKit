@@ -61,4 +61,19 @@ describe("OperationLedger", () => {
     await expect(store.status("operation-1")).resolves.toMatchObject({ state: "success", compactedAt: 600002 });
     await expect(store.status("operation-2")).resolves.toMatchObject({ state: "accepted", compactedAt: null });
   });
+
+  it("recovers accepted and final transactions after a worker restart", async () => {
+    const databaseName = `ledger-${crypto.randomUUID()}`;
+    const firstWorker = await createOperationLedgerStore(databaseName);
+    await firstWorker.accept("operation-1", event("event-accepted", "action_accepted"));
+
+    const afterAcceptedRestart = await createOperationLedgerStore(databaseName);
+    await expect(afterAcceptedRestart.status("operation-1")).resolves.toMatchObject({ state: "accepted" });
+    await expect(afterAcceptedRestart.pending(10)).resolves.toMatchObject([{ eventId: "event-accepted" }]);
+
+    await afterAcceptedRestart.finalize("operation-1", "succeeded", event("event-result", "action_result"));
+    const afterFinalRestart = await createOperationLedgerStore(databaseName);
+    await expect(afterFinalRestart.status("operation-1")).resolves.toMatchObject({ state: "success" });
+    await expect(afterFinalRestart.pending(10)).resolves.toMatchObject([{ eventId: "event-accepted" }, { eventId: "event-result" }]);
+  });
 });
