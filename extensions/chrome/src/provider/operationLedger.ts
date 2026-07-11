@@ -16,6 +16,7 @@ export interface OperationLedgerStore {
   finalize(operationId: string, outcome: ActionResultOutcome, event: ProviderEvent): Promise<void>;
   status(operationId: string): Promise<LedgerRecord | null>;
   pending(limit: number): Promise<ProviderEvent[]>;
+  append(event: ProviderEvent): Promise<void>;
   acknowledge(eventIds: string[]): Promise<void>;
 }
 
@@ -72,6 +73,12 @@ class IndexedDBOperationLedgerStore implements OperationLedgerStore {
     const transaction = this.db.transaction(OUTBOX_STORE, "readwrite");
     const outbox = transaction.objectStore(OUTBOX_STORE);
     for (const eventId of eventIds) outbox.delete(eventId);
+    await transactionDone(transaction);
+  }
+
+  async append(event: ProviderEvent): Promise<void> {
+    const transaction = this.db.transaction(OUTBOX_STORE, "readwrite");
+    transaction.objectStore(OUTBOX_STORE).put(event);
     await transactionDone(transaction);
   }
 }
