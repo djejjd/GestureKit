@@ -62,6 +62,17 @@ describe("OperationLedger", () => {
     await expect(store.status("operation-2")).resolves.toMatchObject({ state: "accepted", compactedAt: null });
   });
 
+  it("keeps complete events after ACK until terminal compaction", async () => {
+    const store = await createOperationLedgerStore(`ledger-${crypto.randomUUID()}`);
+    await store.accept("operation-1", event("event-accepted", "action_accepted"));
+    await store.finalize("operation-1", "succeeded", event("event-result", "action_result"));
+    await store.acknowledge(["event-accepted", "event-result"]);
+
+    await expect(store.events("operation-1")).resolves.toHaveLength(2);
+    await store.compact(10 * 60 * 1000 + 2);
+    await expect(store.events("operation-1")).resolves.toEqual([]);
+  });
+
   it("recovers accepted and final transactions after a worker restart", async () => {
     const databaseName = `ledger-${crypto.randomUUID()}`;
     const firstWorker = await createOperationLedgerStore(databaseName);

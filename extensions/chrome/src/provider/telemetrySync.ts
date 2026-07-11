@@ -16,12 +16,11 @@ export async function synchronizeTelemetry(
   now = Date.now()
 ): Promise<void> {
   const plan = await buildReconciliationPlan(store, 100);
-  let sequence = 0;
   for (const operationId of plan.pendingOperationIds) {
-    send(envelope(session, `status-${++sequence}`, "operation_status_request", operationId, { operationId }, now));
+    send(envelope(session, crypto.randomUUID(), "operation_status_request", operationId, { operationId }, now));
   }
   if (plan.pendingEvents.length > 0) {
-    send(envelope(session, `telemetry-${++sequence}`, "telemetry_batch", null, { events: plan.pendingEvents }, now));
+    send(envelope(session, crypto.randomUUID(), "telemetry_batch", null, { events: plan.pendingEvents }, now));
   }
 }
 

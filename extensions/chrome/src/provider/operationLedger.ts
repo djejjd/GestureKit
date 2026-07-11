@@ -10,6 +10,7 @@ export type LedgerRecord = {
   updatedAt: number;
   terminalAt: number | null;
   compactedAt: number | null;
+  eventIds: string[];
 };
 
 /** IndexedDB ledger/outbox 的最小访问接口。 */
@@ -17,6 +18,7 @@ export interface OperationLedgerStore {
   accept(operationId: string, event: ProviderEvent): Promise<LedgerState>;
   finalize(operationId: string, outcome: ActionResultOutcome, event: ProviderEvent): Promise<void>;
   status(operationId: string): Promise<LedgerRecord | null>;
+  events(operationId: string): Promise<ProviderEvent[]>;
   pending(limit: number): Promise<ProviderEvent[]>;
   append(event: ProviderEvent): Promise<void>;
   acknowledge(eventIds: string[]): Promise<void>;
@@ -38,6 +40,7 @@ export type OperationLedgerOptions = {
 const LEDGER_STORE = "ledger";
 const OUTBOX_STORE = "outbox";
 const METADATA_STORE = "metadata";
+const EVENTS_STORE = "events";
 
 /** 打开 Provider 单一数据库，确保 ledger 和 outbox 能参加同一个事务。 */
 export async function createOperationLedgerStore(name = "gesturekit-provider-v2", options: OperationLedgerOptions = {}): Promise<OperationLedgerStore> {
@@ -49,7 +52,7 @@ class IndexedDBOperationLedgerStore implements OperationLedgerStore {
   constructor(private readonly db: IDBDatabase, private readonly maxOutboxBytes: number, private readonly criticalReserveBytes: number) {}
 
   async accept(operationId: string, event: ProviderEvent): Promise<LedgerState> {
-    const transaction = this.db.transaction([LEDGER_STORE, OUTBOX_STORE], "readwrite");
+    const transaction = this.db.transaction([LEDGER_STORE, OUTBOX_STORE, EVENTS_STORE], "readwrite");
     const ledger = transaction.objectStore(LEDGER_STORE);
     const existing = await request<LedgerRecord | undefined>(ledger.get(operationId));
     if (existing) {
@@ -57,16 +60,20 @@ class IndexedDBOperationLedgerStore implements OperationLedgerStore {
       return existing.state;
     }
     await this.putEvent(transaction, event);
-    ledger.put({ operationId, state: "accepted", updatedAt: event.wallClockMs, terminalAt: null, compactedAt: null } satisfies LedgerRecord);
+    transaction.objectStore(EVENTS_STORE).put(event);
+    ledger.put({ operationId, state: "accepted", updatedAt: event.wallClockMs, terminalAt: null, compactedAt: null, eventIds: [event.eventId] } satisfies LedgerRecord);
     await transactionDone(transaction);
     return "accepted";
   }
 
   async finalize(operationId: string, outcome: ActionResultOutcome, event: ProviderEvent): Promise<void> {
-    const transaction = this.db.transaction([LEDGER_STORE, OUTBOX_STORE], "readwrite");
+    const transaction = this.db.transaction([LEDGER_STORE, OUTBOX_STORE, EVENTS_STORE], "readwrite");
     const state = outcomeToLedgerState(outcome);
-    transaction.objectStore(LEDGER_STORE).put({ operationId, state, updatedAt: event.wallClockMs, terminalAt: event.wallClockMs, compactedAt: null } satisfies LedgerRecord);
+    const ledger = transaction.objectStore(LEDGER_STORE);
+    const existing = await request<LedgerRecord | undefined>(ledger.get(operationId));
+    ledger.put({ operationId, state, updatedAt: event.wallClockMs, terminalAt: event.wallClockMs, compactedAt: null, eventIds: [...(existing?.eventIds ?? []), event.eventId] } satisfies LedgerRecord);
     await this.putEvent(transaction, event);
+    transaction.objectStore(EVENTS_STORE).put(event);
     await transactionDone(transaction);
   }
 
@@ -75,6 +82,16 @@ class IndexedDBOperationLedgerStore implements OperationLedgerStore {
     const record = await request<LedgerRecord | undefined>(transaction.objectStore(LEDGER_STORE).get(operationId));
     await transactionDone(transaction);
     return record ?? null;
+  }
+
+  async events(operationId: string): Promise<ProviderEvent[]> {
+    const record = await this.status(operationId);
+    if (!record) return [];
+    const transaction = this.db.transaction(EVENTS_STORE, "readonly");
+    const events = transaction.objectStore(EVENTS_STORE);
+    const values = await Promise.all((record.eventIds ?? []).map((eventId) => request<ProviderEvent | undefined>(events.get(eventId))));
+    await transactionDone(transaction);
+    return values.filter((event): event is ProviderEvent => event !== undefined);
   }
 
   async pending(limit: number): Promise<ProviderEvent[]> {
@@ -98,14 +115,16 @@ class IndexedDBOperationLedgerStore implements OperationLedgerStore {
   }
 
   async compact(now: number): Promise<void> {
-    const transaction = this.db.transaction(LEDGER_STORE, "readwrite");
+    const transaction = this.db.transaction([LEDGER_STORE, EVENTS_STORE], "readwrite");
     const ledger = transaction.objectStore(LEDGER_STORE);
+    const events = transaction.objectStore(EVENTS_STORE);
     const records = await request<LedgerRecord[]>(ledger.getAll());
     for (const record of records) {
       if (record.terminalAt === null) continue;
       if (record.compactedAt !== null && now - record.terminalAt >= 7 * 24 * 60 * 60 * 1000) {
         ledger.delete(record.operationId);
       } else if (record.compactedAt === null && now - record.terminalAt >= 10 * 60 * 1000) {
+        for (const eventId of record.eventIds ?? []) events.delete(eventId);
         ledger.put({ ...record, compactedAt: now });
       }
     }
@@ -127,12 +146,13 @@ class IndexedDBOperationLedgerStore implements OperationLedgerStore {
 
 function openDatabase(name: string): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(name, 1);
+    const request = indexedDB.open(name, 2);
     request.onupgradeneeded = () => {
       const db = request.result;
-      db.createObjectStore(LEDGER_STORE, { keyPath: "operationId" });
-      db.createObjectStore(OUTBOX_STORE, { keyPath: "eventId" });
-      db.createObjectStore(METADATA_STORE, { keyPath: "key" });
+      if (!db.objectStoreNames.contains(LEDGER_STORE)) db.createObjectStore(LEDGER_STORE, { keyPath: "operationId" });
+      if (!db.objectStoreNames.contains(OUTBOX_STORE)) db.createObjectStore(OUTBOX_STORE, { keyPath: "eventId" });
+      if (!db.objectStoreNames.contains(METADATA_STORE)) db.createObjectStore(METADATA_STORE, { keyPath: "key" });
+      if (!db.objectStoreNames.contains(EVENTS_STORE)) db.createObjectStore(EVENTS_STORE, { keyPath: "eventId" });
     };
     request.onsuccess = () => resolve(request.result);
     request.onerror = () => reject(request.error ?? new Error("无法打开 Provider IndexedDB"));

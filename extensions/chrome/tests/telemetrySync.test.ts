@@ -22,4 +22,16 @@ describe("telemetry synchronization", () => {
     expect(sent.map((message) => message.type)).toEqual(["operation_status_request", "telemetry_batch"]);
     expect(sent[1].payload).toMatchObject({ events: [acceptedEvent()] });
   });
+
+  it("uses new message IDs for every reconnect synchronization", async () => {
+    const store = await createOperationLedgerStore(`sync-${crypto.randomUUID()}`);
+    await store.accept("operation-1", acceptedEvent());
+    const first: ProviderEnvelope[] = [];
+    const second: ProviderEnvelope[] = [];
+
+    await synchronizeTelemetry(store, { providerSessionId: "provider", producerSessionId: "producer" }, (message) => first.push(message));
+    await synchronizeTelemetry(store, { providerSessionId: "provider", producerSessionId: "producer" }, (message) => second.push(message));
+
+    expect(new Set([...first, ...second].map((message) => message.messageId)).size).toBe(first.length + second.length);
+  });
 });
