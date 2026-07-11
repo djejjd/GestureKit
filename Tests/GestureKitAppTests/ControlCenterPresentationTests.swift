@@ -23,4 +23,17 @@ final class ControlCenterPresentationTests: XCTestCase {
         let overview = PreviewControlCenterDataSource().overview()
         XCTAssertEqual(overview.provider.detail, "Chrome 尚未连接")
     }
+
+    /// 操作页面的详情只能来自当前选择项，避免 UI 重新读取或暴露原始事件字段。
+    func testOperationPageFindsSelectedItem() {
+        let item = OperationListItem(
+            id: "operation-1",
+            title: "三指点按",
+            presentation: .resultUnknown,
+            eventCount: 4,
+            lastEventAt: Date(timeIntervalSince1970: 0)
+        )
+        let page = OperationPageState(items: [item], selectedOperationID: item.id, message: nil, canLoadMore: false)
+        XCTAssertEqual(page.selectedItem, item)
+    }
 }

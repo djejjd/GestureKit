@@ -98,6 +98,11 @@ struct OperationPageState: Equatable {
     let canLoadMore: Bool
 
     static let empty = OperationPageState(items: [], selectedOperationID: nil, message: "暂无操作记录", canLoadMore: false)
+
+    /// 当前详情只使用列表中的脱敏摘要，不在视图层重新读取底层事件。
+    var selectedItem: OperationListItem? {
+        items.first { $0.id == selectedOperationID }
+    }
 }
 
 /// Provider 页面显示的状态卡片集合。
