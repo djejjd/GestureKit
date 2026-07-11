@@ -22,6 +22,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         controlCenter = ControlCenterWindowController(control: control, journal: journal)
 
         runtime?.start()
+
+        // 开发预览开关：正常启动仍保持菜单栏 accessory 行为。
+        if ProcessInfo.processInfo.environment["GESTUREKIT_SHOW_CONTROL_CENTER"] == "1" {
+            DispatchQueue.main.async { [weak self] in self?.showControlCenter() }
+        }
     }
 
     private func showControlCenter() {
