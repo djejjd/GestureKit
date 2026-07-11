@@ -34,4 +34,14 @@ describe("TelemetryOutbox", () => {
 
     await expect(outbox.append(nonCritical)).rejects.toThrow("provider_storage_full");
   });
+
+  it("reclaims capacity after ACK and does not double-count a repeated event ID", async () => {
+    const outbox = await createTelemetryOutbox(`outbox-${crypto.randomUUID()}`, { maxOutboxBytes: 800, criticalReserveBytes: 0 });
+    const repeated = { ...telemetry("event-repeat", 1), eventId: "r".repeat(120) };
+
+    await outbox.append(repeated);
+    await expect(outbox.append(repeated)).resolves.toBeUndefined();
+    await outbox.acknowledge([repeated.eventId]);
+    await expect(outbox.append({ ...telemetry("event-next", 2), eventId: "n".repeat(120) })).resolves.toBeUndefined();
+  });
 });

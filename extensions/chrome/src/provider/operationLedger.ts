@@ -41,6 +41,7 @@ const LEDGER_STORE = "ledger";
 const OUTBOX_STORE = "outbox";
 const METADATA_STORE = "metadata";
 const EVENTS_STORE = "events";
+const OUTBOX_BYTES_KEY = "outbox_bytes";
 
 /** 打开 Provider 单一数据库，确保 ledger 和 outbox 能参加同一个事务。 */
 export async function createOperationLedgerStore(name = "gesturekit-provider-v2", options: OperationLedgerOptions = {}): Promise<OperationLedgerStore> {
@@ -52,7 +53,7 @@ class IndexedDBOperationLedgerStore implements OperationLedgerStore {
   constructor(private readonly db: IDBDatabase, private readonly maxOutboxBytes: number, private readonly criticalReserveBytes: number) {}
 
   async accept(operationId: string, event: ProviderEvent): Promise<LedgerState> {
-    const transaction = this.db.transaction([LEDGER_STORE, OUTBOX_STORE, EVENTS_STORE], "readwrite");
+    const transaction = this.db.transaction([LEDGER_STORE, OUTBOX_STORE, EVENTS_STORE, METADATA_STORE], "readwrite");
     const ledger = transaction.objectStore(LEDGER_STORE);
     const existing = await request<LedgerRecord | undefined>(ledger.get(operationId));
     if (existing) {
@@ -67,7 +68,7 @@ class IndexedDBOperationLedgerStore implements OperationLedgerStore {
   }
 
   async finalize(operationId: string, outcome: ActionResultOutcome, event: ProviderEvent): Promise<void> {
-    const transaction = this.db.transaction([LEDGER_STORE, OUTBOX_STORE, EVENTS_STORE], "readwrite");
+    const transaction = this.db.transaction([LEDGER_STORE, OUTBOX_STORE, EVENTS_STORE, METADATA_STORE], "readwrite");
     const state = outcomeToLedgerState(outcome);
     const ledger = transaction.objectStore(LEDGER_STORE);
     const existing = await request<LedgerRecord | undefined>(ledger.get(operationId));
@@ -102,14 +103,19 @@ class IndexedDBOperationLedgerStore implements OperationLedgerStore {
   }
 
   async acknowledge(eventIds: string[]): Promise<void> {
-    const transaction = this.db.transaction(OUTBOX_STORE, "readwrite");
+    const transaction = this.db.transaction([OUTBOX_STORE, METADATA_STORE], "readwrite");
     const outbox = transaction.objectStore(OUTBOX_STORE);
-    for (const eventId of eventIds) outbox.delete(eventId);
+    const existing = await Promise.all([...new Set(eventIds)].map((eventId) => request<ProviderEvent | undefined>(outbox.get(eventId))));
+    const metadata = transaction.objectStore(METADATA_STORE);
+    const currentBytes = await this.outboxBytes(transaction);
+    const reclaimed = existing.reduce((sum, event) => sum + (event ? encodedSize(event) : 0), 0);
+    for (const eventId of new Set(eventIds)) outbox.delete(eventId);
+    metadata.put({ key: OUTBOX_BYTES_KEY, value: Math.max(0, currentBytes - reclaimed) });
     await transactionDone(transaction);
   }
 
   async append(event: ProviderEvent): Promise<void> {
-    const transaction = this.db.transaction(OUTBOX_STORE, "readwrite");
+    const transaction = this.db.transaction([OUTBOX_STORE, METADATA_STORE], "readwrite");
     await this.putEvent(transaction, event);
     await transactionDone(transaction);
   }
@@ -133,14 +139,26 @@ class IndexedDBOperationLedgerStore implements OperationLedgerStore {
 
   private async putEvent(transaction: IDBTransaction, event: ProviderEvent): Promise<void> {
     const outbox = transaction.objectStore(OUTBOX_STORE);
-    const existing = await request<ProviderEvent[]>(outbox.getAll());
-    const totalBytes = existing.reduce((sum, item) => sum + encodedSize(item), 0) + encodedSize(event);
+    const existing = await request<ProviderEvent | undefined>(outbox.get(event.eventId));
+    const totalBytes = await this.outboxBytes(transaction) - (existing ? encodedSize(existing) : 0) + encodedSize(event);
     const limit = isCriticalEvent(event) ? this.maxOutboxBytes : this.maxOutboxBytes - this.criticalReserveBytes;
     if (totalBytes > limit) {
       transaction.abort();
       throw new ProviderStorageFullError();
     }
     outbox.put(event);
+    transaction.objectStore(METADATA_STORE).put({ key: OUTBOX_BYTES_KEY, value: totalBytes });
+  }
+
+  /** 旧数据库首次使用时只扫描一次，之后完全依赖事务内 metadata 计数。 */
+  private async outboxBytes(transaction: IDBTransaction): Promise<number> {
+    const metadata = transaction.objectStore(METADATA_STORE);
+    const cached = await request<{ key: string; value: number } | undefined>(metadata.get(OUTBOX_BYTES_KEY));
+    if (cached) return cached.value;
+    const events = await request<ProviderEvent[]>(transaction.objectStore(OUTBOX_STORE).getAll());
+    const value = events.reduce((sum, event) => sum + encodedSize(event), 0);
+    metadata.put({ key: OUTBOX_BYTES_KEY, value });
+    return value;
   }
 }
 
