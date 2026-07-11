@@ -290,6 +290,7 @@ final class GestureKitRuntime {
                   pending.providerSessionID == session.providerSessionID,
                   envelope.providerSessionId == session.providerSessionID,
                   providerSessions.session(session.providerSessionID, belongsTo: connectionID),
+                  envelope.error == nil,
                   snapshot.expiresAt >= currentTimestampMs(),
                   pending.deadline >= currentTimestampMs() else { return }
             pendingContextGestures.removeValue(forKey: gestureID)
