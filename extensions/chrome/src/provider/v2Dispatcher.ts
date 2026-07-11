@@ -16,7 +16,12 @@ export class V2Dispatcher {
   async handle(envelope: ProviderEnvelope): Promise<void> {
     if (envelope.type === "context_request") {
       const payload = envelope.payload as { deadline: number };
-      const snapshot = this.contexts.snapshot(await this.resolveURL(), Date.now(), Math.max(0, payload.deadline - Date.now()));
+      const now = Date.now();
+      if (payload.deadline <= now) {
+        this.send({ ...envelope, messageId: crypto.randomUUID(), type: "context_snapshot", timestamp: now, payload: { contextId: crypto.randomUUID(), pageIdentity: "", expiresAt: now, targetKind: "page_unavailable", targetRef: null }, error: { code: "context_expired", message: "context_request 已超过 deadline" } });
+        return;
+      }
+      const snapshot = this.contexts.snapshot(await this.resolveURL(), now, payload.deadline - now);
       this.send({ ...envelope, messageId: crypto.randomUUID(), type: "context_snapshot", timestamp: Date.now(), payload: snapshot, error: null });
       return;
     }

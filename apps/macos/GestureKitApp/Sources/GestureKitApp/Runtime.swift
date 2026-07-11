@@ -280,17 +280,19 @@ final class GestureKitRuntime {
             try? server.send(challenge, to: connectionID)
         case (.providerAuthenticate, .providerAuthenticate(let authentication)):
             guard let response = Data(hexEncoded: authentication.hmac) else { return }
-            _ = try? providerSessions.authenticate(installId: authentication.installId, response: response) { [weak server] outbound in
+            _ = try? providerSessions.authenticate(installId: authentication.installId, response: response, connectionID: connectionID) { [weak server] outbound in
                 try? server?.send(outbound, to: connectionID)
             }
         case (.contextSnapshot, .contextSnapshot(let snapshot)):
             guard let gestureID = envelope.gestureSessionId,
-                  let pending = pendingContextGestures.removeValue(forKey: gestureID),
+                  let pending = pendingContextGestures[gestureID],
                   let session = providerSessions.activeSession(),
                   pending.providerSessionID == session.providerSessionID,
                   envelope.providerSessionId == session.providerSessionID,
+                  providerSessions.session(session.providerSessionID, belongsTo: connectionID),
                   snapshot.expiresAt >= currentTimestampMs(),
                   pending.deadline >= currentTimestampMs() else { return }
+            pendingContextGestures.removeValue(forKey: gestureID)
             let gesture = pending.gesture
             let actionID: StandardActionID
             switch gesture {

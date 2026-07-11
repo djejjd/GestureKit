@@ -9,6 +9,7 @@ struct AuthenticatedProviderSession: Equatable, Sendable {
     let providerID: String
     let providerSessionID: String
     let capabilities: Set<StandardActionID>
+    let connectionID: UUID
 }
 
 enum ProviderSessionError: Error { case invalidInstallID, credentialUnavailable, authenticationFailed, unknownSession }
@@ -32,22 +33,22 @@ final class ProviderSessionRegistry: @unchecked Sendable {
         return Data(nonce)
     }
 
-    func authenticate(installId: String, nonce: Data, response: Data, sink: @escaping ProviderSessionSink = { _ in }) throws -> AuthenticatedProviderSession {
+    func authenticate(installId: String, nonce: Data, response: Data, connectionID: UUID = UUID(), sink: @escaping ProviderSessionSink = { _ in }) throws -> AuthenticatedProviderSession {
         let secret = try credentialStore.secret(for: installId)
         lock.lock(); defer { lock.unlock() }
         guard pending[installId] == nonce, ProviderAuthenticator(secret: secret).verify(response, providerInstallID: installId, nonce: nonce) else { throw ProviderSessionError.authenticationFailed }
         pending.removeValue(forKey: installId)
-        let session = AuthenticatedProviderSession(providerInstallID: installId, providerID: installId, providerSessionID: UUID().uuidString, capabilities: Set(StandardActionID.allCases))
+        let session = AuthenticatedProviderSession(providerInstallID: installId, providerID: installId, providerSessionID: UUID().uuidString, capabilities: Set(StandardActionID.allCases), connectionID: connectionID)
         sessions[session.providerSessionID] = (session, sink)
         activeSessionID = session.providerSessionID
         return session
     }
 
     /// 生产握手从 registry 保存的一次性 nonce 取值，避免 Provider 在认证响应中回传 nonce。
-    func authenticate(installId: String, response: Data, sink: @escaping ProviderSessionSink = { _ in }) throws -> AuthenticatedProviderSession {
+    func authenticate(installId: String, response: Data, connectionID: UUID = UUID(), sink: @escaping ProviderSessionSink = { _ in }) throws -> AuthenticatedProviderSession {
         lock.lock(); let nonce = pending[installId]; lock.unlock()
         guard let nonce else { throw ProviderSessionError.authenticationFailed }
-        return try authenticate(installId: installId, nonce: nonce, response: response, sink: sink)
+        return try authenticate(installId: installId, nonce: nonce, response: response, connectionID: connectionID, sink: sink)
     }
 
     func send(_ envelope: ProviderEnvelope, to providerSessionID: String) throws {
@@ -61,5 +62,10 @@ final class ProviderSessionRegistry: @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         guard let activeSessionID else { return nil }
         return sessions[activeSessionID]?.0
+    }
+
+    func session(_ providerSessionID: String, belongsTo connectionID: UUID) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        return sessions[providerSessionID]?.0.connectionID == connectionID
     }
 }
