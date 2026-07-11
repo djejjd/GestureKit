@@ -38,7 +38,7 @@ final class MenuBarControllerTests: XCTestCase {
         controller.triggerAppErrorForTesting(reason: "listener_stopped")
 
         XCTAssertEqual(controller.currentStateForTesting(), .appError(reason: "listener_stopped"))
-        XCTAssertEqual(controller.statusTextForTesting(), "GestureKit 异常")
+        XCTAssertEqual(controller.statusTextForTesting(), "手势监听服务已停止")
     }
 
     func testPauseAndResume() {
@@ -132,6 +132,26 @@ final class MenuBarControllerTests: XCTestCase {
 
         XCTAssertEqual(controller.currentStateForTesting(), .normal)
         XCTAssertEqual(controller.statusTextForTesting(), "GestureKit 正常运行")
+    }
+
+    /// 单次成功只写入操作记录，不能在菜单栏留下短暂动作摘要。
+    func testSingleSuccessfulGestureDoesNotAddTransientMenuSummary() {
+        let control = SpyRuntimeControl()
+        let controller = MenuBarController(control: control)
+
+        controller.apply(event: AppMenuBarEvent(type: .chromeExecuted(
+            action: "activate_left_tab", success: true, detail: nil
+        )))
+
+        XCTAssertNil(controller.gestureSummaryForTesting())
+    }
+
+    /// 日志目录已由控制中心替代，菜单栏只保留生命周期操作。
+    func testMenuDoesNotContainLogDirectoryEntry() {
+        let control = SpyRuntimeControl()
+        let controller = MenuBarController(control: control)
+
+        XCTAssertFalse(controller.menuTitlesForTesting().contains("打开日志目录"))
     }
 
     func testChromeExecutionFailureShowsWarningAndReason() {

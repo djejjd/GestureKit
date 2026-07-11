@@ -30,15 +30,9 @@ final class MenuBarController {
         statusItem = NSMenuItem(title: "GestureKit 正常运行", action: nil, keyEquivalent: "")
         menu.addItem(statusItem)
 
-        let gestureItem = NSMenuItem(title: "", action: nil, keyEquivalent: "")
-        gestureItem.isHidden = true
-        gestureItem.tag = 1
-        menu.addItem(gestureItem)
-
         menu.addItem(NSMenuItem.separator())
         menu.addItem(actionItem("暂停手势 10 分钟", #selector(togglePause)))
         menu.addItem(actionItem("打开控制中心", #selector(showControlCenter)))
-        menu.addItem(actionItem("打开日志目录", #selector(openLogs)))
         menu.addItem(NSMenuItem.separator())
         menu.addItem(actionItem("退出", #selector(quit)))
         item.menu = menu
@@ -73,28 +67,20 @@ final class MenuBarController {
 
     private func handleGestureRecognized(gesture: String) {
         guard !isErrorOrPaused else { return }
-        let label = gestureLabelMap[gesture] ?? gesture
         currentState = .gestureRecognized(gesture: gesture)
-        // No color flash — wait for Chrome execution result
         statusItem.title = "GestureKit 正常运行"
-        setGestureText("最近手势：\(label)已识别")
     }
 
     private func handleChromeExecuted(action: String, success: Bool, detail: String?) {
         guard !isErrorOrPaused else { return }
         if success {
-            setTint(.green)
-            let text = chromeActionSuccessText(for: action)
+            currentState = .normal
+            setTint(.default)
             statusItem.title = "GestureKit 正常运行"
-            setGestureText(text)
-            scheduleFlashReset()
         } else {
             currentState = .gestureWarning(reason: detail ?? action)
-            setTint(.yellow)
+            setTint(.default)
             statusItem.title = "GestureKit 正常运行"
-            let reasonText = detail ?? "Chrome 执行失败"
-            setGestureText("上次动作未完成：\(reasonText)")
-            scheduleFlashReset()
         }
     }
 
@@ -107,19 +93,14 @@ final class MenuBarController {
     private func handleGestureWarning(reason: String) {
         guard !isErrorOrPaused else { return }
         currentState = .gestureWarning(reason: reason)
-        setTint(.yellow)
+        setTint(.default)
         statusItem.title = "GestureKit 正常运行"
-        let text = warningText(for: reason)
-        setGestureText("上次手势未生效：\(text)")
-        scheduleFlashReset()
     }
 
     private func handleAppError(reason: String) {
         currentState = .appError(reason: reason)
         setTint(.red)
-        statusItem.title = "GestureKit 异常"
-        let text = errorText(for: reason)
-        setGestureText(text)
+        statusItem.title = errorText(for: reason)
         cancelFlashReset()
     }
 
@@ -127,14 +108,12 @@ final class MenuBarController {
         currentState = .normal
         setTint(.default)
         statusItem.title = "GestureKit 正常运行"
-        setGestureText(nil)
     }
 
     private func handlePaused() {
         currentState = .paused
         setTint(.gray)
         statusItem.title = "GestureKit 已暂停"
-        setGestureText(nil)
         updatePauseMenuItem(isPaused: true)
         cancelFlashReset()
         startPauseTimer()
@@ -144,7 +123,6 @@ final class MenuBarController {
         currentState = .normal
         setTint(.default)
         statusItem.title = "GestureKit 正常运行"
-        setGestureText(nil)
         updatePauseMenuItem(isPaused: false)
         cancelPauseTimer()
     }
@@ -175,17 +153,6 @@ final class MenuBarController {
         item.button?.image = icon
     }
 
-    private func setGestureText(_ text: String?) {
-        if let item = menu.item(withTag: 1) {
-            if let text {
-                item.title = text
-                item.isHidden = false
-            } else {
-                item.isHidden = true
-            }
-        }
-    }
-
     private func scheduleFlashReset() {
         cancelFlashReset()
         flashTimer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: false) { [weak self] _ in
@@ -204,7 +171,6 @@ final class MenuBarController {
         guard !isErrorOrPaused else { return }
         currentState = .normal
         setTint(.default)
-        setGestureText(nil)
     }
 
     private func updatePauseMenuItem(isPaused: Bool) {
@@ -224,7 +190,6 @@ final class MenuBarController {
         }
     }
 
-    @objc private func openLogs() { control.openLogDirectory() }
     @objc private func quit() {
         cancelPauseTimer()
         control.quitApplication()
@@ -241,6 +206,8 @@ final class MenuBarController {
 
     func currentStateForTesting() -> AppMenuBarState { currentState }
     func statusTextForTesting() -> String { statusItem.title }
+    func gestureSummaryForTesting() -> String? { nil }
+    func menuTitlesForTesting() -> [String] { menu.items.map(\.title) }
 
     func triggerGestureRecognizedForTesting(gesture: String) {
         apply(event: AppMenuBarEvent(type: .gestureRecognized(gesture: gesture)))
