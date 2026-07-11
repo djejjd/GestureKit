@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>GestureKit Popup 预览</title>
+  <style>
+    :root{color-scheme:dark}*{box-sizing:border-box}body{margin:0;width:340px;min-height:600px;background:#101827;color:#edf3f8;font:13px/1.5 "Avenir Next","PingFang SC",sans-serif}main{padding:18px 16px 20px}h1{margin:0 0 12px;color:#f7fbff;font-size:21px;font-weight:700;letter-spacing:.2px}section{background:#182335;border:1px solid #2a3a50;border-radius:14px;padding:14px 15px;margin-bottom:10px}label{display:grid;gap:6px;margin-bottom:10px}label:last-child{margin-bottom:0}.row{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:4px 0}.muted{color:#8fa3b8}.value{color:#edf3f8}.online{color:#72d4b9}.warn{color:#f4c56f}select,button{min-height:32px;border:1px solid #3a4e66;border-radius:8px;background:#202f43;color:#edf3f8;padding:0 10px;font:inherit}select{width:100%}button{cursor:pointer}button:hover{background:#29405b}.toggles{display:grid;gap:4px}.toggles input{accent-color:#55c2a6;width:16px;height:16px}.range{margin-top:12px}.range input{width:100%;accent-color:#55c2a6}.status{display:grid;gap:2px}.status .row{border-bottom:1px dashed #2a3a50}.status .row:last-child{border-bottom:0}.diagnostics{display:grid;gap:8px}.diagnostics .row{padding:0}.diagnostic{background:#202f43;border:1px solid #31465d;border-radius:9px;padding:10px;margin-top:5px}.diagnostic strong{color:#f4c56f}.actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:10px}.primary{background:#23645c;border-color:#3b9888}.primary:hover{background:#2c7b70}.footer{width:100%;margin-top:2px}.footer button{width:100%;background:transparent}
+  </style>
+</head>
+<body><main>
+  <h1>GestureKit</h1>
+  <section><label>模式<select><option>安全模式</option><option>高效模式</option></select></label><label>轻扫灵敏度<select><option>稳健</option><option selected>标准</option><option>灵敏</option></select></label></section>
+  <section class="toggles"><label class="row"><span>边缘点按切换标签页</span><input type="checkbox" checked></label><label class="row"><span>中间双击关闭标签页</span><input type="checkbox"></label><label class="row"><span>快速轻扫切换标签页</span><input type="checkbox" checked></label><label class="range"><span class="row"><span>动作冷却</span><span class="online">180 ms</span></span><input type="range" value="35"></label></section>
+  <section class="status"><div class="row"><span class="muted">Native host</span><strong class="online">● 已连接</strong></div><div class="row"><span class="muted">GestureKit App</span><strong class="online">● 已连接</strong></div><div class="row"><span class="muted">灵敏度同步</span><strong class="warn">● 待同步</strong></div><div class="row"><span class="muted">最近结果</span><strong class="value">已完成</strong></div><button>刷新状态</button></section>
+  <section class="diagnostics"><div class="row"><strong>轻扫表现</strong><button>收起</button></div><div class="row"><span class="muted">最近轻扫成功率</span><span class="value">92%</span></div><div class="row"><span class="muted">主要失败原因</span><span class="warn">页面保护</span></div><div class="diagnostic"><strong>建议：继续观察</strong><div class="muted">系统会保留失败证据，详细记录可在控制中心查看。</div></div><div class="actions"><button>复制诊断</button><button>清空诊断</button></div></section>
+  <section><div class="row"><span class="muted">推荐档位</span><strong>标准</strong></div><div class="row"><span class="muted">运行时状态</span><span class="online">已应用</span></div><button class="primary footer">应用推荐设置</button></section>
+  <button class="footer">恢复安全模式默认值</button>
+</main></body></html>
