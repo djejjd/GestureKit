@@ -6,13 +6,15 @@ final class MenuBarController {
     private let menu: NSMenu
     private let statusItem: NSMenuItem
     private let control: any RuntimeControlling
+    private let openControlCenter: () -> Void
     private var currentState: AppMenuBarState = .normal
     private var flashTimer: Timer?
     private var pauseTimer: Timer?
     private var baseIcon: NSImage?
 
-    init(control: any RuntimeControlling) {
+    init(control: any RuntimeControlling, openControlCenter: @escaping () -> Void = {}) {
         self.control = control
+        self.openControlCenter = openControlCenter
 
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
         if let icon = NSImage(contentsOf: Bundle.module.url(forResource: "menu_icon", withExtension: "svg")!) {
@@ -35,11 +37,14 @@ final class MenuBarController {
 
         menu.addItem(NSMenuItem.separator())
         menu.addItem(actionItem("暂停手势 10 分钟", #selector(togglePause)))
+        menu.addItem(actionItem("打开控制中心", #selector(showControlCenter)))
         menu.addItem(actionItem("打开日志目录", #selector(openLogs)))
         menu.addItem(NSMenuItem.separator())
         menu.addItem(actionItem("退出", #selector(quit)))
         item.menu = menu
     }
+
+    @objc private func showControlCenter() { openControlCenter() }
 
     private func actionItem(_ title: String, _ action: Selector) -> NSMenuItem {
         let item = NSMenuItem(title: title, action: action, keyEquivalent: "")
