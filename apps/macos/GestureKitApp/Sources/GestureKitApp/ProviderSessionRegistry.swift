@@ -19,6 +19,7 @@ final class ProviderSessionRegistry: @unchecked Sendable {
     private let lock = NSLock()
     private var pending: [String: Data] = [:]
     private var sessions: [String: (AuthenticatedProviderSession, ProviderSessionSink)] = [:]
+    private var activeSessionID: String?
 
     init(credentialStore: ProviderCredentialStore = ProviderCredentialStore()) { self.credentialStore = credentialStore }
 
@@ -38,6 +39,7 @@ final class ProviderSessionRegistry: @unchecked Sendable {
         pending.removeValue(forKey: installId)
         let session = AuthenticatedProviderSession(providerInstallID: installId, providerID: installId, providerSessionID: UUID().uuidString, capabilities: Set(StandardActionID.allCases))
         sessions[session.providerSessionID] = (session, sink)
+        activeSessionID = session.providerSessionID
         return session
     }
 
@@ -57,6 +59,7 @@ final class ProviderSessionRegistry: @unchecked Sendable {
     /// V1 过渡期只启用一个内置 Chrome Provider，会话替换后始终选择最新认证会话。
     func activeSession() -> AuthenticatedProviderSession? {
         lock.lock(); defer { lock.unlock() }
-        return sessions.values.first?.0
+        guard let activeSessionID else { return nil }
+        return sessions[activeSessionID]?.0
     }
 }

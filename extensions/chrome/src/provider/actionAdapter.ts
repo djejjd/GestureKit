@@ -10,7 +10,7 @@ export class ChromeActionAdapter {
   async execute(action: ActionDescriptor, now = Date.now()): Promise<AdapterResult> {
     if (action.actionId !== "browser.link.open_adjacent") return { outcome: "failed", reason: "capability_unavailable" };
     if (!action.targetRef) return { outcome: "failed", reason: "target_not_found" };
-    const url = this.contexts.resolveTarget(action.targetRef, now);
+    const url = this.contexts.resolveTarget(action.contextId, action.targetRef, now);
     if (!url) return { outcome: "failed", reason: "context_expired" };
     await this.openAdjacent(url);
     return { outcome: "succeeded" };

@@ -19,7 +19,7 @@ final class GestureKitRuntime {
     private var isPaused = false
     private var pendingRequests: [String: (action: String, timestamp: Int64)] = [:]
     /// 等待 Provider context_snapshot 的手势；仅认证 v2 session 可写入。
-    private var pendingContextGestures: [String: GestureType] = [:]
+    private var pendingContextGestures: [String: (gesture: GestureType, providerSessionID: String, deadline: Int64)] = [:]
     private let executionTimeoutMs: Int64 = 1500
 
     init(
@@ -174,7 +174,7 @@ final class GestureKitRuntime {
             payload: .contextRequest(ContextRequestPayload(gestureSessionId: gestureSessionID, deadline: now + executionTimeoutMs)), error: nil
         )
         do {
-            pendingContextGestures[gestureSessionID] = gesture
+            pendingContextGestures[gestureSessionID] = (gesture, session.providerSessionID, now + executionTimeoutMs)
             try providerSessions.send(request, to: session.providerSessionID)
         } catch {
             pendingContextGestures.removeValue(forKey: gestureSessionID)
@@ -285,8 +285,13 @@ final class GestureKitRuntime {
             }
         case (.contextSnapshot, .contextSnapshot(let snapshot)):
             guard let gestureID = envelope.gestureSessionId,
-                  let gesture = pendingContextGestures.removeValue(forKey: gestureID),
-                  let session = providerSessions.activeSession() else { return }
+                  let pending = pendingContextGestures.removeValue(forKey: gestureID),
+                  let session = providerSessions.activeSession(),
+                  pending.providerSessionID == session.providerSessionID,
+                  envelope.providerSessionId == session.providerSessionID,
+                  snapshot.expiresAt >= currentTimestampMs(),
+                  pending.deadline >= currentTimestampMs() else { return }
+            let gesture = pending.gesture
             let actionID: StandardActionID
             switch gesture {
             case .threeFingerTap:

@@ -12,4 +12,12 @@ describe("ChromeActionAdapter", () => {
     expect(result).toMatchObject({ outcome: "failed", reason: "context_expired" });
     expect(opened).toBe(false);
   });
+
+  it("rejects a targetRef paired with a different contextId", async () => {
+    const contexts = new ContextProvider();
+    const snapshot = contexts.snapshot("https://example.com/a", 100, 50);
+    const adapter = new ChromeActionAdapter(contexts, async () => { throw new Error("must not open"); });
+    const result = await adapter.execute({ actionId: "browser.link.open_adjacent", contextId: "other-context", targetRef: snapshot.targetRef, parameters: {}, deadline: 200 }, 110);
+    expect(result).toMatchObject({ outcome: "failed", reason: "context_expired" });
+  });
 });
