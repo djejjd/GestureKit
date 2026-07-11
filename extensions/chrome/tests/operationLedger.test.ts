@@ -87,4 +87,14 @@ describe("OperationLedger", () => {
     await expect(afterFinalRestart.status("operation-1")).resolves.toMatchObject({ state: "success" });
     await expect(afterFinalRestart.pending(10)).resolves.toMatchObject([{ eventId: "event-accepted" }, { eventId: "event-result" }]);
   });
+
+  it("continues producer sequence after a worker restart", async () => {
+    const databaseName = `ledger-${crypto.randomUUID()}`;
+    const firstWorker = await createOperationLedgerStore(databaseName);
+    await expect(firstWorker.nextProducerSequence()).resolves.toBe(1);
+    await expect(firstWorker.nextProducerSequence()).resolves.toBe(2);
+
+    const restartedWorker = await createOperationLedgerStore(databaseName);
+    await expect(restartedWorker.nextProducerSequence()).resolves.toBe(3);
+  });
 });

@@ -23,6 +23,7 @@ export interface OperationLedgerStore {
   append(event: ProviderEvent): Promise<void>;
   acknowledge(eventIds: string[]): Promise<void>;
   compact(now: number): Promise<void>;
+  nextProducerSequence(): Promise<number>;
 }
 
 /** Provider 无法安全保存关键事件时必须拒绝继续执行。 */
@@ -42,6 +43,7 @@ const OUTBOX_STORE = "outbox";
 const METADATA_STORE = "metadata";
 const EVENTS_STORE = "events";
 const OUTBOX_BYTES_KEY = "outbox_bytes";
+const PRODUCER_SEQUENCE_KEY = "producer_sequence";
 
 /** 打开 Provider 单一数据库，确保 ledger 和 outbox 能参加同一个事务。 */
 export async function createOperationLedgerStore(name = "gesturekit-provider-v2", options: OperationLedgerOptions = {}): Promise<OperationLedgerStore> {
@@ -135,6 +137,16 @@ class IndexedDBOperationLedgerStore implements OperationLedgerStore {
       }
     }
     await transactionDone(transaction);
+  }
+
+  async nextProducerSequence(): Promise<number> {
+    const transaction = this.db.transaction(METADATA_STORE, "readwrite");
+    const metadata = transaction.objectStore(METADATA_STORE);
+    const current = await request<{ key: string; value: number } | undefined>(metadata.get(PRODUCER_SEQUENCE_KEY));
+    const next = (current?.value ?? 0) + 1;
+    metadata.put({ key: PRODUCER_SEQUENCE_KEY, value: next });
+    await transactionDone(transaction);
+    return next;
   }
 
   private async putEvent(transaction: IDBTransaction, event: ProviderEvent): Promise<void> {
