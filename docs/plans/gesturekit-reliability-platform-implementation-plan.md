@@ -67,17 +67,18 @@ P1 可观测性与协议底座
       └─ Task 5: 认证 Provider 会话与定向 IPC
 
 P2 Chrome Provider 迁移
+  ├─ Task 10A: App/popup UI 框架与状态文案（依赖 Task 4，不接入 Provider/配置业务）
   ├─ Task 6: IndexedDB ledger/outbox 与重连对账
   ├─ Task 7: 手势 session、通用规则与上下文快照
   └─ Task 8: Chrome context、guard 和标准动作 adapter（依赖 Task 4-7）
 
 P3 配置与界面迁移
   ├─ Task 9: App 配置迁移和 Provider 配置快照
-  ├─ Task 10: App 主窗口、菜单栏和精简 popup（依赖 Task 4、Task 9）
+  ├─ Task 10B: App 主窗口、菜单栏和精简 popup 的真实数据接入（依赖 Task 4、Task 9）
   └─ Task 11: 端到端验收、legacy 清理和发布关口（依赖全部实现任务及 Spike 闸门）
 ```
 
-实际执行顺序固定为：`Task 1/2/2A 并行 → Task 3 契约闭环门 → Task 4 → Task 4 审核闭环门 → Task 5 → Task 6/7 并行 → Task 8 → Task 9 → Task 10 → Task 11`。Task 1 或 Task 2 未经主审核代理确认时，只能继续做不依赖其结论的测试夹具，不能进入生产迁移；Task 2A 为可选能力，未通过不阻塞基础方案，但必须保留 `NoopShield`。Task 3 未通过跨语言载荷判别门时，Task 4/5 均不得开始；Task 4 未通过导出脱敏、迁移和幂等审核门时，Task 5 不得消费其模型或存储。
+实际执行顺序固定为：`Task 1/2/2A 并行 → Task 3 契约闭环门 → Task 4 → Task 4 审核闭环门 → Task 5 → Task 10A → Task 6/7 并行 → Task 8 → Task 9 → Task 10B → Task 11`。Task 10A 只固化 UI 框架、状态文案和 popup 信息边界，不能显示未验证的成功状态，也不能消费 Task 6–9 的运行时模型。Task 1 或 Task 2 未经主审核代理确认时，只能继续做不依赖其结论的测试夹具，不能进入生产迁移；Task 2A 为可选能力，未通过不阻塞基础方案，但必须保留 `NoopShield`。Task 3 未通过跨语言载荷判别门时，Task 4/5 均不得开始；Task 4 未通过导出脱敏、迁移和幂等审核门时，Task 5 不得消费其模型或存储。
 
 ## 文件结构
 
@@ -913,6 +914,8 @@ git commit -m "feat: make app configuration authoritative"
 
 ## Task 10: 实现 App 主窗口并收缩菜单栏与 popup
 
+> **执行分期：** `Task 10A` 在 Task 5 后前置完成固定导航、页面骨架、中文状态模型、最小 popup 和菜单栏收缩，不接入未完成的 Provider、ledger、guard 或配置逻辑。`Task 10B` 在 Task 9 后将既有页面接入 `OperationJournal`、`HealthSupervisor`、`SettingsStore`、Provider 会话和配置快照，并完成真实构建产物验收。页面责任以 [`gesturekit-v2-ui-information-architecture.md`](../architecture/gesturekit-v2-ui-information-architecture.md) 为准。
+
 **文件：**
 
 - Create: `apps/macos/GestureKitApp/Sources/GestureKitApp/GestureKitWindowController.swift`
@@ -957,9 +960,9 @@ Run: `swift test --filter DiagnosticPresentationMapperTests`
 
 Expected: FAIL，缺少 `presentDiagnostic`。
 
-- [ ] **Step 3: 实现 AppKit + SwiftUI 主窗口**
+- [ ] **Step 3: Task 10A 实现 AppKit + SwiftUI 主窗口框架**
 
-`AppDelegate` 保持 accessory activation policy，新增 `NSWindowController` 承载 SwiftUI。侧边栏固定为概览、操作记录、手势预设、Provider、隐私与存储、高级设置。历史记录只通过 `OperationJournal.query` 分页读取；证据导出调用 `EvidenceBundleExporter`。
+`AppDelegate` 保持 accessory activation policy，新增 `NSWindowController` 承载 SwiftUI。侧边栏固定为概览、操作记录、手势预设、Provider、隐私与存储、高级设置。Task 10A 的历史记录、Provider 和配置页面只依赖只读 presentation data source 并展示准备中/不可用状态；Task 10B 才通过 `OperationJournal.query` 分页读取并接入 `EvidenceBundleExporter`。
 
 `DiagnosticPresentationMapper` 把内部终态映射为中文，例如：
 
@@ -968,9 +971,11 @@ case .resultUnknown:
     return PresentedDiagnostic(title: "操作结果暂时无法确认", suggestion: "系统已保存完整诊断信息")
 ```
 
-- [ ] **Step 4: 收缩菜单栏和 popup**
+- [ ] **Step 4: Task 10A 收缩菜单栏和 popup**
 
 菜单栏仅保留状态、暂停/恢复、打开 GestureKit、持续故障摘要和退出。popup 仅显示当前页面支持状态、连接、当前预设、当前页面最近结果和打开 App 入口；移除完整设置、推荐和历史诊断列表。
+
+Task 10B 为既有页面补充真实状态、当前页面结果、历史分页和证据导出。Task 11 通过前，旧设置存储只可作为 Task 9 一次性迁移输入，popup 不得重新获得配置写入能力。
 
 - [ ] **Step 5: 运行 UI 相关测试和构建**
 
