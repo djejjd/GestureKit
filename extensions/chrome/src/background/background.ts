@@ -7,6 +7,8 @@ import { decodeProviderEnvelope, type ProviderEnvelope } from "../provider/proto
 import { ContextProvider } from "../provider/contextProvider";
 import { ChromeActionAdapter } from "../provider/actionAdapter";
 import { V2Dispatcher } from "../provider/v2Dispatcher";
+import { createOperationLedgerStore } from "../provider/operationLedger";
+import { TelemetryConnection } from "../provider/telemetryConnection";
 import { GESTURE_SETTINGS_STORAGE_KEY, loadGestureSettings } from "../settings/gestureSettings";
 import {
   createSavedOnlySettingsSyncStatus,
@@ -31,6 +33,8 @@ const STATUS_STORAGE_KEY = "gesturekitStatus";
 
 let manager: ReturnType<typeof createNativePortManager>;
 const v2Contexts = new ContextProvider();
+const providerLedger = createOperationLedgerStore();
+const producerSessionId = crypto.randomUUID();
 
 async function resolveLastPointer() {
   const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
@@ -153,9 +157,11 @@ const reconnectablePort = createReconnectableNativePort({
   attach: (port) => {
     manager = createManager(port);
     const v2Dispatcher = createV2Dispatcher(port);
+    const telemetryConnection = providerLedger.then((store) => new TelemetryConnection(store, producerSessionId, (message) => port.postMessage(message)));
     port.onMessage.addListener((message) => {
       try {
         const envelope = decodeProviderEnvelope(message) as ProviderEnvelope;
+        void telemetryConnection.then((connection) => connection.handle(envelope));
         void v2Dispatcher.handle(envelope);
         return;
       } catch {
