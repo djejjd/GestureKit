@@ -8,105 +8,11 @@
   </head>
   <body>
     <main>
-      <h1>GestureKit</h1>
-
-      <section>
-        <label>
-          模式
-          <select id="mode">
-            <option value="safe">安全模式</option>
-            <option value="efficient">高效模式</option>
-          </select>
-        </label>
-        <label>
-          轻扫灵敏度
-          <select id="swipeSensitivity">
-            <option value="robust">稳健</option>
-            <option value="standard">标准</option>
-            <option value="sensitive">灵敏</option>
-          </select>
-        </label>
-      </section>
-
-      <section>
-        <label class="row">
-          <span>边缘点按切换标签页</span>
-          <input id="edgeTapEnabled" type="checkbox" />
-        </label>
-        <label class="row">
-          <span>中间双击关闭标签页</span>
-          <input id="doubleTapCloseEnabled" type="checkbox" />
-        </label>
-        <label class="row">
-          <span>快速轻扫切换标签页</span>
-          <input id="flickSwitchEnabled" type="checkbox" />
-        </label>
-      </section>
-
-      <section>
-        <label class="field">
-          <span class="row">
-            <span>边缘区域宽度</span>
-            <output id="edgeWidthValue"></output>
-          </span>
-          <input id="edgeWidth" type="range" min="20" max="40" step="1" />
-        </label>
-
-        <label class="field">
-          <span class="row">
-            <span>双击速度</span>
-            <output id="doubleTapSpeedValue"></output>
-          </span>
-          <input id="doubleTapSpeed" type="range" min="240" max="500" step="10" />
-        </label>
-
-        <label class="field">
-          <span class="row">
-            <span>动作冷却</span>
-            <output id="cooldownMsValue"></output>
-          </span>
-          <input id="cooldownMs" type="range" min="80" max="500" step="10" />
-        </label>
-      </section>
-
-      <section class="status">
-        <div class="row"><span>Native host</span><strong id="nativeStatus">未连接</strong></div>
-        <div class="row"><span>GestureKit App</span><strong id="appStatus">未连接</strong></div>
-        <div class="row"><span>灵敏度同步</span><strong id="settingsSyncStatus">待同步</strong></div>
-        <div class="row"><span>最近结果</span><strong id="lastResult">暂无</strong></div>
-        <button id="refreshStatus" type="button" class="inline-button">刷新状态</button>
-      </section>
-
-      <section class="diagnostics">
-        <div class="row">
-          <span>轻扫表现</span>
-          <button id="diagnosticsToggle" class="inline-button" type="button" aria-expanded="false">展开</button>
-        </div>
-        <div class="row"><span>最近轻扫成功率</span><strong id="swipeSuccessRate">暂无</strong></div>
-        <div class="row"><span>主要失败原因</span><strong id="mainFailureReason">暂无</strong></div>
-        <div class="row"><span>建议</span><strong id="diagnosticsSuggestion">继续观察</strong></div>
-        <div class="row"><span>推荐档位</span><strong id="recommendedSensitivity">标准</strong></div>
-        <div class="row"><span>推荐最小距离</span><strong id="recommendedMinDistance">暂无</strong></div>
-        <div id="diagnosticsPanel" hidden>
-          <div id="diagnosticsList"></div>
-        </div>
-        <div class="actions">
-          <button id="copyDiagnostics" type="button">复制诊断</button>
-          <button id="clearDiagnostics" type="button">清空诊断</button>
-        </div>
-      </section>
-
-      <section class="recommendation" id="recommendationSection">
-        <div id="recommendationDelta"></div>
-        <strong id="recommendationSavedStatus"></strong>
-        <strong id="recommendationRuntimeStatus"></strong>
-        <strong id="recommendationFailureReason"></strong>
-        <button id="applyRecommendedSettings" type="button">应用推荐设置</button>
-      </section>
-
-      <section>
-        <button id="resetDefaults" type="button">恢复安全模式默认值</button>
-      </section>
+      <header><h1>GestureKit</h1><p id="pageSupport">正在检查当前页面</p></header>
+      <section><span>连接</span><strong id="appConnection">GestureKit App 正在连接</strong><strong id="providerConnection">Chrome Provider 正在连接</strong></section>
+      <section><span>当前预设</span><strong id="presetName">正在获取当前预设</strong><p>在 GestureKit 控制中心中修改</p></section>
+      <section><span>本页最近结果</span><strong id="latestResult">暂无本页操作记录</strong><p id="latestResultDetail">操作结果会显示在这里</p></section>
+      <button id="openControlCenter" type="button">打开 GestureKit 控制中心</button>
     </main>
     <script type="module" src="dist/popup/popup.js"></script>
   </body>
