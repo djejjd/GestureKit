@@ -13,10 +13,13 @@ final class GestureKitRuntime {
     private let diagnosticSink: (LocalIPCEnvelope) -> Void
     private var listeningTask: Task<Void, Never>?
     private var eventServer: LocalEventServer?
+    private let providerSessions = ProviderSessionRegistry()
     private let appSessionId: String
     private var internalState = AppInternalStatus()
     private var isPaused = false
     private var pendingRequests: [String: (action: String, timestamp: Int64)] = [:]
+    /// 等待 Provider context_snapshot 的手势；仅认证 v2 session 可写入。
+    private var pendingContextGestures: [String: GestureType] = [:]
     private let executionTimeoutMs: Int64 = 1500
 
     init(
@@ -41,6 +44,12 @@ final class GestureKitRuntime {
             let server = try LocalEventServer(logger: logger) { [weak self] envelope in
                 Task { @MainActor [weak self] in
                     self?.handleIPCEnvelope(envelope)
+                }
+            }
+            server.onRawMessage = { [weak self, weak server] connectionID, data in
+                guard let server else { return }
+                Task { @MainActor [weak self] in
+                    self?.handleProviderEnvelope(data, connectionID: connectionID, server: server)
                 }
             }
             server.start()
@@ -152,27 +161,24 @@ final class GestureKitRuntime {
             }
             return
         }
-        let requestId = UUID().uuidString
-        let envelope = LocalIPCEnvelope.gesture(
-            id: requestId,
-            timestamp: Int64(Date().timeIntervalSince1970 * 1000),
-            gesture: gesture,
-            appBundleId: context.appBundleId,
-            touchX: event.centroidX.map(Double.init),
-            durationMs: event.durationMs
+        guard let session = providerSessions.activeSession() else {
+            logger.warn("authenticated_provider_unavailable", rateLimitKey: "authenticated_provider_unavailable")
+            return
+        }
+        let gestureSessionID = UUID().uuidString
+        let now = currentTimestampMs()
+        let request = ProviderEnvelope(
+            protocolVersion: 2, messageId: UUID().uuidString,
+            providerSessionId: session.providerSessionID, gestureSessionId: gestureSessionID,
+            operationId: nil, type: .contextRequest, timestamp: now,
+            payload: .contextRequest(ContextRequestPayload(gestureSessionId: gestureSessionID, deadline: now + executionTimeoutMs)), error: nil
         )
-        let connectionCount = eventServer?.publish(envelope) ?? 0
-        if connectionCount == 0 {
-            logger.warn(
-                "gesture_published_without_client gesture=\(gesture.rawValue) appBundleId=\(context.appBundleId) connections=0",
-                rateLimitKey: "published_without_client"
-            )
-        } else {
-            let action = chromeAction(from: gesture)
-            let now = currentTimestampMs()
-            pendingRequests[requestId] = (action: action, timestamp: now)
-            logger.info("gesture_published gesture=\(gesture.rawValue) appBundleId=\(context.appBundleId) connections=\(connectionCount)")
-            scheduleExecutionTimeout(requestId: requestId, action: action, timestamp: now)
+        do {
+            pendingContextGestures[gestureSessionID] = gesture
+            try providerSessions.send(request, to: session.providerSessionID)
+        } catch {
+            pendingContextGestures.removeValue(forKey: gestureSessionID)
+            logger.warn("provider_context_send_failed", rateLimitKey: "provider_context_send_failed")
         }
     }
 
@@ -259,6 +265,45 @@ final class GestureKitRuntime {
             payload: ack
         ))
         _ = eventServer?.publish(ackEnvelope)
+    }
+
+    /// v2 认证消息只在 transport 边界处理；未认证连接不能进入旧动作或配置处理路径。
+    private func handleProviderEnvelope(_ data: Data, connectionID: UUID, server: LocalEventServer) {
+        guard let envelope = try? JSONDecoder().decode(ProviderEnvelope.self, from: data) else {
+            logger.warn("provider_v2_decode_rejected", rateLimitKey: "provider_v2_decode_rejected")
+            return
+        }
+        switch (envelope.type, envelope.payload) {
+        case (.providerHello, .providerHello(let hello)):
+            guard let nonce = try? providerSessions.beginAuthentication(hello) else { return }
+            let challenge = ProviderEnvelope(protocolVersion: 2, messageId: UUID().uuidString, providerSessionId: envelope.providerSessionId, gestureSessionId: nil, operationId: nil, type: .providerChallenge, timestamp: currentTimestampMs(), payload: .providerChallenge(ProviderChallengePayload(nonce: nonce.base64EncodedString(), expiresAt: currentTimestampMs() + 30_000)), error: nil)
+            try? server.send(challenge, to: connectionID)
+        case (.providerAuthenticate, .providerAuthenticate(let authentication)):
+            guard let response = Data(hexEncoded: authentication.hmac) else { return }
+            _ = try? providerSessions.authenticate(installId: authentication.installId, response: response) { [weak server] outbound in
+                try? server?.send(outbound, to: connectionID)
+            }
+        case (.contextSnapshot, .contextSnapshot(let snapshot)):
+            guard let gestureID = envelope.gestureSessionId,
+                  let gesture = pendingContextGestures.removeValue(forKey: gestureID),
+                  let session = providerSessions.activeSession() else { return }
+            let actionID: StandardActionID
+            switch gesture {
+            case .threeFingerTap:
+                guard snapshot.targetKind == .standardLink, let targetRef = snapshot.targetRef else { return }
+                actionID = .browserLinkOpenAdjacent
+                let action = ActionDescriptor(actionId: actionID, contextId: snapshot.contextId, targetRef: targetRef, parameters: [:], deadline: currentTimestampMs() + executionTimeoutMs)
+                let request = ProviderEnvelope(protocolVersion: 2, messageId: UUID().uuidString, providerSessionId: session.providerSessionID, gestureSessionId: gestureID, operationId: UUID().uuidString, type: .actionRequest, timestamp: currentTimestampMs(), payload: .actionRequest(action), error: nil)
+                try? providerSessions.send(request, to: session.providerSessionID)
+            case .threeFingerSwipeLeft, .threeFingerSwipeRight:
+                actionID = gesture == .threeFingerSwipeLeft ? .browserTabActivateNext : .browserTabActivatePrevious
+                let action = ActionDescriptor(actionId: actionID, contextId: snapshot.contextId, targetRef: nil, parameters: [:], deadline: currentTimestampMs() + executionTimeoutMs)
+                let request = ProviderEnvelope(protocolVersion: 2, messageId: UUID().uuidString, providerSessionId: session.providerSessionID, gestureSessionId: gestureID, operationId: UUID().uuidString, type: .actionRequest, timestamp: currentTimestampMs(), payload: .actionRequest(action), error: nil)
+                try? providerSessions.send(request, to: session.providerSessionID)
+            }
+        default:
+            logger.warn("provider_v2_unauthorized_message", rateLimitKey: "provider_v2_unauthorized_message")
+        }
     }
 
     private func chromeAction(from gesture: GestureType) -> String {
@@ -363,5 +408,22 @@ final class GestureKitRuntime {
 
     private func currentTimestampMs() -> Int64 {
         Int64(Date().timeIntervalSince1970 * 1000)
+    }
+}
+
+private extension Data {
+    /// Provider Protocol v2 规定认证 HMAC 使用十六进制编码，拒绝奇数长度或非法字符。
+    init?(hexEncoded value: String) {
+        guard value.count.isMultiple(of: 2) else { return nil }
+        var bytes: [UInt8] = []
+        bytes.reserveCapacity(value.count / 2)
+        var index = value.startIndex
+        while index < value.endIndex {
+            let next = value.index(index, offsetBy: 2)
+            guard let byte = UInt8(value[index..<next], radix: 16) else { return nil }
+            bytes.append(byte)
+            index = next
+        }
+        self.init(bytes)
     }
 }

@@ -3,6 +3,10 @@ import { chromeApi } from "./chromeApi";
 import { createNativePortManager } from "./nativePortManager";
 import { runConnectionProbe } from "./connectionProbe";
 import { createReconnectableNativePort, type PortLike } from "./reconnectableNativePort";
+import { decodeProviderEnvelope, type ProviderEnvelope } from "../provider/protocol";
+import { ContextProvider } from "../provider/contextProvider";
+import { ChromeActionAdapter } from "../provider/actionAdapter";
+import { V2Dispatcher } from "../provider/v2Dispatcher";
 import { GESTURE_SETTINGS_STORAGE_KEY, loadGestureSettings } from "../settings/gestureSettings";
 import {
   createSavedOnlySettingsSyncStatus,
@@ -26,6 +30,7 @@ const HOST_NAME = "com.gesturekit.host";
 const STATUS_STORAGE_KEY = "gesturekitStatus";
 
 let manager: ReturnType<typeof createNativePortManager>;
+const v2Contexts = new ContextProvider();
 
 async function resolveLastPointer() {
   const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
@@ -87,6 +92,17 @@ function createManager(port: PortLike) {
   });
 }
 
+function createV2Dispatcher(port: PortLike) {
+  const adapter = new ChromeActionAdapter(v2Contexts, async (url) => {
+    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+    await chrome.tabs.create({ url, index: tab?.index === undefined ? undefined : tab.index + 1, active: true });
+  });
+  return new V2Dispatcher(v2Contexts, adapter, async () => {
+    const resolved = await resolveLastPointer();
+    return resolved.status === "success" ? resolved.url : null;
+  }, (message) => port.postMessage(message));
+}
+
 function shouldRecordDiagnostic(message: { payload: { status: string; details?: Record<string, unknown> } }): boolean {
   if (message.payload.status === "no_target") return false;
   if (message.payload.status !== "gesture_unstable") return true;
@@ -136,7 +152,15 @@ const reconnectablePort = createReconnectableNativePort({
   connect: () => chrome.runtime.connectNative(HOST_NAME),
   attach: (port) => {
     manager = createManager(port);
+    const v2Dispatcher = createV2Dispatcher(port);
     port.onMessage.addListener((message) => {
+      try {
+        const envelope = decodeProviderEnvelope(message) as ProviderEnvelope;
+        void v2Dispatcher.handle(envelope);
+        return;
+      } catch {
+        // 旧消息仅在迁移窗口进入 V1 manager；v2 边界不会宽松降级。
+      }
       if (isSettingsAckMessage(message)) {
         void (async () => {
           const settings = await loadGestureSettings(chrome.storage.local);

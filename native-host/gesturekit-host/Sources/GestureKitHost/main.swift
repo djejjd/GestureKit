@@ -1,6 +1,7 @@
 import Foundation
 import GestureKitCore
 import Network
+import CryptoKit
 
 enum GestureKitHostSelfTest {
     static func run() throws {
@@ -27,7 +28,12 @@ enum GestureKitHostSelfTest {
         } catch NativeMessageCodecError.lengthMismatch(expected: 2, actual: 1) {
         }
 
-        let hostResponse = makeHostHelloResponse()
+        let hostResponse = try makeHostUnavailableResponse()
+        let decodedEnvelope = try JSONDecoder().decode(ProviderEnvelope.self, from: hostResponse)
+        guard decodedEnvelope.protocolVersion == 2,
+              decodedEnvelope.error?.code == "app_unavailable" else {
+            throw NSError(domain: "GestureKitHostSelfTest", code: 6, userInfo: [NSLocalizedDescriptionKey: "Host unavailable response is not v2"])
+        }
         let framedHostResponse = NativeMessageCodec.encode(hostResponse)
         guard try NativeMessageCodec.decode(framedHostResponse) == hostResponse else {
             throw NSError(domain: "GestureKitHostSelfTest", code: 5, userInfo: [NSLocalizedDescriptionKey: "Host response frame did not decode"])
@@ -52,32 +58,37 @@ if CommandLine.arguments.contains("--stdio-bridge") {
     exit(0)
 }
 
-func makeHostHelloResponse() -> Data {
-    Data("""
-{"version":1,"id":"host-hello","type":"hello","timestamp":0,"payload":{"host":"GestureKitHost"},"error":null}
-""".utf8)
-}
-
 runStdioBridge()
 
 func runStdioBridge() {
-    let bridge = AppToChromeBridge(connection: AppIPCClient().connect())
+    let bridge = ProviderBridge(connection: AppIPCClient().connect())
     bridge.start()
     bridge.wait()
 }
 
-func makeAppUnavailableResponse() -> Data {
-    Data("""
-{"version":1,"id":"app-unavailable","type":"action_result","timestamp":0,"payload":{"action":"open_link_background","status":"app_unavailable"},"error":null}
-""".utf8)
+func makeHostUnavailableResponse() throws -> Data {
+    let envelope = ProviderEnvelope(
+        protocolVersion: 2,
+        messageId: "host-app-unavailable",
+        providerSessionId: "host-bridge",
+        gestureSessionId: nil,
+        operationId: nil,
+        type: .healthResponse,
+        timestamp: 0,
+        payload: .healthResponse(HealthResponsePayload(probeSequence: 0, healthy: false)),
+        error: ProviderError(code: "app_unavailable", message: "GestureKit App 不可用")
+    )
+    return try JSONEncoder().encode(envelope)
 }
 
-private final class AppToChromeBridge: @unchecked Sendable {
+/// 透明桥接层：只处理 Native Messaging 帧与 App 字节流，不解释动作或 telemetry。
+private final class ProviderBridge: @unchecked Sendable {
     private let connection: NWConnection
     private let done = DispatchSemaphore(value: 0)
     private let lock = NSLock()
     private var buffer = Data()
     private var hasWrittenFrame = false
+    private let installID = "chrome-native-host"
 
     init(connection: NWConnection) {
         self.connection = connection
@@ -85,8 +96,10 @@ private final class AppToChromeBridge: @unchecked Sendable {
 
     func start() {
         connection.stateUpdateHandler = { state in
-            if case .failed = state {
-                self.writeFrame(makeAppUnavailableResponse())
+            if case .ready = state {
+                self.sendHello()
+            } else if case .failed = state {
+                self.writeUnavailableFrame()
                 self.done.signal()
             } else if case .cancelled = state {
                 self.done.signal()
@@ -109,7 +122,7 @@ private final class AppToChromeBridge: @unchecked Sendable {
             }
             if error != nil {
                 if !self.hasWrittenFrame {
-                    self.writeFrame(makeAppUnavailableResponse())
+                    self.writeUnavailableFrame()
                 }
                 self.done.signal()
                 return
@@ -129,7 +142,9 @@ private final class AppToChromeBridge: @unchecked Sendable {
         lock.unlock()
 
         lines.forEach { line in
-            writeFrame(line)
+            if !handleChallenge(line) {
+                writeFrame(line)
+            }
         }
     }
 
@@ -152,6 +167,32 @@ private final class AppToChromeBridge: @unchecked Sendable {
 
         FileHandle.standardOutput.write(NativeMessageCodec.encode(payload))
     }
+
+    private func writeUnavailableFrame() {
+        if let payload = try? makeHostUnavailableResponse() { writeFrame(payload) }
+    }
+
+    /// host 是 App 认证的 Provider 身份；只截获 challenge，业务 envelope 保持透明转发。
+    private func sendHello() {
+        let envelope = ProviderEnvelope(protocolVersion: 2, messageId: UUID().uuidString, providerSessionId: "host-bridge", gestureSessionId: nil, operationId: nil, type: .providerHello, timestamp: currentTimestamp(), payload: .providerHello(ProviderHelloPayload(installId: installID, protocolVersions: [2], environment: "chrome-native-host")), error: nil)
+        sendEnvelope(envelope)
+    }
+
+    private func handleChallenge(_ data: Data) -> Bool {
+        guard let envelope = try? JSONDecoder().decode(ProviderEnvelope.self, from: data),
+              case .providerChallenge(let challenge) = envelope.payload,
+              let nonce = Data(base64Encoded: challenge.nonce),
+              let secret = try? Data(contentsOf: credentialURL()), secret.count == 32 else { return false }
+        let response = ProviderAuthenticator(secret: secret).response(for: installID, nonce: nonce)
+        let hex = response.map { String(format: "%02x", $0) }.joined()
+        let auth = ProviderEnvelope(protocolVersion: 2, messageId: UUID().uuidString, providerSessionId: envelope.providerSessionId, gestureSessionId: nil, operationId: nil, type: .providerAuthenticate, timestamp: currentTimestamp(), payload: .providerAuthenticate(ProviderAuthenticatePayload(installId: installID, hmac: hex)), error: nil)
+        sendEnvelope(auth)
+        return true
+    }
+
+    private func credentialURL() -> URL { FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/GestureKit/providers/\(installID).secret") }
+    private func currentTimestamp() -> Int64 { Int64(Date().timeIntervalSince1970 * 1000) }
+    private func sendEnvelope(_ envelope: ProviderEnvelope) { if let data = try? JSONEncoder().encode(envelope) { sendToApp(data) } }
 
     private func startStdinReader() {
         DispatchQueue.global(qos: .userInitiated).async {

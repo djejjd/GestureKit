@@ -41,9 +41,22 @@ final class ProviderSessionRegistry: @unchecked Sendable {
         return session
     }
 
+    /// 生产握手从 registry 保存的一次性 nonce 取值，避免 Provider 在认证响应中回传 nonce。
+    func authenticate(installId: String, response: Data, sink: @escaping ProviderSessionSink = { _ in }) throws -> AuthenticatedProviderSession {
+        lock.lock(); let nonce = pending[installId]; lock.unlock()
+        guard let nonce else { throw ProviderSessionError.authenticationFailed }
+        return try authenticate(installId: installId, nonce: nonce, response: response, sink: sink)
+    }
+
     func send(_ envelope: ProviderEnvelope, to providerSessionID: String) throws {
         lock.lock(); let sink = sessions[providerSessionID]?.1; lock.unlock()
         guard let sink else { throw ProviderSessionError.unknownSession }
         sink(envelope)
+    }
+
+    /// V1 过渡期只启用一个内置 Chrome Provider，会话替换后始终选择最新认证会话。
+    func activeSession() -> AuthenticatedProviderSession? {
+        lock.lock(); defer { lock.unlock() }
+        return sessions.values.first?.0
     }
 }
