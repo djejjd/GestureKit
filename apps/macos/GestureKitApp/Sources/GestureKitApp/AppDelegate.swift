@@ -6,6 +6,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var control: RuntimeControl?
     private var menuBar: MenuBarController?
     private var controlCenter: ControlCenterWindowController?
+    private var journal: OperationJournal?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         runtime = GestureKitRuntime(menuBarHandler: { [weak self] event in
@@ -17,7 +18,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.showControlCenter()
         }
         self.menuBar = menuBar
-        controlCenter = ControlCenterWindowController(control: control)
+        journal = makeJournal()
+        controlCenter = ControlCenterWindowController(control: control, journal: journal)
 
         runtime?.start()
     }
@@ -29,5 +31,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         runtime?.stop()
+    }
+
+    /// 创建应用级操作账本；目录不可写时保留 UI，但不阻断手势监听启动。
+    private func makeJournal() -> OperationJournal? {
+        let fileManager = FileManager.default
+        guard let supportDirectory = try? fileManager.url(
+            for: .applicationSupportDirectory,
+            in: .userDomainMask,
+            appropriateFor: nil,
+            create: true
+        ) else { return nil }
+        let directory = supportDirectory.appendingPathComponent("GestureKit", isDirectory: true)
+        do {
+            try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
+            return try OperationJournal(path: directory.appendingPathComponent("operation-journal.sqlite").path)
+        } catch {
+            return nil
+        }
     }
 }

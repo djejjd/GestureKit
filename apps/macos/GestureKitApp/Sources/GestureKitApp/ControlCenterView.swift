@@ -1,12 +1,85 @@
 import AppKit
 import SwiftUI
 
+/// 控制中心展示的一条操作摘要。
+struct OperationRow: Identifiable {
+    let id: String
+    let state: String
+    let stateColor: Color
+    let eventCount: Int
+    let lastEventAt: Date
+}
+
+/// 控制中心的数据模型，负责从账本读取可回溯的操作摘要。
+@MainActor
+final class ControlCenterViewModel: ObservableObject {
+    @Published private(set) var operations: [OperationRow] = []
+    @Published private(set) var loadError: String?
+
+    private let journal: (any OperationJournaling)?
+
+    init(journal: (any OperationJournaling)?) {
+        self.journal = journal
+    }
+
+    /// 读取最近操作。查询失败时保留界面并显示可理解的中文提示。
+    func refresh() {
+        guard let journal else {
+            operations = []
+            loadError = nil
+            return
+        }
+        let result = Result { try journal.query(OperationFilter(), limit: 20) }
+        switch result {
+        case .success(let timelines):
+            operations = timelines.map(Self.makeRow)
+            loadError = nil
+        case .failure:
+            operations = []
+            loadError = "暂时无法读取本地操作记录"
+        }
+    }
+
+    private static func makeRow(_ timeline: OperationTimeline) -> OperationRow {
+        let state = timeline.terminalState.map(stateText) ?? "进行中"
+        let color: Color
+        switch timeline.terminalState {
+        case .succeeded: color = .green
+        case .failed: color = .red
+        case .resultUnknown, .operationInterrupted: color = .orange
+        case nil: color = .blue
+        }
+        return OperationRow(
+            id: timeline.operationId,
+            state: state,
+            stateColor: color,
+            eventCount: timeline.events.count,
+            lastEventAt: Date(timeIntervalSince1970: TimeInterval(timeline.lastEventAt) / 1000)
+        )
+    }
+
+    private static func stateText(_ state: OperationTerminalState) -> String {
+        switch state {
+        case .succeeded: return "已完成"
+        case .failed: return "失败"
+        case .resultUnknown: return "结果未知"
+        case .operationInterrupted: return "已中断"
+        }
+    }
+}
+
 /// Task 10 控制中心：把菜单栏的瞬时状态升级为可回溯的主窗口入口。
 struct ControlCenterView: View {
     let control: any RuntimeControlling
+    @StateObject private var model: ControlCenterViewModel
     @State private var selection = "概览"
 
     private let pages = ["概览", "操作记录", "Provider", "隐私与存储", "设置"]
+
+    init(control: any RuntimeControlling, journal: (any OperationJournaling)? = nil) {
+        self.control = control
+        _model = StateObject(wrappedValue: ControlCenterViewModel(journal: journal))
+    }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -32,6 +105,7 @@ struct ControlCenterView: View {
                 }.padding(30).frame(maxWidth: .infinity, alignment: .leading)
             }.background(Color(nsColor: .controlBackgroundColor))
         }.frame(minWidth: 760, minHeight: 500)
+        .onAppear { model.refresh() }
     }
 
     @ViewBuilder private var pageContent: some View {
@@ -40,11 +114,39 @@ struct ControlCenterView: View {
             VStack(alignment: .leading, spacing: 14) {
                 statusCard("运行状态", "手势监听正常", .green)
                 statusCard("Provider", "Chrome 已认证，动作将定向发送", .blue)
-                statusCard("最近一次操作", "暂无新的失败记录", .secondary)
+                if let latest = model.operations.first {
+                    statusCard("最近一次操作", "(latest.state) · (latest.eventCount) 个事件", latest.stateColor)
+                } else {
+                    statusCard("最近一次操作", "暂无已记录操作", .secondary)
+                }
             }
         case "操作记录":
-            Text("历史操作会从 OperationJournal 分页读取。\n失败、超时和结果未知的操作会保留完整证据链。")
-                .foregroundStyle(.secondary).padding(.top, 10)
+            if let error = model.loadError {
+                Text(error).foregroundStyle(.secondary).padding(.top, 10)
+            } else if model.operations.isEmpty {
+                Text("暂无操作记录。\n失败、超时和结果未知的操作会保留完整证据链。")
+                    .foregroundStyle(.secondary).padding(.top, 10)
+            } else {
+                VStack(alignment: .leading, spacing: 10) {
+                    ForEach(model.operations) { operation in
+                        HStack(spacing: 12) {
+                            Circle().fill(operation.stateColor).frame(width: 9, height: 9)
+                            VStack(alignment: .leading, spacing: 3) {
+                                Text(operation.state).font(.headline)
+                                Text(operation.id).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                            }
+                            Spacer()
+                            VStack(alignment: .trailing, spacing: 3) {
+                                Text("\(operation.eventCount) 个事件").font(.subheadline)
+                                Text(operation.lastEventAt, style: .relative).font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
+                        .padding(14)
+                        .background(.background, in: RoundedRectangle(cornerRadius: 12))
+                        .overlay(RoundedRectangle(cornerRadius: 12).stroke(.quaternary))
+                    }
+                }
+            }
         case "Provider":
             statusCard("Chrome Provider", "已认证 · 当前会话正常", .green)
             Text("Provider 只接收标准动作，不读取网页正文或 Cookie。")
@@ -70,8 +172,8 @@ struct ControlCenterView: View {
 /// 承载 SwiftUI 控制中心的 AppKit 窗口控制器。
 @MainActor
 final class ControlCenterWindowController: NSWindowController {
-    init(control: any RuntimeControlling) {
-        let view = ControlCenterView(control: control)
+    init(control: any RuntimeControlling, journal: (any OperationJournaling)? = nil) {
+        let view = ControlCenterView(control: control, journal: journal)
         let window = NSWindow(contentViewController: NSHostingController(rootView: view))
         window.title = "GestureKit 控制中心"
         window.styleMask = [.titled, .closable, .miniaturizable, .resizable]
