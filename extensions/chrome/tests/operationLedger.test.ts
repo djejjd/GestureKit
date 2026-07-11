@@ -37,4 +37,16 @@ describe("OperationLedger", () => {
     await expect(store.accept("operation-1", accepted)).resolves.toBe("accepted");
     await expect(store.pending(10)).resolves.toHaveLength(1);
   });
+
+  it("persists final state and keeps it after outbox acknowledgement", async () => {
+    const store = await createOperationLedgerStore(`ledger-${crypto.randomUUID()}`);
+    await store.accept("operation-1", event("event-accepted", "action_accepted"));
+    const result = event("event-result", "action_result");
+
+    await store.finalize("operation-1", "succeeded", result);
+    await store.acknowledge(["event-accepted", "event-result"]);
+
+    await expect(store.status("operation-1")).resolves.toMatchObject({ state: "success" });
+    await expect(store.pending(10)).resolves.toEqual([]);
+  });
 });
