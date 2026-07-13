@@ -864,7 +864,7 @@ public struct AppConfiguration: Codable, Equatable, Sendable {
 }
 ```
 
-- [ ] **Step 1: 写一次性导入失败测试**
+- [x] **Step 1: 写一次性导入失败测试**
 
 ```swift
 func testLegacySettingsImportRunsOnlyOnce() throws {
@@ -879,7 +879,7 @@ it("drops a cache with a different store epoch", () => {
 });
 ```
 
-- [ ] **Step 2: 运行测试，确认失败**
+- [x] **Step 2: 运行测试，确认失败**
 
 Run: `swift test --filter ConfigurationMigrationTests`
 
@@ -889,15 +889,15 @@ Run: `npm test -- --run tests/appConfigurationCache.test.ts`
 
 Expected: FAIL，缺少 `applySnapshot`。
 
-- [ ] **Step 3: 实现 App 配置事务和 legacy cutover**
+- [x] **Step 3: 实现 App 配置事务和 legacy cutover**
 
 App 首次 v2 连接时仅在没有 migration marker 的情况下请求 legacy snapshot。校验后在同一持久化事务写入 `AppConfiguration`、marker、epoch 和 version。之后 popup 禁止写用户配置；Provider 收到 epoch 不一致时删除缓存并等待权威 snapshot。
 
-- [ ] **Step 4: 删除扩展反向设置同步**
+- [x] **Step 4: 删除扩展反向设置同步**
 
 移除 `chrome.storage.onChanged → settings_update` 主路径。保留 legacy adapter 只用于一次导入，导入成功后拒绝后续 legacy 写入。所有配置 ACK 只表达 Provider 缓存已应用，不能覆盖 App。
 
-- [ ] **Step 5: 运行测试和提交**
+- [x] **Step 5: 运行测试和提交**
 
 Run: `swift test --filter AppConfigurationTests`
 
