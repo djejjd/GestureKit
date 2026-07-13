@@ -57,6 +57,45 @@ final class RuntimeSettingsTests: XCTestCase {
         XCTAssertEqual(ack.recognitionSettings.swipeSensitivity, .sensitive)
     }
 
+    func testLegacySettingsUpdateIsRejectedAfterMigrationMarker() throws {
+        let defaults = UserDefaults(suiteName: "GestureKitTests.runtimeLegacySettings")!
+        defaults.removePersistentDomain(forName: "GestureKitTests.runtimeLegacySettings")
+        let runtime = GestureKitRuntime(
+            menuBarHandler: { _ in },
+            touchBackend: StubTouchBackend(),
+            settingsStore: UserDefaultsSettingsStore(defaults: defaults),
+            logger: GestureKitLogger(terminalWriter: { _ in })
+        )
+        let payload = SettingsUpdatePayload(
+            swipeSensitivity: .sensitive,
+            swipeMinDistance: 0.075,
+            swipeHorizontalRatio: 1.25,
+            swipeMinDurationMs: 50,
+            swipeMaxDurationMs: 480
+        )
+
+        XCTAssertTrue(runtime.applyLegacySettingsUpdateForTesting(payload).applied)
+        XCTAssertFalse(runtime.applyLegacySettingsUpdateForTesting(payload).applied)
+    }
+
+    func testProviderSnapshotComesFromPersistedAppAuthority() throws {
+        let defaults = UserDefaults(suiteName: "GestureKitTests.runtimeProviderConfiguration")!
+        defaults.removePersistentDomain(forName: "GestureKitTests.runtimeProviderConfiguration")
+        let runtime = GestureKitRuntime(
+            menuBarHandler: { _ in },
+            touchBackend: StubTouchBackend(),
+            settingsStore: UserDefaultsSettingsStore(defaults: defaults),
+            logger: GestureKitLogger(terminalWriter: { _ in })
+        )
+
+        let snapshot = try runtime.configurationSnapshotForProviderForTesting()
+        let persisted = try XCTUnwrap(UserDefaultsSettingsStore(defaults: defaults).loadAppConfiguration())
+
+        XCTAssertEqual(snapshot.storeEpoch, persisted.storeEpoch)
+        XCTAssertEqual(snapshot.configurationVersion, persisted.configurationVersion)
+        XCTAssertEqual(try JSONDecoder().decode(AppConfiguration.self, from: Data(snapshot.configJSON.utf8)), persisted)
+    }
+
     func testProbeResponseIncludesAppSessionId() {
         let runtime = GestureKitRuntime(
             menuBarHandler: { _ in },

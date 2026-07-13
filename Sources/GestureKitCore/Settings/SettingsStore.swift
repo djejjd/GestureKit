@@ -10,6 +10,7 @@ public protocol AppConfigurationStore {
     func loadAppConfiguration() throws -> AppConfiguration?
     func saveAppConfiguration(_ configuration: AppConfiguration) throws
     func importLegacyAppConfiguration(_ configuration: AppConfiguration) throws
+    func hasLegacyMigrationMarker() throws -> Bool
 }
 
 public enum AppConfigurationStoreError: Error, Equatable {
@@ -52,6 +53,10 @@ public struct UserDefaultsSettingsStore: SettingsStore, AppConfigurationStore {
             throw AppConfigurationStoreError.legacyMigrationAlreadyCompleted
         }
         try commit(configuration, marksLegacyMigrationComplete: true)
+    }
+
+    public func hasLegacyMigrationMarker() throws -> Bool {
+        try loadTransaction()?.legacyMigrationComplete ?? false
     }
 
     /// 一个持久化记录包含快照、迁移标记、epoch 与版本，因此不存在部分提交状态。

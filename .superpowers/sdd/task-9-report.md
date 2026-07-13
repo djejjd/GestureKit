@@ -28,3 +28,10 @@
 ## 范围
 
 - 未实现 Task 10B UI、Task 11 cleanup、权限或 guard 改动，也未改变 V1 手势动作范围。
+
+## 生产接线补充
+
+- Runtime 现在只把 `settings_update` 作为 marker 尚不存在时的 legacy import 输入；首次导入写入 marker 后，所有后续 legacy settings update 都返回 `applied: false`，不会修改 recognizer 或 App 配置。
+- 已认证的 v2 Provider 会话会接收由 App 持久化权威配置生成的 `configuration_snapshot`。Runtime 接收 `configuration_ack` 时仅记录日志，不会以 Provider ACK 覆盖 App 配置。
+- 新增 RED-GREEN Runtime 用例：验证 marker 后 legacy 写入被拒绝，以及 Provider 快照与已持久化的 App 配置一致。
+- 补充验证：`swift test --filter RuntimeSettingsTests` 6 passed；全量 `swift test` 136 passed；Chrome 全量 23 files、151 tests passed；`npm run build` exit 0；`git diff --check` 无输出。

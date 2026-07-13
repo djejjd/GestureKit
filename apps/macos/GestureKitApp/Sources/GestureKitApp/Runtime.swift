@@ -1,6 +1,10 @@
 import Foundation
 import GestureKitCore
 
+private enum AppConfigurationUnavailable: Error {
+    case storeUnavailable
+}
+
 @MainActor
 final class GestureKitRuntime {
     private let menuBarHandler: (AppMenuBarEvent) -> Void
@@ -9,6 +13,7 @@ final class GestureKitRuntime {
     private let appContextResolver = AppContextResolver()
     private let touchBackend: any TouchBackend
     private let settingsStore: any SettingsStore
+    private let configurationMigration: ConfigurationMigration?
     private let logger: GestureKitLogger
     private let diagnosticSink: (LocalIPCEnvelope) -> Void
     private var listeningTask: Task<Void, Never>?
@@ -32,6 +37,8 @@ final class GestureKitRuntime {
         self.menuBarHandler = menuBarHandler
         self.touchBackend = touchBackend
         self.settingsStore = settingsStore
+        self.configurationMigration = (settingsStore as? any AppConfigurationStore)
+            .map(ConfigurationMigration.init(store:))
         self.logger = logger
         self.diagnosticSink = diagnosticSink
         self.ruleEngine = RuleEngine(rules: (try? settingsStore.loadRules()) ?? DefaultRules.v1)
@@ -213,6 +220,38 @@ final class GestureKitRuntime {
         )
     }
 
+    /// 仅用于 v1 -> v2 的一次性切换；marker 已存在时旧设置写入必须失败关闭。
+    private func applyLegacySettingsUpdate(_ payload: SettingsUpdatePayload) -> SettingsAckPayload {
+        guard let configurationMigration,
+              (try? configurationMigration.isLegacyImportPending()) == true else {
+            return SettingsAckPayload(
+                applied: false,
+                swipeSensitivity: payload.swipeSensitivity,
+                appSessionId: appSessionId,
+                recognitionSettings: payload.recognitionSettings,
+                message: "legacy_settings_write_rejected"
+            )
+        }
+        do {
+            _ = try configurationMigration.importLegacy(recognition: payload.recognitionSettings)
+            recognizer.updateSettings(payload.recognitionSettings)
+            return SettingsAckPayload(
+                applied: true,
+                swipeSensitivity: payload.swipeSensitivity,
+                appSessionId: appSessionId,
+                recognitionSettings: payload.recognitionSettings
+            )
+        } catch {
+            return SettingsAckPayload(
+                applied: false,
+                swipeSensitivity: payload.swipeSensitivity,
+                appSessionId: appSessionId,
+                recognitionSettings: payload.recognitionSettings,
+                message: "legacy_settings_write_rejected"
+            )
+        }
+    }
+
     func observeForTesting(_ frame: TouchFrame) -> RecognizedGesture? {
         recognizer.observe(frame).compactMap(\.recognizedGesture).first
     }
@@ -223,6 +262,14 @@ final class GestureKitRuntime {
 
     func handleProbeRequestForTesting(id: String) -> GestureKitMessage {
         handleProbeRequest(id).message
+    }
+
+    func applyLegacySettingsUpdateForTesting(_ payload: SettingsUpdatePayload) -> SettingsAckPayload {
+        applyLegacySettingsUpdate(payload)
+    }
+
+    func configurationSnapshotForProviderForTesting() throws -> ConfigurationSnapshotPayload {
+        try authoritativeConfigurationSnapshot()
     }
 
     var isCurrentlyPaused: Bool { isPaused }
@@ -259,7 +306,7 @@ final class GestureKitRuntime {
         guard let payload = envelope.message.settingsUpdatePayload else {
             return
         }
-        let ack = applySettingsUpdate(payload)
+        let ack = applyLegacySettingsUpdate(payload)
         let ackEnvelope = LocalIPCEnvelope(message: .settingsAck(
             id: envelope.id,
             timestamp: currentTimestampMs(),
@@ -281,9 +328,30 @@ final class GestureKitRuntime {
             try? server.send(challenge, to: connectionID)
         case (.providerAuthenticate, .providerAuthenticate(let authentication)):
             guard let response = Data(hexEncoded: authentication.hmac) else { return }
-            _ = try? providerSessions.authenticate(installId: authentication.installId, response: response, connectionID: connectionID) { [weak server] outbound in
+            guard let session = try? providerSessions.authenticate(
+                installId: authentication.installId,
+                response: response,
+                connectionID: connectionID,
+                sink: { [weak server] outbound in
                 try? server?.send(outbound, to: connectionID)
-            }
+                }
+            ) else { return }
+            guard let snapshot = try? authoritativeConfigurationSnapshot() else { return }
+            let outbound = ProviderEnvelope(
+                protocolVersion: 2, messageId: UUID().uuidString,
+                providerSessionId: session.providerSessionID, gestureSessionId: nil,
+                operationId: nil, type: .configurationSnapshot, timestamp: currentTimestampMs(),
+                payload: .configurationSnapshot(snapshot), error: nil
+            )
+            try? providerSessions.send(outbound, to: session.providerSessionID)
+        case (.configurationAck, .configurationAck(let acknowledgement)):
+            guard let session = providerSessions.activeSession(),
+                  envelope.providerSessionId == session.providerSessionID,
+                  providerSessions.session(session.providerSessionID, belongsTo: connectionID) else { return }
+            logger.info(
+                "provider_configuration_ack applied=\(acknowledgement.applied) version=\(acknowledgement.appliedVersion)",
+                rateLimitKey: "provider_configuration_ack"
+            )
         case (.contextSnapshot, .contextSnapshot(let snapshot)):
             guard let gestureID = envelope.gestureSessionId,
                   let pending = pendingContextGestures[gestureID],
@@ -321,6 +389,18 @@ final class GestureKitRuntime {
         case .threeFingerSwipeRight: return "activate_left_tab"
         case .threeFingerTap: return "open_link_background"
         }
+    }
+
+    private func authoritativeConfigurationSnapshot() throws -> ConfigurationSnapshotPayload {
+        guard let configurationMigration else { throw AppConfigurationUnavailable.storeUnavailable }
+        let configuration = try configurationMigration.authoritativeConfiguration()
+        let data = try JSONEncoder.gestureKit.encode(configuration)
+        return ConfigurationSnapshotPayload(
+            storeEpoch: configuration.storeEpoch,
+            schemaVersion: configuration.schemaVersion,
+            configurationVersion: configuration.configurationVersion,
+            configJSON: String(decoding: data, as: UTF8.self)
+        )
     }
 
     private func scheduleExecutionTimeout(requestId: String, action: String, timestamp: Int64) {
