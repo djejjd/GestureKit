@@ -3,17 +3,21 @@ import { ContextProvider } from "../src/provider/contextProvider";
 import { ChromeActionAdapter } from "../src/provider/actionAdapter";
 import { V2Dispatcher } from "../src/provider/v2Dispatcher";
 import type { ProviderEnvelope } from "../src/provider/protocol";
+import { createOperationLedgerStore } from "../src/provider/operationLedger";
 
 describe("V2Dispatcher", () => {
   it("responds to context_request then executes the matching action_request", async () => {
     const contexts = new ContextProvider();
     const sent: ProviderEnvelope[] = [];
     const adapter = new ChromeActionAdapter(contexts, async () => {});
+    const store = await createOperationLedgerStore(`dispatcher-${crypto.randomUUID()}`);
     const dispatcher = new V2Dispatcher(
       contexts,
       adapter,
       async () => "https://example.com/a?secret=raw",
-      (message) => sent.push(message)
+      (message) => sent.push(message),
+      store,
+      "producer-session"
     );
     const deadline = Date.now() + 2_000;
     await dispatcher.handle({
@@ -29,4 +33,57 @@ describe("V2Dispatcher", () => {
     expect(sent[1]?.type).toBe("action_result");
     expect((sent[1]?.payload as { outcome: string }).outcome).toBe("succeeded");
   });
+
+  it("does not execute Chrome actions when accepted evidence cannot be persisted", async () => {
+    const contexts = new ContextProvider();
+    const sent: ProviderEnvelope[] = [];
+    let executions = 0;
+    const adapter = new ChromeActionAdapter(contexts, async () => { executions += 1; });
+    const store = await createOperationLedgerStore(`dispatcher-full-${crypto.randomUUID()}`, { maxOutboxBytes: 0, criticalReserveBytes: 0 });
+    const dispatcher = new V2Dispatcher(contexts, adapter, async () => "https://example.com/a", (message) => sent.push(message), store, "producer-session");
+    const snapshot = contexts.snapshot("https://example.com/a", Date.now(), 2_000);
+
+    await dispatcher.handle(actionRequest(snapshot.contextId, snapshot.targetRef!, "op-storage-full"));
+
+    expect(executions).toBe(0);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.payload).toMatchObject({ operationId: "op-storage-full", outcome: "failed", reason: "storage_full" });
+    await expect(store.status("op-storage-full")).resolves.toBeNull();
+  });
+
+  it("does not execute a duplicate action request after it was accepted", async () => {
+    const contexts = new ContextProvider();
+    const sent: ProviderEnvelope[] = [];
+    let executions = 0;
+    const store = await createOperationLedgerStore(`dispatcher-duplicate-${crypto.randomUUID()}`);
+    let acceptedBeforeExecution = false;
+    const adapter = new ChromeActionAdapter(contexts, async () => {
+      acceptedBeforeExecution = (await store.status("op-duplicate"))?.state === "accepted";
+      executions += 1;
+    });
+    const dispatcher = new V2Dispatcher(contexts, adapter, async () => "https://example.com/a", (message) => sent.push(message), store, "producer-session");
+    const snapshot = contexts.snapshot("https://example.com/a", Date.now(), 2_000);
+    const request = actionRequest(snapshot.contextId, snapshot.targetRef!, "op-duplicate");
+
+    await dispatcher.handle(request);
+    await dispatcher.handle(request);
+
+    expect(executions).toBe(1);
+    expect(acceptedBeforeExecution).toBe(true);
+    await expect(store.status("op-duplicate")).resolves.toMatchObject({ state: "success" });
+  });
 });
+
+function actionRequest(contextId: string, targetRef: string, operationId: string): ProviderEnvelope {
+  return {
+    protocolVersion: 2,
+    messageId: crypto.randomUUID(),
+    providerSessionId: "provider-session",
+    gestureSessionId: "gesture-session",
+    operationId,
+    type: "action_request",
+    timestamp: Date.now(),
+    payload: { actionId: "browser.link.open_adjacent", contextId, targetRef, parameters: {}, deadline: Date.now() + 2_000 },
+    error: null
+  };
+}

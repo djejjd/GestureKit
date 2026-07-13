@@ -96,7 +96,7 @@ function createManager(port: PortLike) {
   });
 }
 
-function createV2Dispatcher(port: PortLike) {
+function createV2Dispatcher(port: PortLike, ledger: Awaited<typeof providerLedger>) {
   const adapter = new ChromeActionAdapter(v2Contexts, async (url) => {
     const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
     await chrome.tabs.create({ url, index: tab?.index === undefined ? undefined : tab.index + 1, active: true });
@@ -104,7 +104,7 @@ function createV2Dispatcher(port: PortLike) {
   return new V2Dispatcher(v2Contexts, adapter, async () => {
     const resolved = await resolveLastPointer();
     return resolved.status === "success" ? resolved.url : null;
-  }, (message) => port.postMessage(message));
+  }, (message) => port.postMessage(message), ledger, producerSessionId);
 }
 
 function shouldRecordDiagnostic(message: { payload: { status: string; details?: Record<string, unknown> } }): boolean {
@@ -156,13 +156,13 @@ const reconnectablePort = createReconnectableNativePort({
   connect: () => chrome.runtime.connectNative(HOST_NAME),
   attach: (port) => {
     manager = createManager(port);
-    const v2Dispatcher = createV2Dispatcher(port);
+    const v2Dispatcher = providerLedger.then((ledger) => createV2Dispatcher(port, ledger));
     const telemetryConnection = providerLedger.then((store) => new TelemetryConnection(store, producerSessionId, (message) => port.postMessage(message)));
     port.onMessage.addListener((message) => {
       try {
         const envelope = decodeProviderEnvelope(message) as ProviderEnvelope;
         void telemetryConnection.then((connection) => connection.handle(envelope));
-        void v2Dispatcher.handle(envelope);
+        void v2Dispatcher.then((dispatcher) => dispatcher.handle(envelope));
         return;
       } catch {
         // 旧消息仅在迁移窗口进入 V1 manager；v2 边界不会宽松降级。
