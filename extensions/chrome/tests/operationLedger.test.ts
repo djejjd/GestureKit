@@ -82,7 +82,31 @@ describe("OperationLedger", () => {
     await expect(store.events("operation-1")).resolves.toEqual([]);
   });
 
-  it("recovers accepted and final transactions after a worker restart", async () => {
+  it("compacts 10,000 terminal operations into seven-day tombstones before removing them", async () => {
+    const store = await createOperationLedgerStore(`ledger-tombstones-${crypto.randomUUID()}`, { maxOutboxBytes: 50 * 1024 * 1024 });
+    const tombstoneCount = 10_000;
+    const terminalAt = 2;
+    const compactedAt = terminalAt + 10 * 60 * 1000;
+
+    for (let index = 0; index < tombstoneCount; index += 1) {
+      const operationId = `operation-${index}`;
+      await store.accept(operationId, { ...event(`accepted-${index}`, "action_accepted"), operationId, payload: { operationId, acceptedAt: 1 } });
+      await store.finalize(operationId, "succeeded", { ...event(`result-${index}`, "action_result"), operationId, payload: { operationId, outcome: "succeeded", reason: "completed", completedAt: terminalAt } });
+    }
+
+    await store.compact(compactedAt);
+    await expect(store.status("operation-0")).resolves.toMatchObject({ state: "success", compactedAt });
+    await expect(store.status(`operation-${tombstoneCount - 1}`)).resolves.toMatchObject({ state: "success", compactedAt });
+
+    await store.compact(compactedAt + 7 * 24 * 60 * 60 * 1000 - 1);
+    await expect(store.status("operation-0")).resolves.toMatchObject({ compactedAt });
+
+    await store.compact(compactedAt + 7 * 24 * 60 * 60 * 1000);
+    await expect(store.status("operation-0")).resolves.toBeNull();
+    await expect(store.status(`operation-${tombstoneCount - 1}`)).resolves.toBeNull();
+  }, 15_000);
+
+  it("recovers accepted and final transactions across worker restart boundaries", async () => {
     const databaseName = `ledger-${crypto.randomUUID()}`;
     const firstWorker = await createOperationLedgerStore(databaseName);
     await firstWorker.accept("operation-1", event("event-accepted", "action_accepted"));

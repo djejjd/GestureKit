@@ -140,7 +140,7 @@ class IndexedDBOperationLedgerStore implements OperationLedgerStore {
     const records = await request<LedgerRecord[]>(ledger.getAll());
     for (const record of records) {
       if (record.terminalAt === null) continue;
-      if (record.compactedAt !== null && now - record.terminalAt >= 7 * 24 * 60 * 60 * 1000) {
+      if (record.compactedAt !== null && now - record.compactedAt >= 7 * 24 * 60 * 60 * 1000) {
         ledger.delete(record.operationId);
       } else if (record.compactedAt === null && now - record.terminalAt >= 10 * 60 * 1000) {
         for (const eventId of record.eventIds ?? []) events.delete(eventId);
