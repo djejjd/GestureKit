@@ -83,17 +83,21 @@ final class GestureSessionCoordinator {
         let elapsed = monotonicClockMs() - classifiedAt
         guard elapsed <= Self.contextBudgetMs, elapsed <= Self.actionBudgetMs else { return }
         guard let action = ruleEngine.resolve(gesture: gesture, context: context) else { return }
+        guard monotonicClockMs() - classifiedAt <= Self.actionBudgetMs else { return }
         actionRouter(sessionID, action)
     }
 
     private func primitiveClassified(_ recognized: RecognizedGesture, sessionID: String) {
         let now = monotonicClockMs()
-        contextRouter(sessionID, now + Self.contextBudgetMs)
-        guard let gesture = compose(recognized, now: now, sessionID: sessionID) else { return }
+        guard let gesture = compose(recognized, now: now, sessionID: sessionID) else {
+            contextRouter(sessionID, now + Self.contextBudgetMs)
+            return
+        }
         guard var session = activeSessions[sessionID] else { return }
         session.classifiedAtMs = now
         session.composedGesture = gesture
         activeSessions[sessionID] = session
+        contextRouter(sessionID, now + Self.contextBudgetMs)
         // 边缘点按与滑动的组合在这里立即完成，不等待中间双击窗口。
         // action 实际等 context 事实返回后由 receiveContext 发出。
         _ = gesture

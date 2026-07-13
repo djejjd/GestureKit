@@ -42,3 +42,9 @@
 - context 到达后以 `DispatchTime` 单调毫秒计算 elapsed，同时要求不超过 120 ms context 和 150 ms action 派发预算；不信任 `ActionDescriptor.deadline`。测试在 deadline 为 `Int64.max` 但单调 elapsed 为 151 ms 时确认不派发。
 
 补充 RED：新增测试在移除 caller-supplied `gesture` 参数前无法编译，明确暴露 context 未绑定 session composition。补充 GREEN：`GestureSessionCoordinatorTests` 4 passed。
+
+## 审查后补充（二次跟进）
+
+- RED：`testSynchronousContextResponseDuringClassificationUsesPersistedSessionComposition` 复现同步 `contextRouter` 回调发生在 session 组合状态写入之前，未派发动作；`testRuleResolutionCrossingActionBudgetDoesNotDispatch` 复现规则求值将单调时间推进到 151 ms 后仍派发动作。
+- GREEN：分类流程现在先完成组合并写入 session 的 `classifiedAtMs` / `composedGesture`，再调用 `contextRouter`；`receiveContext` 在 `ruleEngine.resolve` 后、`actionRouter` 前重新检查 150 ms 单调动作预算。
+- 验证：`swift test --filter GestureSessionCoordinatorTests` 为 6 passed；`swift test` 为 132 passed，0 failed；`swift build` passed。

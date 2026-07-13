@@ -51,6 +51,27 @@ final class GestureSessionCoordinatorTests: XCTestCase {
         XCTAssertEqual(actions.map(\.1), [.browserTabActivateNext])
     }
 
+    func testSynchronousContextResponseDuringClassificationUsesPersistedSessionComposition() {
+        var actions: [StandardActionID] = []
+        var coordinator: GestureSessionCoordinator!
+        coordinator = GestureSessionCoordinator(
+            contextRouter: { id, _ in
+                coordinator.receiveContext(
+                    ProviderContextSnapshot(contextId: "ctx", targetKind: .noTarget, targetRef: nil, deadline: 1),
+                    for: id
+                )
+            },
+            actionRouter: { _, action in actions.append(action.actionId) },
+            monotonicClockMs: { 10 },
+            sessionID: { "session" }
+        )
+
+        _ = coordinator.handle(.candidateStarted(candidate))
+        _ = coordinator.handle(.primitiveClassified(swipeLeft))
+
+        XCTAssertEqual(actions, [.browserTabActivateNext])
+    }
+
     func testContextAfterActionBudgetDoesNotDispatchEvenWhenDescriptorDeadlineIsFuture() {
         var now: Int64 = 0
         var actionCount = 0
@@ -66,6 +87,52 @@ final class GestureSessionCoordinatorTests: XCTestCase {
         coordinator.receiveContext(ProviderContextSnapshot(contextId: "ctx", targetKind: .noTarget, targetRef: nil, deadline: .max), for: id)
 
         XCTAssertEqual(actionCount, 0)
+    }
+
+    func testRuleResolutionCrossingActionBudgetDoesNotDispatch() {
+        let clock = TestClock(now: 0)
+        var actionCount = 0
+        let coordinator = GestureSessionCoordinator(
+            ruleEngine: AdvancingRuleResolver(clock: clock, resolvedAtMs: 151),
+            actionRouter: { _, _ in actionCount += 1 },
+            monotonicClockMs: { clock.now },
+            sessionID: { "session" }
+        )
+        let id = coordinator.handle(.candidateStarted(candidate))!
+        _ = coordinator.handle(.primitiveClassified(swipeLeft))
+
+        coordinator.receiveContext(ProviderContextSnapshot(contextId: "ctx", targetKind: .noTarget, targetRef: nil, deadline: .max), for: id)
+
+        XCTAssertEqual(actionCount, 0)
+    }
+}
+
+private final class TestClock: @unchecked Sendable {
+    var now: Int64
+
+    init(now: Int64) {
+        self.now = now
+    }
+}
+
+private final class AdvancingRuleResolver: RuleResolving, @unchecked Sendable {
+    private let clock: TestClock
+    private let resolvedAtMs: Int64
+
+    init(clock: TestClock, resolvedAtMs: Int64) {
+        self.clock = clock
+        self.resolvedAtMs = resolvedAtMs
+    }
+
+    func resolve(gesture: ComposedGesture, context: ProviderContextSnapshot) -> ActionDescriptor? {
+        clock.now = resolvedAtMs
+        return ActionDescriptor(
+            actionId: .browserTabActivateNext,
+            contextId: context.contextId,
+            targetRef: nil,
+            parameters: [:],
+            deadline: context.deadline
+        )
     }
 }
 
