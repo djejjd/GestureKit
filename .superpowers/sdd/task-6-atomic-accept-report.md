@@ -94,6 +94,12 @@
 - 聚焦：`tests/operationLedger.test.ts` 与 `tests/v2Dispatcher.test.ts`，`16/16` 通过。
 - 新回归覆盖：acceptance 创建归属、in-flight duplicate 竞争、failed terminal duplicate 的原始 reason 返回。
 
+## 快速审查后 tombstone 修复（第四轮）
+
+终态 ledger 压缩会删除完整 `action_result` 事件；为满足七天 tombstone 期间的重复操作语义，`LedgerRecord` 现在保存最小的 `terminalResult`（仅 `outcome` 与 `reason`）。`finalize()` 在原有同一 ledger/outbox transaction 内写入该字段；压缩仍删除完整事件 payload。duplicate 分发优先读取该 tombstone 字段，旧记录才回退读取未压缩事件，缺少可验证证据时仍返回 `result_unknown/recovery_timeout`。
+
+验证：`npm test -- --run tests/operationLedger.test.ts tests/v2Dispatcher.test.ts` 通过（17 tests，包含 10,000 tombstone 生命周期覆盖）；`npm run build` 通过。
+
 ## Task 6 补充测试覆盖（tombstone、离线队列和 ACK 回收）
 
 在既有 ledger/outbox 实现上补齐 Task 6 明示的边界测试：

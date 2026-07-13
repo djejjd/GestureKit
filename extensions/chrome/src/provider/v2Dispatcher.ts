@@ -115,6 +115,11 @@ async function duplicateResult(
   state: LedgerState
 ): Promise<{ outcome: ActionResultOutcome; reason: ActionResultReason }> {
   if (state === "accepted") return { outcome: "result_unknown", reason: "recovery_timeout" };
+  const record = await ledger.status(operationId);
+  const terminalResult = record?.terminalResult;
+  if (terminalResult && terminalResult.reason !== null) {
+    return terminalResult;
+  }
   const event = (await ledger.events(operationId)).findLast((candidate) => candidate.type === "action_result");
   if (event?.type === "action_result") {
     const payload = event.payload as { outcome: ActionResultOutcome; reason: ActionResultReason | null };

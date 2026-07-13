@@ -1,4 +1,4 @@
-import type { ActionResultOutcome, ProviderEvent } from "./protocol";
+import type { ActionResultOutcome, ActionResultReason, ProviderEvent } from "./protocol";
 
 /** Provider 本地账本的操作状态。 */
 export type LedgerState = "accepted" | "success" | "failed" | "result_unknown";
@@ -11,6 +11,13 @@ export type LedgerRecord = {
   terminalAt: number | null;
   compactedAt: number | null;
   eventIds: string[];
+  terminalResult?: TerminalResult;
+};
+
+/** 终态 tombstone 需要保留的最小重复操作结果，不保存完整事件 payload。 */
+export type TerminalResult = {
+  outcome: ActionResultOutcome;
+  reason: ActionResultReason | null;
 };
 
 /** 单次 acceptance 事务的结果，明确区分本次新建与读取既有操作。 */
@@ -85,7 +92,7 @@ class IndexedDBOperationLedgerStore implements OperationLedgerStore {
     const state = outcomeToLedgerState(outcome);
     const ledger = transaction.objectStore(LEDGER_STORE);
     const existing = await request<LedgerRecord | undefined>(ledger.get(operationId));
-    ledger.put({ operationId, state, updatedAt: event.wallClockMs, terminalAt: event.wallClockMs, compactedAt: null, eventIds: [...(existing?.eventIds ?? []), event.eventId] } satisfies LedgerRecord);
+    ledger.put({ operationId, state, updatedAt: event.wallClockMs, terminalAt: event.wallClockMs, compactedAt: null, eventIds: [...(existing?.eventIds ?? []), event.eventId], terminalResult: terminalResultFrom(event) } satisfies LedgerRecord);
     await this.putEvent(transaction, event);
     transaction.objectStore(EVENTS_STORE).put(event);
     await transactionDone(transaction);
@@ -221,6 +228,11 @@ function outcomeToLedgerState(outcome: ActionResultOutcome): LedgerState {
     case "failed": return "failed";
     case "result_unknown": return "result_unknown";
   }
+}
+
+function terminalResultFrom(event: ProviderEvent): TerminalResult {
+  const payload = event.payload as { outcome: ActionResultOutcome; reason?: ActionResultReason | null };
+  return { outcome: payload.outcome, reason: payload.reason ?? null };
 }
 
 function isCriticalEvent(event: ProviderEvent): boolean {
