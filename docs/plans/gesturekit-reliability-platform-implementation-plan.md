@@ -771,7 +771,7 @@ export type ContextSnapshot = {
 };
 ```
 
-- [ ] **Step 1: 写标准动作和 guard 前置失败测试**
+- [x] **Step 1: 写标准动作和 guard 前置失败测试**
 
 ```ts
 it("rejects link action when guard is not armed", async () => {
@@ -785,17 +785,17 @@ it("executes browser.tab.activate_next without a link targetRef", async () => {
 });
 ```
 
-- [ ] **Step 2: 运行测试，确认失败**
+- [x] **Step 2: 运行测试，确认失败**
 
 Run: `npm test -- --run tests/chromeProvider.test.ts tests/interactionGuard.test.ts`
 
 Expected: FAIL，缺少 `ChromeProvider`。
 
-- [ ] **Step 3: 实现 context snapshot**
+- [x] **Step 3: 实现 context snapshot**
 
 Provider 查询活动 tab，把 pointer hit-test 结果映射为 `standard_link`、`no_target` 或 `page_unavailable`。`targetRef` 只在 Provider 内保存为 session-bound opaque key；App 不接收 URL 或 DOM 标识。context 过期、tab 变化或 frame 不匹配必须返回 `context_expired`。
 
-- [ ] **Step 4: 实现 guard 与标准动作映射**
+- [x] **Step 4: 实现 guard 与标准动作映射**
 
 `interactionGuard.ts` 处理 `gesturekit.guardArm`、`gesturekit.guardRelease`，只在 matching session/lease 中消费 DOM 事件。`actionExecutor.ts` 改为消费标准 action ID：
 
@@ -821,7 +821,7 @@ tabs: {
 
 链接动作先检查 `guard_armed` 和有效 `targetRef`，再调用 ledger accept；任何失败都不得触发 `chrome.tabs.create`。
 
-- [ ] **Step 5: 运行完整 Chrome 测试和构建**
+- [x] **Step 5: 运行完整 Chrome 测试和构建**
 
 Run: `npm test -- --run`
 
@@ -831,7 +831,7 @@ Run: `npm run build`
 
 Expected: exit 0。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add extensions/chrome/src/background extensions/chrome/src/content extensions/chrome/src/provider extensions/chrome/tests
