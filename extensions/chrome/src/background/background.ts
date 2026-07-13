@@ -3,25 +3,25 @@ import { chromeApi } from "./chromeApi";
 import { createNativePortManager } from "./nativePortManager";
 import { runConnectionProbe } from "./connectionProbe";
 import { createReconnectableNativePort, type PortLike } from "./reconnectableNativePort";
-import { decodeProviderEnvelope, type ProviderEnvelope } from "../provider/protocol";
+import {
+  decodeProviderEnvelope,
+  type ConfigurationSnapshotPayload,
+  type ProviderEnvelope
+} from "../provider/protocol";
 import { ContextProvider } from "../provider/contextProvider";
 import { ChromeActionAdapter } from "../provider/actionAdapter";
 import { ChromeProvider } from "../provider/chromeProvider";
 import { V2Dispatcher } from "../provider/v2Dispatcher";
 import { createOperationLedgerStore } from "../provider/operationLedger";
 import { TelemetryConnection } from "../provider/telemetryConnection";
-import { GESTURE_SETTINGS_STORAGE_KEY, loadGestureSettings } from "../settings/gestureSettings";
+import { loadGestureSettings } from "../settings/gestureSettings";
 import {
-  createSavedOnlySettingsSyncStatus,
-  createPendingSettingsSyncStatus,
-  createSettingsUpdateMessage,
-  isSettingsAckMessage,
   isSettingsSyncStatus,
   markSettingsSyncFailed,
   markSettingsSyncStale,
-  SETTINGS_SYNC_STATUS_STORAGE_KEY,
-  settingsSyncStatusFromAck
+  SETTINGS_SYNC_STATUS_STORAGE_KEY
 } from "./settingsSync";
+import { cacheAppConfigurationSnapshot } from "../settings/appConfigurationCache";
 import {
   appendDiagnostic,
   diagnosticEntryFromMessage,
@@ -171,24 +171,19 @@ const reconnectablePort = createReconnectableNativePort({
     port.onMessage.addListener((message) => {
       try {
         const envelope = decodeProviderEnvelope(message) as ProviderEnvelope;
+        if (envelope.type === "configuration_snapshot") {
+          void handleConfigurationSnapshot(
+            port,
+            envelope,
+            envelope.payload as ConfigurationSnapshotPayload
+          );
+          return;
+        }
         void telemetryConnection.then((connection) => connection.handle(envelope));
         void v2Dispatcher.then((dispatcher) => dispatcher.handle(envelope));
         return;
       } catch {
         // 旧消息仅在迁移窗口进入 V1 manager；v2 边界不会宽松降级。
-      }
-      if (isSettingsAckMessage(message)) {
-        void (async () => {
-          const settings = await loadGestureSettings(chrome.storage.local);
-          const result = await chrome.storage.local.get(SETTINGS_SYNC_STATUS_STORAGE_KEY);
-          const currentStatus = isSettingsSyncStatus(result[SETTINGS_SYNC_STATUS_STORAGE_KEY])
-            ? result[SETTINGS_SYNC_STATUS_STORAGE_KEY]
-            : null;
-          await chrome.storage.local.set({
-            [SETTINGS_SYNC_STATUS_STORAGE_KEY]: settingsSyncStatusFromAck(message, settings, currentStatus)
-          });
-        })();
-        return;
       }
       if (isDiagnosticEventMessage(message)) {
         void appendDiagnostic(chrome.storage.local, diagnosticEntryFromMessage(message));
@@ -242,31 +237,30 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   return true;
 });
 
-async function syncGestureSettings() {
-  const settings = await loadGestureSettings(chrome.storage.local);
-  const result = await chrome.storage.local.get(SETTINGS_SYNC_STATUS_STORAGE_KEY);
-  const previousStatus = isSettingsSyncStatus(result[SETTINGS_SYNC_STATUS_STORAGE_KEY])
-    ? result[SETTINGS_SYNC_STATUS_STORAGE_KEY]
-    : null;
-  const message = createSettingsUpdateMessage(settings);
-  await chrome.storage.local.set({
-    [SETTINGS_SYNC_STATUS_STORAGE_KEY]: createSavedOnlySettingsSyncStatus(settings, previousStatus)
-  });
-  await chrome.storage.local.set({
-    [SETTINGS_SYNC_STATUS_STORAGE_KEY]: createPendingSettingsSyncStatus(
-      settings,
-      message.id,
-      previousStatus,
-      Date.now()
-    )
-  });
-  reconnectablePort.ensureConnected().postMessage(message);
-}
-
-chrome.storage.onChanged.addListener((changes, areaName) => {
-  if (areaName === "local" && changes[GESTURE_SETTINGS_STORAGE_KEY]) {
-    void syncGestureSettings();
+async function handleConfigurationSnapshot(
+  port: PortLike,
+  envelope: ProviderEnvelope,
+  snapshot: ConfigurationSnapshotPayload
+): Promise<void> {
+  try {
+    const applied = await cacheAppConfigurationSnapshot(chrome.storage.local, snapshot);
+    port.postMessage({
+      ...envelope,
+      messageId: crypto.randomUUID(),
+      type: "configuration_ack",
+      timestamp: Date.now(),
+      payload: { appliedVersion: applied.configurationVersion, applied: true },
+      error: null
+    } satisfies ProviderEnvelope);
+  } catch {
+    // ACK 只表示 Provider 缓存状态，绝不反馈或覆盖 App 的权威配置。
+    port.postMessage({
+      ...envelope,
+      messageId: crypto.randomUUID(),
+      type: "configuration_ack",
+      timestamp: Date.now(),
+      payload: { appliedVersion: snapshot.configurationVersion, applied: false },
+      error: null
+    } satisfies ProviderEnvelope);
   }
-});
-
-void syncGestureSettings();
+}
