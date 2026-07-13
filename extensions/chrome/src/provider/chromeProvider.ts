@@ -15,7 +15,7 @@ export type ActionRequest = {
   actionId: StandardActionID;
   contextId: string;
   targetRef?: string | null;
-  guardState?: "guard_armed" | "guard_unavailable" | "guard_expired" | "guard_late";
+  gestureSessionId: string;
   deadline: number;
 };
 export type ActionResult = { status: "success" | "guard_unavailable" | "guard_expired" | "context_expired" | "target_not_found" | "page_unavailable" | "edge_reached" | "chrome_api_error" };
@@ -25,7 +25,8 @@ type PointerResolution =
   | { status: "success"; url: string; frameId?: number }
   | { status: "no_target" }
   | { status: "page_unavailable" };
-type StoredTarget = { contextId: string; tabId: number; frameId: number; url: string; expiresAt: number };
+type StoredTarget = { contextId: string; gestureSessionId: string; tabId: number; frameId: number; url: string; expiresAt: number };
+type ContentBridge = (tabId: number, message: Record<string, unknown>) => Promise<unknown>;
 
 /**
  * Chrome Provider v2 boundary. URLs stay in this process behind session-bound
@@ -37,7 +38,7 @@ export class ChromeProvider {
 
   constructor(
     private readonly api: ChromeApi,
-    private readonly resolvePointer: (tabId: number) => Promise<PointerResolution>,
+    private readonly content: ContentBridge,
     private readonly accept?: (request: ActionRequest) => Promise<boolean>
   ) {}
 
@@ -46,35 +47,51 @@ export class ChromeProvider {
     if (request.deadline <= now) return unavailable("page_unavailable", now);
     const tab = await activeTab(this.api);
     if (!tab?.id) return unavailable("page_unavailable", now);
+    let armed: { status?: string };
     let resolved: PointerResolution;
-    try { resolved = await this.resolvePointer(tab.id); } catch { return unavailable("page_unavailable", now); }
+    try {
+      armed = await this.content(tab.id, { type: "gesturekit.guardArm", gestureSessionId: request.gestureSessionId, issuedAtMonotonicMs: performance.now(), leaseMs: request.deadline - now }) as { status?: string };
+      resolved = await this.content(tab.id, { type: "gesturekit.resolveLastPointer" }) as PointerResolution;
+    } catch { return unavailable("page_unavailable", now); }
+    if (armed.status !== "guard_armed") return unavailable("page_unavailable", now);
     if (resolved.status !== "success") return unavailable(resolved.status, now);
     const pageIdentity = safePageIdentity(tab.url);
     if (!pageIdentity) return unavailable("page_unavailable", now);
     const contextId = crypto.randomUUID();
     const targetRef = crypto.randomUUID();
     const expiresAt = request.deadline;
-    this.targets.set(targetRef, { contextId, tabId: tab.id, frameId: resolved.frameId ?? 0, url: resolved.url, expiresAt });
+    this.targets.set(targetRef, { contextId, gestureSessionId: request.gestureSessionId, tabId: tab.id, frameId: resolved.frameId ?? 0, url: resolved.url, expiresAt });
     return { contextId, expiresAt, targetKind: "standard_link", targetRef, pageIdentity };
   }
 
   async execute(request: ActionRequest): Promise<ActionResult> {
+    const preflight = await this.preflight(request);
+    if (preflight.status !== "ready") return { status: preflight.status };
+    if (this.accept && !(await this.accept(request))) return { status: "chrome_api_error" };
+    return this.executeAccepted(request, preflight.url);
+  }
+
+  async preflight(request: ActionRequest): Promise<{ status: "ready"; url?: string } | { status: "guard_unavailable" | "guard_expired" | "context_expired" | "target_not_found" }> {
     const now = Date.now();
     if (request.deadline <= now) return { status: "context_expired" };
     let url: string | undefined;
     if (request.actionId === "browser.link.open_adjacent") {
-      if (request.guardState !== "guard_armed") return { status: request.guardState === "guard_expired" ? "guard_expired" : "guard_unavailable" };
       const target = request.targetRef ? this.targets.get(request.targetRef) : undefined;
       if (!target || target.contextId !== request.contextId || target.expiresAt < now) return { status: "context_expired" };
+      if (target.gestureSessionId !== request.gestureSessionId) return { status: "guard_unavailable" };
       const tab = await activeTab(this.api);
       if (!tab?.id || tab.id !== target.tabId) return { status: "context_expired" };
       let current: PointerResolution;
-      try { current = await this.resolvePointer(tab.id); } catch { return { status: "context_expired" }; }
+      try { current = await this.content(tab.id, { type: "gesturekit.resolveLastPointer" }) as PointerResolution; } catch { return { status: "context_expired" }; }
       if (current.status !== "success" || (current.frameId ?? 0) !== target.frameId) return { status: "context_expired" };
+      const guard = await this.content(tab.id, { type: "gesturekit.guardConsume", gestureSessionId: request.gestureSessionId }) as { status?: string };
+      if (guard.status !== "guard_consumed") return { status: guard.status === "guard_expired" ? "guard_expired" : "guard_unavailable" };
       url = target.url;
     }
-    // All fail-closed checks complete before acceptance. No Chrome API action may precede it.
-    if (this.accept && !(await this.accept(request))) return { status: "chrome_api_error" };
+    return { status: "ready", url };
+  }
+
+  async executeAccepted(request: ActionRequest, url?: string): Promise<ActionResult> {
     this.statuses.set(request.operationId, { operationId: request.operationId, status: "accepted" });
     try {
       const result = await executeStandardAction(this.api, request.actionId, url);

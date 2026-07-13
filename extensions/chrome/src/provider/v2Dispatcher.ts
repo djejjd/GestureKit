@@ -2,6 +2,7 @@ import type { ActionDescriptor, ActionResultOutcome, ActionResultReason, Provide
 import { ContextProvider } from "./contextProvider";
 import { ChromeActionAdapter } from "./actionAdapter";
 import type { LedgerState, OperationLedgerStore } from "./operationLedger";
+import { ChromeProvider } from "./chromeProvider";
 
 type Send = (message: ProviderEnvelope) => void;
 
@@ -13,7 +14,8 @@ export class V2Dispatcher {
     private readonly resolveURL: () => Promise<string | null>,
     private readonly send: Send,
     private readonly ledger: OperationLedgerStore,
-    private readonly producerSessionId: string
+    private readonly producerSessionId: string,
+    private readonly chromeProvider?: ChromeProvider
   ) {}
 
   async handle(envelope: ProviderEnvelope): Promise<void> {
@@ -24,22 +26,20 @@ export class V2Dispatcher {
         this.send({ ...envelope, messageId: crypto.randomUUID(), type: "context_snapshot", timestamp: now, payload: { contextId: crypto.randomUUID(), pageIdentity: "", expiresAt: now, targetKind: "page_unavailable", targetRef: null }, error: { code: "context_expired", message: "context_request 已超过 deadline" } });
         return;
       }
-      const snapshot = this.contexts.snapshot(await this.resolveURL(), now, payload.deadline - now);
+      const snapshot = this.chromeProvider
+        ? await this.chromeProvider.context({ gestureSessionId: payload.gestureSessionId, deadline: payload.deadline })
+        : this.contexts.snapshot(await this.resolveURL(), now, payload.deadline - now);
       this.send({ ...envelope, messageId: crypto.randomUUID(), type: "context_snapshot", timestamp: Date.now(), payload: snapshot, error: null });
       return;
     }
     if (envelope.type === "action_request") {
       const action = envelope.payload as ActionDescriptor;
       const operationId = envelope.operationId!;
-      // 链接副作用必须先证明候选 guard 与 opaque target 都有效，才允许写 acceptance。
-      if (action.actionId === "browser.link.open_adjacent" && action.parameters.guardState !== "guard_armed") {
-        this.sendActionResult(envelope, "failed", action.parameters.guardState === "guard_expired" ? "guard_expired" : "guard_unavailable");
-        return;
-      }
-      const preflight = this.actions.preflight(action);
-      if (preflight.outcome === "failed") {
-        this.sendActionResult(envelope, "failed", preflight.reason);
-        return;
+      const livePreflight = this.chromeProvider && await this.chromeProvider.preflight({ operationId, actionId: action.actionId, contextId: action.contextId, targetRef: action.targetRef, gestureSessionId: envelope.gestureSessionId!, deadline: action.deadline });
+      if (livePreflight && livePreflight.status !== "ready") { this.sendActionResult(envelope, "failed", livePreflight.status); return; }
+      if (!this.chromeProvider) {
+        const preflight = this.actions.preflight(action);
+        if (preflight.outcome === "failed") { this.sendActionResult(envelope, "failed", preflight.reason); return; }
       }
       const acceptedAt = Date.now();
       let acceptedEvent: ProviderEvent;
@@ -61,9 +61,11 @@ export class V2Dispatcher {
         return;
       }
       try {
-        const result = await this.actions.execute(action);
-        const outcome: ActionResultOutcome = result.outcome === "succeeded" ? "succeeded" : "failed";
-        const reason: ActionResultReason = result.outcome === "failed" ? result.reason : "completed";
+        const result = this.chromeProvider
+          ? await this.chromeProvider.executeAccepted({ operationId, actionId: action.actionId, contextId: action.contextId, targetRef: action.targetRef, gestureSessionId: envelope.gestureSessionId!, deadline: action.deadline }, livePreflight?.url)
+          : await this.actions.execute(action);
+        const outcome: ActionResultOutcome = ("outcome" in result ? result.outcome === "succeeded" : result.status === "success") ? "succeeded" : "failed";
+        const reason: ActionResultReason = "outcome" in result && result.outcome === "failed" ? result.reason : outcome === "succeeded" ? "completed" : "chrome_api_error";
         await this.finalizeAndSend(envelope, operationId, outcome, reason, acceptedEvent.eventId);
       } catch {
         await this.finalizeAndSend(envelope, operationId, "failed", "chrome_api_error", acceptedEvent.eventId);

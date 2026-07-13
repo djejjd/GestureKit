@@ -245,6 +245,10 @@ if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
       sendResponse(interactionGuard.release({ gestureSessionId: message.gestureSessionId, nowMonotonicMs: performance.now() }));
       return false;
     }
+    if (message.type === "gesturekit.guardConsume") {
+      sendResponse(interactionGuard.consume({ gestureSessionId: message.gestureSessionId, nowMonotonicMs: performance.now() }));
+      return false;
+    }
     if (message.type === "gesturekit.cancelTap") {
       cancelProtectedClick();
       return false;

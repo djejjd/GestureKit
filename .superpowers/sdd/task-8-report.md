@@ -18,3 +18,9 @@
 ## 注意事项
 
 - `npx tsc --noEmit` 仍有仓库既存的严格类型错误（背景消息、V1 测试 mock、smoke 等）；Task 8 的显式验收命令 `npm test -- --run` 与 `npm run build` 均通过。
+
+## Live-path 补丁（2026-07-13）
+
+- V2 `context_request` 与 `action_request` 已实际委派给 `ChromeProvider`；context 与链接仅使用其 session/tab/frame 绑定的 opaque `targetRef` 存储。
+- guard 不再读取请求方可伪造的 `parameters.guardState`：Provider 先 arm，再在执行前按相同 gesture session consume；释放、到期或未 arm 均 fail-closed，且不会创建标签。
+- V2 链接路径经注入的 `ChromeApi` 调用，不再通过 dispatcher 中的全局 `chrome.tabs.create`。

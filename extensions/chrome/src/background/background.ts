@@ -37,8 +37,8 @@ const v2Contexts = new ContextProvider();
 const providerLedger = createOperationLedgerStore();
 const producerSessionId = crypto.randomUUID();
 // v2 boundary keeps resolved page URLs and target references inside Chrome.
-const chromeProvider = new ChromeProvider(chromeApi, async (tabId) => {
-  try { return await chrome.tabs.sendMessage(tabId, { type: "gesturekit.resolveLastPointer" }); }
+const chromeProvider = new ChromeProvider(chromeApi, async (tabId, message) => {
+  try { return await chrome.tabs.sendMessage(tabId, message); }
   catch { return { status: "page_unavailable" as const }; }
 });
 
@@ -103,14 +103,18 @@ function createManager(port: PortLike) {
 }
 
 function createV2Dispatcher(port: PortLike, ledger: Awaited<typeof providerLedger>) {
-  const adapter = new ChromeActionAdapter(v2Contexts, async (url) => {
-    const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-    await chrome.tabs.create({ url, index: tab?.index === undefined ? undefined : tab.index + 1, active: true });
-  }, async (action) => { await executeStandardAction(chromeApi, action.actionId); });
+  // V2 side effects are routed through ChromeProvider and its injected ChromeApi.
+  // This adapter remains only as the legacy-dispatcher dependency; its link path
+  // deliberately uses the same injected API rather than global chrome.tabs.
+  const adapter = new ChromeActionAdapter(
+    v2Contexts,
+    async (url) => { await executeStandardAction(chromeApi, "browser.link.open_adjacent", url); },
+    async (action) => { await executeStandardAction(chromeApi, action.actionId); }
+  );
   return new V2Dispatcher(v2Contexts, adapter, async () => {
     const resolved = await resolveLastPointer();
     return resolved.status === "success" ? resolved.url : null;
-  }, (message) => port.postMessage(message), ledger, producerSessionId);
+  }, (message) => port.postMessage(message), ledger, producerSessionId, chromeProvider);
 }
 
 function shouldRecordDiagnostic(message: { payload: { status: string; details?: Record<string, unknown> } }): boolean {
