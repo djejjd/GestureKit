@@ -51,6 +51,53 @@ describe("V2Dispatcher", () => {
     await expect(store.status("op-storage-full")).resolves.toBeNull();
   });
 
+  it("fails closed when accepted event sequence allocation throws", async () => {
+    const contexts = new ContextProvider();
+    const sent: ProviderEnvelope[] = [];
+    let executions = 0;
+    const store = await createOperationLedgerStore(`dispatcher-sequence-${crypto.randomUUID()}`);
+    store.nextProducerSequence = async () => { throw new Error("sequence unavailable"); };
+    const adapter = new ChromeActionAdapter(contexts, async () => { executions += 1; });
+    const dispatcher = new V2Dispatcher(contexts, adapter, async () => "https://example.com/a", (message) => sent.push(message), store, "producer-session");
+    const snapshot = contexts.snapshot("https://example.com/a", Date.now(), 2_000);
+
+    await expect(dispatcher.handle(actionRequest(snapshot.contextId, snapshot.targetRef!, "op-sequence-failure"))).resolves.toBeUndefined();
+
+    expect(executions).toBe(0);
+    expect(sent[0]?.payload).toMatchObject({ operationId: "op-sequence-failure", outcome: "failed", reason: "storage_full" });
+  });
+
+  it("persists and sends chrome_api_error when the Chrome adapter throws", async () => {
+    const contexts = new ContextProvider();
+    const sent: ProviderEnvelope[] = [];
+    const store = await createOperationLedgerStore(`dispatcher-adapter-error-${crypto.randomUUID()}`);
+    const adapter = new ChromeActionAdapter(contexts, async () => { throw new Error("Chrome tabs failed"); });
+    const dispatcher = new V2Dispatcher(contexts, adapter, async () => "https://example.com/a", (message) => sent.push(message), store, "producer-session");
+    const snapshot = contexts.snapshot("https://example.com/a", Date.now(), 2_000);
+
+    await expect(dispatcher.handle(actionRequest(snapshot.contextId, snapshot.targetRef!, "op-adapter-error"))).resolves.toBeUndefined();
+
+    expect(sent[0]?.payload).toMatchObject({ operationId: "op-adapter-error", outcome: "failed", reason: "chrome_api_error" });
+    await expect(store.status("op-adapter-error")).resolves.toMatchObject({ state: "failed" });
+  });
+
+  it("returns result_unknown when terminal evidence cannot be persisted", async () => {
+    const contexts = new ContextProvider();
+    const sent: ProviderEnvelope[] = [];
+    let executions = 0;
+    const store = await createOperationLedgerStore(`dispatcher-finalize-${crypto.randomUUID()}`);
+    store.finalize = async () => { throw new Error("finalize unavailable"); };
+    const adapter = new ChromeActionAdapter(contexts, async () => { executions += 1; });
+    const dispatcher = new V2Dispatcher(contexts, adapter, async () => "https://example.com/a", (message) => sent.push(message), store, "producer-session");
+    const snapshot = contexts.snapshot("https://example.com/a", Date.now(), 2_000);
+
+    await expect(dispatcher.handle(actionRequest(snapshot.contextId, snapshot.targetRef!, "op-finalize-failure"))).resolves.toBeUndefined();
+
+    expect(executions).toBe(1);
+    expect(sent[0]?.payload).toMatchObject({ operationId: "op-finalize-failure", outcome: "result_unknown", reason: "recovery_timeout" });
+    await expect(store.status("op-finalize-failure")).resolves.toMatchObject({ state: "accepted" });
+  });
+
   it("does not execute a duplicate action request after it was accepted", async () => {
     const contexts = new ContextProvider();
     const sent: ProviderEnvelope[] = [];

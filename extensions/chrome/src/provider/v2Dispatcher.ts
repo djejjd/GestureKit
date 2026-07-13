@@ -32,12 +32,13 @@ export class V2Dispatcher {
       const action = envelope.payload as ActionDescriptor;
       const operationId = envelope.operationId!;
       const acceptedAt = Date.now();
-      const acceptedEvent = await this.event(envelope, "action_accepted", {
-        operationId,
-        acceptedAt
-      });
+      let acceptedEvent: ProviderEvent;
       let state: LedgerState;
       try {
+        acceptedEvent = await this.event(envelope, "action_accepted", {
+          operationId,
+          acceptedAt
+        });
         state = await this.ledger.accept(operationId, acceptedEvent);
       } catch {
         // 接受证据无法持久化时禁止触发 Chrome 副作用；连接仍要收到可识别的失败结果。
@@ -49,17 +50,14 @@ export class V2Dispatcher {
         this.sendActionResult(envelope, duplicate.outcome, duplicate.reason);
         return;
       }
-      const result = await this.actions.execute(action);
-      const completedAt = Date.now();
-      const outcome: ActionResultOutcome = result.outcome === "succeeded" ? "succeeded" : "failed";
-      const reason: ActionResultReason = result.outcome === "failed" ? result.reason : "completed";
-      await this.ledger.finalize(operationId, outcome, await this.event(envelope, "action_result", {
-        operationId,
-        outcome,
-        reason,
-        completedAt
-      }, acceptedEvent.eventId));
-      this.sendActionResult(envelope, outcome, reason, completedAt);
+      try {
+        const result = await this.actions.execute(action);
+        const outcome: ActionResultOutcome = result.outcome === "succeeded" ? "succeeded" : "failed";
+        const reason: ActionResultReason = result.outcome === "failed" ? result.reason : "completed";
+        await this.finalizeAndSend(envelope, operationId, outcome, reason, acceptedEvent.eventId);
+      } catch {
+        await this.finalizeAndSend(envelope, operationId, "failed", "chrome_api_error", acceptedEvent.eventId);
+      }
     }
   }
 
@@ -86,6 +84,28 @@ export class V2Dispatcher {
 
   private sendActionResult(envelope: ProviderEnvelope, outcome: ActionResultOutcome, reason: ActionResultReason, completedAt = Date.now()): void {
     this.send({ ...envelope, messageId: crypto.randomUUID(), type: "action_result", timestamp: Date.now(), payload: { operationId: envelope.operationId!, outcome, reason, completedAt }, error: null });
+  }
+
+  private async finalizeAndSend(
+    envelope: ProviderEnvelope,
+    operationId: string,
+    outcome: ActionResultOutcome,
+    reason: ActionResultReason,
+    acceptedEventId: string
+  ): Promise<void> {
+    const completedAt = Date.now();
+    try {
+      await this.ledger.finalize(operationId, outcome, await this.event(envelope, "action_result", {
+        operationId,
+        outcome,
+        reason,
+        completedAt
+      }, acceptedEventId));
+      this.sendActionResult(envelope, outcome, reason, completedAt);
+    } catch {
+      // 副作用已发生但终态证据未能落库，不能向 App 虚报持久化终态。
+      this.sendActionResult(envelope, "result_unknown", "recovery_timeout");
+    }
   }
 }
 
