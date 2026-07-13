@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { executeGestureAction } from "../src/background/actionExecutor";
+import { executeGestureAction, executeStandardAction } from "../src/background/actionExecutor";
 import type { ChromeApi } from "../src/background/chromeApi";
 
 function makeChromeApi(tabs: Array<{ id: number; index: number; active?: boolean; windowId: number }>): ChromeApi {
@@ -38,12 +38,22 @@ function makeChromeApi(tabs: Array<{ id: number; index: number; active?: boolean
             tabs.splice(index, 1);
           }
         }
-      })
+      }),
+      goBack: vi.fn(async () => {}),
+      goForward: vi.fn(async () => {}),
+      reload: vi.fn(async () => {})
     }
   };
 }
 
 describe("executeGestureAction", () => {
+  it("maps browser.history.back to Chrome tabs.goBack", async () => {
+    const api = makeChromeApi([{ id: 10, index: 0, active: true, windowId: 7 }]);
+
+    await expect(executeStandardAction(api, "browser.history.back")).resolves.toEqual({ status: "success" });
+    expect(api.tabs.goBack).toHaveBeenCalledWith(10);
+  });
+
   it("opens http link next to active tab and activates it", async () => {
     const api = makeChromeApi([{ id: 10, index: 2, active: true, windowId: 7 }]);
 

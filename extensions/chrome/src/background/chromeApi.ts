@@ -4,6 +4,9 @@ export type ChromeApi = {
     create(createProperties: chrome.tabs.CreateProperties): Promise<chrome.tabs.Tab>;
     update(tabId: number, updateProperties: chrome.tabs.UpdateProperties): Promise<chrome.tabs.Tab>;
     remove(tabIds: number | number[]): Promise<void>;
+    goBack(tabId: number): Promise<void>;
+    goForward(tabId: number): Promise<void>;
+    reload(tabId?: number, reloadProperties?: chrome.tabs.ReloadProperties): Promise<void>;
   };
 };
 

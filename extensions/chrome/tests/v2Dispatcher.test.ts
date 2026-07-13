@@ -28,7 +28,7 @@ describe("V2Dispatcher", () => {
     const snapshot = sent[0]?.payload as { contextId: string; targetRef: string };
     await dispatcher.handle({
       protocolVersion: 2, messageId: "m2", providerSessionId: "s1", gestureSessionId: "g1", operationId: "op1",
-      type: "action_request", timestamp: Date.now(), payload: { actionId: "browser.link.open_adjacent", contextId: snapshot.contextId, targetRef: snapshot.targetRef, parameters: {}, deadline }, error: null
+      type: "action_request", timestamp: Date.now(), payload: { actionId: "browser.link.open_adjacent", contextId: snapshot.contextId, targetRef: snapshot.targetRef, parameters: { guardState: "guard_armed" }, deadline }, error: null
     });
     expect(sent[1]?.type).toBe("action_result");
     expect((sent[1]?.payload as { outcome: string }).outcome).toBe("succeeded");
@@ -173,7 +173,7 @@ function actionRequest(contextId: string, targetRef: string, operationId: string
     operationId,
     type: "action_request",
     timestamp: Date.now(),
-    payload: { actionId: "browser.link.open_adjacent", contextId, targetRef, parameters: {}, deadline: Date.now() + 2_000 },
+    payload: { actionId: "browser.link.open_adjacent", contextId, targetRef, parameters: { guardState: "guard_armed" }, deadline: Date.now() + 2_000 },
     error: null
   };
 }

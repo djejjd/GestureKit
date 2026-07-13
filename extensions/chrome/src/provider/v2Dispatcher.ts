@@ -31,6 +31,16 @@ export class V2Dispatcher {
     if (envelope.type === "action_request") {
       const action = envelope.payload as ActionDescriptor;
       const operationId = envelope.operationId!;
+      // 链接副作用必须先证明候选 guard 与 opaque target 都有效，才允许写 acceptance。
+      if (action.actionId === "browser.link.open_adjacent" && action.parameters.guardState !== "guard_armed") {
+        this.sendActionResult(envelope, "failed", action.parameters.guardState === "guard_expired" ? "guard_expired" : "guard_unavailable");
+        return;
+      }
+      const preflight = this.actions.preflight(action);
+      if (preflight.outcome === "failed") {
+        this.sendActionResult(envelope, "failed", preflight.reason);
+        return;
+      }
       const acceptedAt = Date.now();
       let acceptedEvent: ProviderEvent;
       let acceptance: { state: LedgerState; created: boolean };

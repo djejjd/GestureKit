@@ -1,4 +1,5 @@
 import { resolveLinkAtPoint } from "./linkResolver";
+import { createInteractionGuard, type GuardCommand } from "./interactionGuard";
 import { GESTURE_SETTINGS_STORAGE_KEY, normalizeGestureSettings } from "../settings/gestureSettings";
 
 export type PointerSnapshot = {
@@ -21,6 +22,7 @@ type PointerTrackerState = {
 };
 
 const state = sharedState();
+const interactionGuard = createInteractionGuard();
 
 type ResolveOptions = {
   consumeNextClick?: boolean;
@@ -233,6 +235,16 @@ function syncLinkClickProtectionFromStorage() {
 if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
   syncLinkClickProtectionFromStorage();
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message.type === "gesturekit.guardArm") {
+      const command = message as GuardCommand & { type: "gesturekit.guardArm" };
+      interactionGuard.arm(command, performance.now());
+      sendResponse({ status: "guard_armed", gestureSessionId: command.gestureSessionId });
+      return false;
+    }
+    if (message.type === "gesturekit.guardRelease") {
+      sendResponse(interactionGuard.release({ gestureSessionId: message.gestureSessionId, nowMonotonicMs: performance.now() }));
+      return false;
+    }
     if (message.type === "gesturekit.cancelTap") {
       cancelProtectedClick();
       return false;

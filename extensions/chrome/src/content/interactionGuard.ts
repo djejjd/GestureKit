@@ -78,6 +78,13 @@ export function createInteractionGuard() {
     return { status: "guard_consumed" };
   }
 
+  function release(input: { gestureSessionId: string; nowMonotonicMs: number }): { status: "guard_released" | "guard_unavailable" } {
+    const guard = matchingActiveGuard(input.gestureSessionId, input.nowMonotonicMs);
+    if (!guard) return { status: "guard_unavailable" };
+    activeGuard = null;
+    return { status: "guard_released" };
+  }
+
   /** 在 lease 到期或 session 不匹配时主动清理页面级状态。 */
   function matchingActiveGuard(gestureSessionId: string, nowMonotonicMs: number): ActiveGuard | null {
     if (!activeGuard) return null;
@@ -88,5 +95,5 @@ export function createInteractionGuard() {
     return activeGuard.gestureSessionId === gestureSessionId ? activeGuard : null;
   }
 
-  return { arm, consume, observeDOMEvent };
+  return { arm, consume, release, observeDOMEvent };
 }

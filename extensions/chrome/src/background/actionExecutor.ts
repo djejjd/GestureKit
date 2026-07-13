@@ -1,4 +1,5 @@
 import type { ActionStatus, ActionType } from "../protocol/messages";
+import type { StandardActionID } from "../provider/protocol";
 import type { ChromeApi } from "./chromeApi";
 
 type ActionIntent =
@@ -12,6 +13,33 @@ export type ActionExecutionResult = {
   status: ActionStatus;
   details?: Record<string, unknown>;
 };
+
+export type StandardActionExecutionResult = { status: "success" | "page_unavailable" | "edge_reached" };
+
+/** 执行 v2 标准动作；链接 URL 仅由调用方从本地 opaque targetRef 解析。 */
+export async function executeStandardAction(
+  api: ChromeApi,
+  actionId: StandardActionID,
+  targetURL?: string
+): Promise<StandardActionExecutionResult> {
+  if (actionId === "browser.link.open_adjacent") {
+    if (!targetURL) return { status: "page_unavailable" };
+    return standardResult(await openLinkBackground(api, targetURL));
+  }
+  if (actionId === "browser.tab.activate_previous") return standardResult(await activateAdjacentTab(api, "left"));
+  if (actionId === "browser.tab.activate_next") return standardResult(await activateAdjacentTab(api, "right"));
+  if (actionId === "browser.tab.close_current") return standardResult(await closeActiveTab(api));
+  const activeTab = await getActiveTab(api);
+  if (!activeTab?.id) return { status: "page_unavailable" };
+  if (actionId === "browser.history.back") await api.tabs.goBack(activeTab.id);
+  else if (actionId === "browser.history.forward") await api.tabs.goForward(activeTab.id);
+  else await api.tabs.reload(activeTab.id);
+  return { status: "success" };
+}
+
+function standardResult(result: ActionExecutionResult): StandardActionExecutionResult {
+  return result.status === "success" ? { status: "success" } : { status: result.status === "edge_reached" ? "edge_reached" : "page_unavailable" };
+}
 
 const openerTabByOpenedTab = new Map<number, number>();
 

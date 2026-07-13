@@ -1,4 +1,4 @@
-import { executeGestureAction } from "./actionExecutor";
+import { executeGestureAction, executeStandardAction } from "./actionExecutor";
 import { chromeApi } from "./chromeApi";
 import { createNativePortManager } from "./nativePortManager";
 import { runConnectionProbe } from "./connectionProbe";
@@ -6,6 +6,7 @@ import { createReconnectableNativePort, type PortLike } from "./reconnectableNat
 import { decodeProviderEnvelope, type ProviderEnvelope } from "../provider/protocol";
 import { ContextProvider } from "../provider/contextProvider";
 import { ChromeActionAdapter } from "../provider/actionAdapter";
+import { ChromeProvider } from "../provider/chromeProvider";
 import { V2Dispatcher } from "../provider/v2Dispatcher";
 import { createOperationLedgerStore } from "../provider/operationLedger";
 import { TelemetryConnection } from "../provider/telemetryConnection";
@@ -35,6 +36,11 @@ let manager: ReturnType<typeof createNativePortManager>;
 const v2Contexts = new ContextProvider();
 const providerLedger = createOperationLedgerStore();
 const producerSessionId = crypto.randomUUID();
+// v2 boundary keeps resolved page URLs and target references inside Chrome.
+const chromeProvider = new ChromeProvider(chromeApi, async (tabId) => {
+  try { return await chrome.tabs.sendMessage(tabId, { type: "gesturekit.resolveLastPointer" }); }
+  catch { return { status: "page_unavailable" as const }; }
+});
 
 async function resolveLastPointer() {
   const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
@@ -100,7 +106,7 @@ function createV2Dispatcher(port: PortLike, ledger: Awaited<typeof providerLedge
   const adapter = new ChromeActionAdapter(v2Contexts, async (url) => {
     const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
     await chrome.tabs.create({ url, index: tab?.index === undefined ? undefined : tab.index + 1, active: true });
-  });
+  }, async (action) => { await executeStandardAction(chromeApi, action.actionId); });
   return new V2Dispatcher(v2Contexts, adapter, async () => {
     const resolved = await resolveLastPointer();
     return resolved.status === "success" ? resolved.url : null;
