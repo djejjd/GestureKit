@@ -74,9 +74,9 @@ run_swift() {
   shift
 
   if [[ -n "$developer_dir" ]]; then
-    run_or_print env "DEVELOPER_DIR=$developer_dir" swift --package-path "$repo_root" "$subcommand" "$@"
+    run_or_print env "DEVELOPER_DIR=$developer_dir" swift "$subcommand" --package-path "$repo_root" "$@"
   else
-    run_or_print swift --package-path "$repo_root" "$subcommand" "$@"
+    run_or_print swift "$subcommand" --package-path "$repo_root" "$@"
   fi
 }
 
@@ -96,5 +96,7 @@ fi
 run_or_print "$repo_root/scripts/dev/install-native-host.sh" \
   --extension-id "$extension_id" \
   --host-path "$host_path"
+
+run_or_print "$repo_root/scripts/dev/test-provider-protocol.sh"
 
 run_or_print open "chrome-extension://$extension_id/smoke.html"

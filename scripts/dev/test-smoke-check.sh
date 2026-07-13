@@ -17,23 +17,27 @@ assert_output() {
   local quoted_chrome_dir="${(q)repo_root}/extensions/chrome"
   local quoted_host_path="${(q)expected_host_path}"
 
-  rg -Fq "env DEVELOPER_DIR=$quoted_developer_dir swift --package-path $quoted_repo_root build" <(print -r -- "$output")
-  rg -Fq "env DEVELOPER_DIR=$quoted_developer_dir swift --package-path $quoted_repo_root run GestureKitHost --self-test" <(print -r -- "$output")
-  rg -Fq "cd $quoted_chrome_dir && npm run build" <(print -r -- "$output")
-  rg -Fq "$quoted_repo_root/scripts/dev/install-native-host.sh --extension-id $extension_id --host-path $quoted_host_path" <(print -r -- "$output")
-  rg -Fq "open chrome-extension://$extension_id/smoke.html" <(print -r -- "$output")
+  rg -Fq "env DEVELOPER_DIR=$quoted_developer_dir swift build --package-path $quoted_repo_root" <(print -r -- "$output") || return 1
+  rg -Fq "env DEVELOPER_DIR=$quoted_developer_dir swift run --package-path $quoted_repo_root GestureKitHost --self-test" <(print -r -- "$output") || return 1
+  rg -Fq "cd $quoted_chrome_dir && npm run build" <(print -r -- "$output") || return 1
+  rg -Fq "$quoted_repo_root/scripts/dev/install-native-host.sh --extension-id $extension_id --host-path $quoted_host_path" <(print -r -- "$output") || return 1
+  rg -Fq "$quoted_repo_root/scripts/dev/test-provider-protocol.sh" <(print -r -- "$output") || {
+    echo "expected smoke check to invoke the Provider protocol contract check" >&2
+    return 1
+  }
+  rg -Fq "open chrome-extension://$extension_id/smoke.html" <(print -r -- "$output") || return 1
 }
 
 output=$("$script" --extension-id "$extension_id" --dry-run)
-assert_output "$output" "$default_developer_dir" "$repo_root/.build/debug/GestureKitHost"
+assert_output "$output" "$default_developer_dir" "$repo_root/.build/debug/GestureKitHost" || exit 1
 
 output=$(DEVELOPER_DIR="$custom_developer_dir" "$script" --extension-id "$extension_id" --dry-run)
-assert_output "$output" "$custom_developer_dir" "$repo_root/.build/debug/GestureKitHost"
+assert_output "$output" "$custom_developer_dir" "$repo_root/.build/debug/GestureKitHost" || exit 1
 
 output=$("$script" \
   --extension-id "$extension_id" \
   --host-path "$custom_host_path" \
   --dry-run)
-assert_output "$output" "$default_developer_dir" "$custom_host_path"
+assert_output "$output" "$default_developer_dir" "$custom_host_path" || exit 1
 
 echo "smoke-check dry-run ok"
