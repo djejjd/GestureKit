@@ -688,7 +688,7 @@ public protocol RuleResolving: Sendable {
 }
 ```
 
-- [ ] **Step 1: 写候选开始和规则事实失败测试**
+- [x] **Step 1: 写候选开始和规则事实失败测试**
 
 ```swift
 func testThreeTouchesEmitCandidateBeforeCompletion() {
@@ -701,23 +701,23 @@ func testLinkContextResolvesOpenAdjacentAction() {
 }
 ```
 
-- [ ] **Step 2: 运行测试，确认失败**
+- [x] **Step 2: 运行测试，确认失败**
 
 Run: `swift test --filter GestureSessionEventTests`
 
 Expected: FAIL，`GestureSessionEvent` 未定义。
 
-- [ ] **Step 3: 实现 session 事件和唯一 RuleEngine**
+- [x] **Step 3: 实现 session 事件和唯一 RuleEngine**
 
 `GestureRecognizer.observe` 改为返回 `[GestureSessionEvent]`：首次恰好三指触摸发出 `candidateStarted`，结束时发出 classified/rejected。`GestureSessionCoordinator` 为候选生成 `gestureSessionId`，立即把 `guard_requested` 写入 Journal 并向已选 Provider 定向发送。
 
 `RuleEngine` 内部实现 `BindingResolver`，根据标准 context facts 解析六项 V1 绑定：链接打开、左右边缘切 tab、中间双击关闭、左右轻扫切 tab。Chrome 专用 `ActionType` 不得出现在新规则输入或输出中。
 
-- [ ] **Step 4: 实现并行 context/composition 与延迟预算**
+- [x] **Step 4: 实现并行 context/composition 与延迟预算**
 
 原语分类后并行发起 context request 和组合仲裁。标准链接事实返回时立即剪枝 no-link 双击；边缘点按不等待双击窗口。要求：context response <=120ms；链接/边缘从原语分类到 action request <=150ms；中间双击窗口 <=300ms，第二击分类到请求 <=150ms。所有数值使用单调时钟记录。
 
-- [ ] **Step 5: 运行任务级与完整 Swift 测试**
+- [x] **Step 5: 运行任务级与完整 Swift 测试**
 
 Run: `swift test --filter GestureSessionEventTests`
 
@@ -731,7 +731,7 @@ Run: `swift test`
 
 Expected: PASS。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add Sources/GestureKitCore/Gestures Sources/GestureKitCore/Rules apps/macos/GestureKitApp/Sources/GestureKitApp/GestureSessionCoordinator.swift Tests/GestureKitCoreTests Tests/GestureKitAppTests
