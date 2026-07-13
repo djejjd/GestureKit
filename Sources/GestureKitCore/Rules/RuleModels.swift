@@ -1,5 +1,39 @@
 import Foundation
 
+/// 组合器交给规则层的 provider-neutral 手势语义。
+public enum ComposedGesture: String, Codable, Equatable, Sendable, CaseIterable {
+    case threeFingerTap = "three_finger_tap"
+    case threeFingerTapLeftEdge = "three_finger_tap_left_edge"
+    case threeFingerTapRightEdge = "three_finger_tap_right_edge"
+    case threeFingerDoubleTapCenter = "three_finger_double_tap_center"
+    case threeFingerSwipeLeft = "three_finger_swipe_left"
+    case threeFingerSwipeRight = "three_finger_swipe_right"
+}
+
+/// Provider 传来的、规则求值所需的标准事实；不包含浏览器 API 或页面内容。
+public struct ProviderContextSnapshot: Equatable, Sendable {
+    public let contextId: String
+    public let targetKind: ContextTargetKind
+    public let targetRef: String?
+    /// action 的 wall-clock 截止时间，由边界层提供。
+    public let deadline: Int64
+
+    public init(contextId: String, targetKind: ContextTargetKind, targetRef: String?, deadline: Int64) {
+        self.contextId = contextId
+        self.targetKind = targetKind
+        self.targetRef = targetRef
+        self.deadline = deadline
+    }
+
+    public init(snapshot: ContextSnapshotPayload, deadline: Int64) {
+        self.init(contextId: snapshot.contextId, targetKind: snapshot.targetKind, targetRef: snapshot.targetRef, deadline: deadline)
+    }
+}
+
+public protocol RuleResolving: Sendable {
+    func resolve(gesture: ComposedGesture, context: ProviderContextSnapshot) -> ActionDescriptor?
+}
+
 public enum BrowserKind: String, Codable, Equatable, Sendable {
     case chrome
     case other

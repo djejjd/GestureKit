@@ -2,6 +2,21 @@ import XCTest
 @testable import GestureKitCore
 
 final class RuleEngineTests: XCTestCase {
+    func testLinkContextResolvesOpenAdjacentAction() {
+        let engine = RuleEngine(rules: DefaultRules.v1)
+        let context = ProviderContextSnapshot(
+            contextId: "context-link",
+            targetKind: .standardLink,
+            targetRef: "opaque-link",
+            deadline: 1_000
+        )
+
+        XCTAssertEqual(
+            engine.resolve(gesture: .threeFingerTap, context: context)?.actionId,
+            .browserLinkOpenAdjacent
+        )
+    }
+
     func testTapOnChromeLinkMatchesOpenLinkRule() {
         let engine = RuleEngine(rules: DefaultRules.v1)
         let context = RuleContext(appBundleId: "com.google.Chrome", browserKind: .chrome, elementType: .link)

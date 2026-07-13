@@ -75,7 +75,7 @@ private final class ObservationState {
         }
 
         let frame = TouchFrame.frame(time: Date().timeIntervalSinceReferenceDate, activeTouches: Self.samples(from: activeTouches))
-        if let recognized = recognizer.observe(frame) {
+        if let recognized = recognizer.observe(frame).compactMap(\.recognizedGesture).first {
             isThreeFingerSessionActive = false
             printRecognizedGesture(recognized)
         } else if fingerCount == 3, let centroid, !isThreeFingerSessionActive {

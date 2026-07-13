@@ -124,7 +124,8 @@ final class GestureKitRuntime {
     @discardableResult
     private func processFrame(_ frame: TouchFrame) -> RecognizedGesture? {
         guard !isPaused else { return nil }
-        guard let event = recognizer.observe(frame) else { return nil }
+        let sessionEvents = recognizer.observe(frame)
+        guard let event = sessionEvents.compactMap(\.recognizedGesture).first else { return nil }
         guard let gesture = event.gesture else {
             let reason = warningReason(from: event)
             emit(event: AppMenuBarEvent(type: .gestureWarning(reason: reason.rawValue)))
@@ -213,7 +214,7 @@ final class GestureKitRuntime {
     }
 
     func observeForTesting(_ frame: TouchFrame) -> RecognizedGesture? {
-        recognizer.observe(frame)
+        recognizer.observe(frame).compactMap(\.recognizedGesture).first
     }
 
     func processFrameForTesting(_ frame: TouchFrame) -> RecognizedGesture? {

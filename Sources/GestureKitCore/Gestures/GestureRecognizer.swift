@@ -24,21 +24,23 @@ public struct GestureRecognizer: Sendable {
         session = nil
     }
 
-    public mutating func observe(_ frame: TouchFrame) -> RecognizedGesture? {
+    public mutating func observe(_ frame: TouchFrame) -> [GestureSessionEvent] {
         let fingerCount = frame.activeTouches.count
         if fingerCount == 3, let centroid = Self.centroid(of: frame.activeTouches) {
             if var existing = session {
                 existing.latestCentroid = centroid
                 session = existing
+                return []
             } else {
                 session = Session(startedAt: frame.time, startCentroid: centroid, latestCentroid: centroid)
+                return [.candidateStarted(GestureCandidate(startedAt: frame.time, centroidX: centroid.x, centroidY: centroid.y))]
             }
-            return nil
         }
 
-        guard let completed = session else { return nil }
+        guard let completed = session else { return [] }
         session = nil
-        return classify(completed, endedAt: frame.time)
+        let gesture = classify(completed, endedAt: frame.time)
+        return gesture.gesture == nil ? [.primitiveRejected(gesture)] : [.primitiveClassified(gesture)]
     }
 
     private func classify(_ session: Session, endedAt: TimeInterval) -> RecognizedGesture {
