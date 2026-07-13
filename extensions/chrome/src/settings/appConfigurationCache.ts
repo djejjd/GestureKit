@@ -38,11 +38,16 @@ export async function cacheAppConfigurationSnapshot(
   return applied;
 }
 
+export function diagnosticLoggingEnabledFromSnapshot(snapshot: AppConfigurationSnapshot | null | undefined): boolean {
+  return snapshot?.diagnosticLoggingEnabled === true;
+}
+
 function isSnapshot(value: unknown): value is AppConfigurationSnapshot {
   if (typeof value !== "object" || value === null) return false;
   const snapshot = value as Record<string, unknown>;
   return typeof snapshot.storeEpoch === "string" && snapshot.storeEpoch.length > 0 &&
     Number.isInteger(snapshot.schemaVersion) &&
     Number.isInteger(snapshot.configurationVersion) &&
+    (typeof snapshot.diagnosticLoggingEnabled === "boolean" || typeof snapshot.diagnosticLoggingEnabled === "undefined") &&
     typeof snapshot.configJSON === "string";
 }

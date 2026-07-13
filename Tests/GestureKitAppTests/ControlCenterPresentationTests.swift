@@ -32,15 +32,51 @@ final class ControlCenterPresentationTests: XCTestCase {
             title: "三指点按",
             presentation: .resultUnknown,
             eventCount: 4,
-            lastEventAt: Date(timeIntervalSince1970: 0)
+            lastEventAt: Date(timeIntervalSince1970: 0),
+            evidenceTimeline: []
         )
         let page = OperationPageState(items: [item], selectedOperationID: item.id, message: nil, canLoadMore: false)
         XCTAssertEqual(page.selectedItem, item)
     }
 
     func testRuntimeDataSourcePaginatesJournalAndUsesChineseTerminalPresentation() {
+        let request = ProviderEvent(
+            eventId: "request-1",
+            producerSessionId: "provider-1",
+            producerSequence: 1,
+            causedByEventId: nil,
+            monotonicClockMs: 1,
+            wallClockMs: 1,
+            gestureSessionId: "gesture-1",
+            operationId: "op-1",
+            type: .actionRequest,
+            payload: .actionRequest(ActionDescriptor(
+                actionId: .browserTabActivateNext,
+                contextId: "ctx-1",
+                targetRef: nil,
+                parameters: ["gesture": "three_finger_swipe_left"],
+                deadline: 2
+            ))
+        )
+        let result = ProviderEvent(
+            eventId: "result-1",
+            producerSessionId: "provider-1",
+            producerSequence: 2,
+            causedByEventId: "request-1",
+            monotonicClockMs: 2,
+            wallClockMs: 2,
+            gestureSessionId: "gesture-1",
+            operationId: "op-1",
+            type: .actionResult,
+            payload: .actionResult(ProviderActionResultPayload(
+                operationId: "op-1",
+                outcome: .succeeded,
+                reason: nil,
+                completedAt: 2
+            ))
+        )
         let journal = StubJournal(timelines: [
-            OperationTimeline(operationId: "newest", events: [], terminalState: .resultUnknown, startedAt: 1, lastEventAt: 3),
+            OperationTimeline(operationId: "newest", events: [request, result], terminalState: .resultUnknown, startedAt: 1, lastEventAt: 3),
             OperationTimeline(operationId: "older", events: [], terminalState: .succeeded, startedAt: 1, lastEventAt: 2)
         ])
         let source = RuntimeControlCenterDataSource(
@@ -52,8 +88,11 @@ final class ControlCenterPresentationTests: XCTestCase {
         let page = source.operationPage(limit: 1)
 
         XCTAssertEqual(page.items.count, 1)
+        XCTAssertEqual(page.items.first?.title, "三指左滑 · 切换右侧标签页")
         XCTAssertEqual(page.items.first?.presentation.title, "操作结果暂时无法确认")
         XCTAssertFalse(page.items.first?.presentation.title.contains("result_unknown") ?? true)
+        XCTAssertEqual(page.items.first?.evidenceTimeline.first, "1. 已识别三指左滑，准备切换右侧标签页")
+        XCTAssertEqual(page.items.first?.evidenceTimeline.last, "2. 浏览器返回结果：成功")
         XCTAssertTrue(page.canLoadMore)
         source.loadMoreOperations()
         XCTAssertEqual(source.operationPage(limit: 1).items.count, 2)

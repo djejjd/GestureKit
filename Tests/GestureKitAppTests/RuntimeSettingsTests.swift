@@ -81,6 +81,10 @@ final class RuntimeSettingsTests: XCTestCase {
     func testProviderSnapshotComesFromPersistedAppAuthority() throws {
         let defaults = UserDefaults(suiteName: "GestureKitTests.runtimeProviderConfiguration")!
         defaults.removePersistentDomain(forName: "GestureKitTests.runtimeProviderConfiguration")
+        UserDefaults.standard.set(true, forKey: GestureKitLogger.diagnosticLoggingDefaultsKey)
+        defer {
+            UserDefaults.standard.removeObject(forKey: GestureKitLogger.diagnosticLoggingDefaultsKey)
+        }
         let runtime = GestureKitRuntime(
             menuBarHandler: { _ in },
             touchBackend: StubTouchBackend(),
@@ -93,6 +97,7 @@ final class RuntimeSettingsTests: XCTestCase {
 
         XCTAssertEqual(snapshot.storeEpoch, persisted.storeEpoch)
         XCTAssertEqual(snapshot.configurationVersion, persisted.configurationVersion)
+        XCTAssertTrue(snapshot.diagnosticLoggingEnabled)
         XCTAssertEqual(try JSONDecoder().decode(AppConfiguration.self, from: Data(snapshot.configJSON.utf8)), persisted)
     }
 

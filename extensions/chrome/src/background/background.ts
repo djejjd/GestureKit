@@ -29,6 +29,7 @@ import {
   diagnosticFromActionResult,
   isDiagnosticEventMessage
 } from "../diagnostics/diagnostics";
+import { diagnosticLoggingEnabledFromSnapshot } from "../settings/appConfigurationCache";
 
 const HOST_NAME = "com.gesturekit.host";
 const STATUS_STORAGE_KEY = "gesturekitStatus";
@@ -261,6 +262,16 @@ async function handleConfigurationSnapshot(
 ): Promise<void> {
   try {
     const applied = await cacheAppConfigurationSnapshot(chrome.storage.local, snapshot);
+    void appendDiagnostic(chrome.storage.local, {
+      id: `settings-${envelope.messageId}`,
+      timestamp: envelope.timestamp,
+      source: "extension",
+      kind: "settings",
+      reason: "success",
+      message: diagnosticLoggingEnabledFromSnapshot(applied)
+        ? "diagnostic_logging_enabled=true"
+        : "diagnostic_logging_enabled=false"
+    });
     port.postMessage({
       ...envelope,
       messageId: crypto.randomUUID(),

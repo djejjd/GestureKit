@@ -39,8 +39,18 @@ struct PresetPage: View {
 }
 
 struct AdvancedPage: View {
+    let onDiagnosticLoggingChanged: () -> Void
+    @AppStorage(GestureKitLogger.diagnosticLoggingDefaultsKey) private var diagnosticLoggingEnabled = false
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
+            Toggle("启用诊断日志", isOn: $diagnosticLoggingEnabled)
+                .toggleStyle(.switch)
+                .onChange(of: diagnosticLoggingEnabled) { _, _ in
+                    onDiagnosticLoggingChanged()
+                }
+            Text("开启后会记录更细的链路日志，用于复现频繁问题；默认只保留关键日志。")
+                .foregroundStyle(.secondary)
             StatusCardView(card: .init(title: "系统权限", detail: "将在实际检测后显示说明", severity: .informational))
             StatusCardView(card: .init(title: "Provider 凭据", detail: "连接后可管理已注册 Provider", severity: .informational))
         }

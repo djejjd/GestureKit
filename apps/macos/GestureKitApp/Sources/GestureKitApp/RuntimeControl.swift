@@ -7,6 +7,7 @@ protocol RuntimeControlling: AnyObject {
     func resumeListening()
     func quitApplication()
     func openLogDirectory()
+    func refreshConfigurationSnapshot()
 }
 
 @MainActor
@@ -33,5 +34,9 @@ final class RuntimeControl: RuntimeControlling {
     func openLogDirectory() {
         let logDir = ("~/Library/Logs/GestureKit" as NSString).expandingTildeInPath
         NSWorkspace.shared.open(URL(fileURLWithPath: logDir))
+    }
+
+    func refreshConfigurationSnapshot() {
+        runtime?.refreshConfigurationSnapshot()
     }
 }

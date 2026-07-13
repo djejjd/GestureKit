@@ -132,6 +132,7 @@ export interface ConfigurationSnapshotPayload {
   storeEpoch: string;
   schemaVersion: number;
   configurationVersion: number;
+  diagnosticLoggingEnabled?: boolean;
   configJSON: string;
 }
 
@@ -248,7 +249,7 @@ const PAYLOAD_TYPE_MAP: Record<ProviderMessageType, PayloadShape> = {
   capability_snapshot: { required: { capabilities: "stringArray", capabilityVersion: "integer" } },
   context_request: { required: { gestureSessionId: "string", requiresTargetRef: "boolean", deadline: "integer" } },
   context_snapshot: { required: { contextId: "string", pageIdentity: "string", expiresAt: "integer", targetKind: "targetKind" }, optional: { targetRef: "string" } },
-  configuration_snapshot: { required: { storeEpoch: "string", schemaVersion: "integer", configurationVersion: "integer", configJSON: "string" } },
+  configuration_snapshot: { required: { storeEpoch: "string", schemaVersion: "integer", configurationVersion: "integer", configJSON: "string" }, optional: { diagnosticLoggingEnabled: "boolean" } },
   configuration_ack: { required: { appliedVersion: "integer", applied: "boolean" } },
   action_request: { required: { actionId: "actionId", contextId: "string", parameters: "stringMap", deadline: "integer" }, optional: { targetRef: "string" } },
   action_accepted: { required: { operationId: "string", acceptedAt: "integer" } },

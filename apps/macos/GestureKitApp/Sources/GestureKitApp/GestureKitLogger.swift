@@ -1,6 +1,8 @@
 import Foundation
 
 final class GestureKitLogger: @unchecked Sendable {
+    static let diagnosticLoggingDefaultsKey = "gesturekitDiagnosticLoggingEnabled"
+
     enum Level: String {
         case debug
         case info
@@ -8,7 +10,8 @@ final class GestureKitLogger: @unchecked Sendable {
         case error
     }
 
-    private let debugEnabled: Bool
+    private let debugEnabledOverride: Bool?
+    private let debugEnabledProvider: () -> Bool
     private let logFileURL: URL
     private let maxFileBytes: UInt64
     private let maxFiles: Int
@@ -18,14 +21,19 @@ final class GestureKitLogger: @unchecked Sendable {
     private var didReportFileError = false
 
     init(
-        debugEnabled: Bool = ProcessInfo.processInfo.environment["GESTUREKIT_DEBUG"] == "1",
+        debugEnabled: Bool? = nil,
+        debugEnabledProvider: @escaping () -> Bool = {
+            ProcessInfo.processInfo.environment["GESTUREKIT_DEBUG"] == "1" ||
+            UserDefaults.standard.bool(forKey: GestureKitLogger.diagnosticLoggingDefaultsKey)
+        },
         logFileURL: URL = FileManager.default.homeDirectoryForCurrentUser
             .appendingPathComponent("Library/Logs/GestureKit/GestureKitApp.log"),
         maxFileBytes: UInt64 = 1_000_000,
         maxFiles: Int = 3,
         terminalWriter: @escaping (String) -> Void = GestureKitLogger.defaultTerminalWriter
     ) {
-        self.debugEnabled = debugEnabled
+        self.debugEnabledOverride = debugEnabled
+        self.debugEnabledProvider = debugEnabledProvider
         self.logFileURL = logFileURL
         self.maxFileBytes = maxFileBytes
         self.maxFiles = max(1, maxFiles)
@@ -33,7 +41,7 @@ final class GestureKitLogger: @unchecked Sendable {
     }
 
     func debug(_ message: String, rateLimitKey: String? = nil, interval: TimeInterval = 2) {
-        guard debugEnabled else { return }
+        guard isDebugEnabled else { return }
         log(.debug, message, rateLimitKey: rateLimitKey, interval: interval)
     }
 
@@ -144,12 +152,16 @@ final class GestureKitLogger: @unchecked Sendable {
     private func shouldWriteToTerminal(_ level: Level) -> Bool {
         switch level {
         case .debug:
-            return debugEnabled
+            return isDebugEnabled
         case .info:
             return false
         case .warn, .error:
             return true
         }
+    }
+
+    private var isDebugEnabled: Bool {
+        debugEnabledOverride ?? debugEnabledProvider()
     }
 
     private static func timestamp(_ date: Date) -> String {

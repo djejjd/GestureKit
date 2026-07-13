@@ -187,4 +187,5 @@ final class SpyRuntimeControl: RuntimeControlling {
     func resumeListening() { resumeCount += 1 }
     func quitApplication() {}
     func openLogDirectory() { openLogCount += 1 }
+    func refreshConfigurationSnapshot() {}
 }

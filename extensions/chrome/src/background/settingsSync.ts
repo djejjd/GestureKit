@@ -56,8 +56,7 @@ export function createPendingSettingsSyncStatus(
     requestedAt: timestamp,
     appliedAt: null,
     messageId,
-    deltaSummary: previous?.deltaSummary ?? [],
-    message: undefined
+    deltaSummary: previous?.deltaSummary ?? []
   };
 }
 
@@ -73,8 +72,7 @@ export function createSavedOnlySettingsSyncStatus(
     requestedAt: null,
     appliedAt: previous?.appliedAt ?? null,
     messageId: null,
-    deltaSummary: previous?.deltaSummary ?? [],
-    message: undefined
+    deltaSummary: previous?.deltaSummary ?? []
   };
 }
 

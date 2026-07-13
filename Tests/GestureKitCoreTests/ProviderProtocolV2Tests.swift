@@ -256,6 +256,23 @@ final class ProviderProtocolV2Tests: XCTestCase {
         XCTAssertEqual(unavailable.targetKind, .pageUnavailable)
     }
 
+    /// configuration_snapshot 需要携带 App 权威的诊断日志开关，供 Chrome 侧镜像使用。
+    func testConfigurationSnapshotEncodesDiagnosticLoggingFlag() throws {
+        let snapshot = ConfigurationSnapshotPayload(
+            storeEpoch: "epoch-1",
+            schemaVersion: 2,
+            configurationVersion: 7,
+            diagnosticLoggingEnabled: true,
+            configJSON: "{\"recognition\":{\"swipeSensitivity\":\"standard\"}}"
+        )
+
+        let data = try JSONEncoder().encode(snapshot)
+        let decoded = try JSONDecoder().decode(ConfigurationSnapshotPayload.self, from: data)
+
+        XCTAssertTrue(decoded.diagnosticLoggingEnabled)
+        XCTAssertEqual(decoded.configurationVersion, 7)
+    }
+
     // MARK: - 标准动作 ID
 
     /// Provider Protocol v2 必须定义以下 7 个标准动作 ID。

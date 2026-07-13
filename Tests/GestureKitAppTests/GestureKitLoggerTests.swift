@@ -74,4 +74,25 @@ final class GestureKitLoggerTests: XCTestCase {
         XCTAssertEqual(terminalLines.count, 1)
         XCTAssertTrue(terminalLines[0].contains("gesture_unstable"))
     }
+
+    func testDebugTerminalOutputFollowsDynamicProvider() {
+        let logURL = temporaryDirectory.appendingPathComponent("GestureKitApp.log")
+        var terminalLines: [String] = []
+        var enabled = false
+        let logger = GestureKitLogger(
+            debugEnabled: nil,
+            debugEnabledProvider: { enabled },
+            logFileURL: logURL,
+            terminalWriter: { terminalLines.append($0) }
+        )
+
+        logger.debug("diagnostic_frame gesture=three_finger_tap")
+        XCTAssertTrue(terminalLines.isEmpty)
+
+        enabled = true
+        logger.debug("diagnostic_frame gesture=three_finger_tap")
+
+        XCTAssertEqual(terminalLines.count, 1)
+        XCTAssertTrue(terminalLines[0].contains("diagnostic_frame"))
+    }
 }

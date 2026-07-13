@@ -88,6 +88,7 @@ struct OperationListItem: Identifiable, Equatable {
     let presentation: OperationPresentation
     let eventCount: Int
     let lastEventAt: Date
+    let evidenceTimeline: [String]
 }
 
 /// 操作记录页面的列表、空状态和分页状态。

@@ -6,6 +6,7 @@ function snapshotWithEpoch(storeEpoch: string): AppConfigurationSnapshot {
     storeEpoch,
     schemaVersion: 2,
     configurationVersion: 1,
+    diagnosticLoggingEnabled: false,
     configJSON: '{"recognition":{"swipeSensitivity":"standard"}}'
   };
 }

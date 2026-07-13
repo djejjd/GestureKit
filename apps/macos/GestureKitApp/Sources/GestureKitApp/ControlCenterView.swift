@@ -29,6 +29,7 @@ struct ControlCenterView: View {
                         .padding(.vertical, 9)
                         .padding(.horizontal, 12)
                         .frame(maxWidth: .infinity, alignment: .leading)
+                        .contentShape(Rectangle())
                         .background(selection == page ? Color.accentColor : Color.clear, in: RoundedRectangle(cornerRadius: 8))
                 }
                 Spacer()
@@ -79,7 +80,9 @@ struct ControlCenterView: View {
         case .privacy:
             PrivacyPage(state: dataSource.privacyPage())
         case .advanced:
-            AdvancedPage()
+            AdvancedPage(onDiagnosticLoggingChanged: {
+                control.refreshConfigurationSnapshot()
+            })
         }
     }
 

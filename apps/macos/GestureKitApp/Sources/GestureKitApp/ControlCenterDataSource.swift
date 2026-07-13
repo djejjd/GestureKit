@@ -154,10 +154,11 @@ final class RuntimeControlCenterDataSource: ControlCenterDataSource {
         }
         return OperationListItem(
             id: timeline.operationId,
-            title: "浏览器操作",
+            title: operationDisplayTitle(for: timeline),
             presentation: .init(title: diagnostic.title, detail: detail, suggestion: diagnostic.suggestion),
             eventCount: timeline.events.count,
-            lastEventAt: Date(timeIntervalSince1970: TimeInterval(timeline.lastEventAt) / 1_000)
+            lastEventAt: Date(timeIntervalSince1970: TimeInterval(timeline.lastEventAt) / 1_000),
+            evidenceTimeline: operationEvidenceTimelineLines(for: timeline)
         )
     }
 
@@ -176,5 +177,83 @@ final class RuntimeControlCenterDataSource: ControlCenterDataSource {
 
     private func severity(for presentation: OperationPresentation) -> PresentationSeverity {
         presentation.title == "操作已完成" ? .informational : .warning
+    }
+
+    private func operationDisplayTitle(for timeline: OperationTimeline) -> String {
+        guard let request = timeline.events.first(where: { $0.type == .actionRequest }),
+              case .actionRequest(let descriptor) = request.payload else {
+            return "浏览器操作"
+        }
+        let gesture = displayGestureName(descriptor.parameters["gesture"])
+        let action = displayActionName(descriptor.actionId)
+        return gesture.map { "\($0) · \(action)" } ?? action
+    }
+}
+
+func operationEvidenceTimelineLines(for timeline: OperationTimeline) -> [String] {
+    timeline.events.enumerated().map { index, event in
+        let step = index + 1
+        switch event.payload {
+        case .actionRequest(let descriptor):
+            let gesture = displayGestureName(descriptor.parameters["gesture"]) ?? "未知手势"
+            return "\(step). 已识别\(gesture)，准备\(displayActionName(descriptor.actionId))"
+        case .actionAccepted:
+            return "\(step). Provider 已接收并记录本次请求"
+        case .actionResult(let result):
+            let outcome = displayActionOutcomeName(result.outcome)
+            if let reason = result.reason {
+                return "\(step). 浏览器返回结果：\(outcome)（\(displayActionReasonName(reason))）"
+            }
+            return "\(step). 浏览器返回结果：\(outcome)"
+        default:
+            return "\(step). \(event.type.rawValue)"
+        }
+    }
+}
+
+private func displayGestureName(_ rawValue: String?) -> String? {
+    switch rawValue {
+    case "three_finger_tap": return "三指点按"
+    case "three_finger_swipe_left": return "三指左滑"
+    case "three_finger_swipe_right": return "三指右滑"
+    default: return rawValue
+    }
+}
+
+private func displayActionName(_ actionId: StandardActionID) -> String {
+    switch actionId {
+    case .browserLinkOpenAdjacent: return "链接在新标签页打开"
+    case .browserTabActivatePrevious: return "切换左侧标签页"
+    case .browserTabActivateNext: return "切换右侧标签页"
+    case .browserTabCloseCurrent: return "关闭当前标签页"
+    case .browserHistoryBack: return "后退"
+    case .browserHistoryForward: return "前进"
+    case .browserPageReload: return "刷新页面"
+    }
+}
+
+private func displayActionOutcomeName(_ outcome: ActionResultOutcome) -> String {
+    switch outcome {
+    case .succeeded: return "成功"
+    case .failed: return "失败"
+    case .resultUnknown: return "结果暂时无法确认"
+    }
+}
+
+private func displayActionReasonName(_ reason: ActionResultReason) -> String {
+    switch reason {
+    case .completed: return "已完成"
+    case .guardUnavailable: return "页面保护不可用"
+    case .guardExpired: return "页面保护已过期"
+    case .contextExpired: return "上下文已过期"
+    case .targetNotFound: return "未找到目标"
+    case .providerTimeout: return "Provider 超时"
+    case .providerDisconnected: return "Provider 断开"
+    case .storageFull: return "存储已满"
+    case .capabilityUnavailable: return "能力不可用"
+    case .chromeApiError: return "Chrome API 错误"
+    case .invalidTarget: return "目标无效"
+    case .deadlineExceeded: return "超过截止时间"
+    case .recoveryTimeout: return "恢复超时"
     }
 }

@@ -58,9 +58,20 @@ struct OperationHistoryView: View {
                 Text(item.presentation.suggestion).frame(maxWidth: .infinity, alignment: .leading)
             }
             GroupBox("证据时间线") {
-                Text("将在操作完成后显示已脱敏的阶段记录。")
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                if item.evidenceTimeline.isEmpty {
+                    Text("暂无可显示的阶段记录。")
+                        .foregroundStyle(.secondary)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    VStack(alignment: .leading, spacing: 8) {
+                        ForEach(Array(item.evidenceTimeline.enumerated()), id: \.offset) { _, line in
+                            Text(line)
+                                .font(.system(.caption, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                        }
+                    }
+                }
             }
             Text("导出的证据包不受 7 天/50 MB 自动清理控制。")
                 .font(.caption)

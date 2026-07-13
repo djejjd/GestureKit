@@ -248,13 +248,22 @@ public struct ConfigurationSnapshotPayload: Codable, Sendable, Equatable {
     public let schemaVersion: Int
     /// 单调递增的配置版本号
     public let configurationVersion: Int64
+    /// 是否开启诊断日志；Chrome 侧会镜像这一权威开关。
+    public let diagnosticLoggingEnabled: Bool
     /// 序列化后的配置内容（JSON 字符串）
     public let configJSON: String
 
-    public init(storeEpoch: String, schemaVersion: Int, configurationVersion: Int64, configJSON: String) {
+    public init(
+        storeEpoch: String,
+        schemaVersion: Int,
+        configurationVersion: Int64,
+        diagnosticLoggingEnabled: Bool,
+        configJSON: String
+    ) {
         self.storeEpoch = storeEpoch
         self.schemaVersion = schemaVersion
         self.configurationVersion = configurationVersion
+        self.diagnosticLoggingEnabled = diagnosticLoggingEnabled
         self.configJSON = configJSON
     }
 }
@@ -838,7 +847,7 @@ public struct ProviderEnvelope: Codable, Sendable, Equatable {
         case .capabilitySnapshot: allowedFields = ["capabilities", "capabilityVersion"]
         case .contextRequest: allowedFields = ["gestureSessionId", "requiresTargetRef", "deadline"]
         case .contextSnapshot: allowedFields = ["contextId", "pageIdentity", "expiresAt", "targetKind", "targetRef"]
-        case .configurationSnapshot: allowedFields = ["storeEpoch", "schemaVersion", "configurationVersion", "configJSON"]
+        case .configurationSnapshot: allowedFields = ["storeEpoch", "schemaVersion", "configurationVersion", "diagnosticLoggingEnabled", "configJSON"]
         case .configurationAck: allowedFields = ["appliedVersion", "applied"]
         case .actionRequest: allowedFields = ["actionId", "contextId", "targetRef", "parameters", "deadline"]
         case .actionAccepted: allowedFields = ["operationId", "acceptedAt"]
