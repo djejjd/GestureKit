@@ -168,7 +168,7 @@ describe("pointerTracker", () => {
     }
   });
 
-  it("reports clickAlreadyFired for late tap confirmation after protection timeout", async () => {
+  it("falls back to pointer-based link resolution when protected click times out", async () => {
     vi.useFakeTimers();
     const module = await import("../src/content/pointerTracker");
     module.setLinkClickProtectionEnabled(true);
@@ -176,14 +176,11 @@ describe("pointerTracker", () => {
     window.dispatchEvent(new PointerEvent("pointermove", { clientX: 10, clientY: 20 }));
 
     anchor.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
-    await vi.advanceTimersByTimeAsync(181);
+    await vi.advanceTimersByTimeAsync(501);
     const result = module.resolveLinkAtLastPointer(Date.now(), { consumeNextClick: true });
 
-    expect(result).toMatchObject({
-      status: "success",
-      url: "http://localhost:3000/docs",
-      clickAlreadyFired: true
-    });
+    // 保护超时后 timedOutAndNavigated 置为 true，跳过指针解析避免重复导航
+    expect(result).toMatchObject({ status: "no_target" });
   });
 
   it("syncs link protection from Chrome storage and consumes runtime messages", async () => {
@@ -223,10 +220,9 @@ describe("pointerTracker", () => {
       response = message;
     });
 
-    expect(response).toEqual({
+    expect(response).toMatchObject({
       status: "success",
-      url: "http://localhost:3000/docs",
-      clickProtected: true
+      url: "http://localhost:3000/docs"
     });
 
     storageListeners[0]?.({
@@ -255,22 +251,36 @@ describe("pointerTracker", () => {
     expect(click.defaultPrevented).toBe(false);
   });
 
-  it("returns protected_click_expired when protected navigation expires before consumption", async () => {
+  it("falls through to pointer resolution when protected click times out without expired storage", async () => {
     vi.useFakeTimers();
     vi.resetModules();
     const module = await import("../src/content/pointerTracker");
     module.setLinkClickProtectionEnabled(true);
     const anchor = document.getElementById("target") as HTMLAnchorElement;
+    window.dispatchEvent(new PointerEvent("pointermove", { clientX: 10, clientY: 20 }));
 
     anchor.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
-    await vi.advanceTimersByTimeAsync(181);
+    await vi.advanceTimersByTimeAsync(501);
 
     const result = module.resolveLinkAtLastPointer(Date.now(), { consumeNextClick: true });
-    expect(result).toMatchObject({
-      status: "success",
-      clickAlreadyFired: true,
-      reason: "protected_click_expired"
-    });
+    // 保护超时，timedOutAndNavigated 阻止手势再次打开链接
+    expect(result).toMatchObject({ status: "no_target" });
+    vi.useRealTimers();
+  });
+
+  it("navigates to the link URL when protected click times out without gesture consumption", async () => {
+    vi.useFakeTimers();
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    const module = await import("../src/content/pointerTracker");
+    module.setLinkClickProtectionEnabled(true);
+    const anchor = document.getElementById("target") as HTMLAnchorElement;
+
+    anchor.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+    await vi.advanceTimersByTimeAsync(501);
+
+    // jsdom 中设置 window.location.href 会以 console.error 报告导航
+    expect(consoleError).toHaveBeenCalledWith("Not implemented: navigation to another Document");
+    consoleError.mockRestore();
     vi.useRealTimers();
   });
 

@@ -54,7 +54,7 @@ describe("executeGestureAction", () => {
     expect(api.tabs.goBack).toHaveBeenCalledWith(10);
   });
 
-  it("opens http link next to active tab and activates it", async () => {
+  it("opens http link next to active tab in the background", async () => {
     const api = makeChromeApi([{ id: 10, index: 2, active: true, windowId: 7 }]);
 
     const result = await executeGestureAction(api, {

@@ -9,8 +9,8 @@ export type PointerSnapshot = {
 };
 
 const MAX_POINTER_AGE_MS = 1500;
-const CONSUME_CLICK_WINDOW_MS = 1000;
-const LINK_CLICK_PROTECTION_WINDOW_MS = 180;
+const CONSUME_CLICK_WINDOW_MS = 2000;
+const LINK_CLICK_PROTECTION_WINDOW_MS = 500;
 
 type PointerTrackerState = {
   lastPointer: PointerSnapshot | null;
@@ -19,6 +19,7 @@ type PointerTrackerState = {
   protectedLinkClick: { url: string; timestamp: number; timeout: ReturnType<typeof setTimeout> } | null;
   expiredProtectedClick: { url: string; timestamp: number } | null;
   linkClickProtectionEnabled: boolean;
+  timedOutAndNavigated: boolean;
 };
 
 const state = sharedState();
@@ -82,6 +83,10 @@ export function resolveLinkAtLastPointer(now: number = Date.now(), options: Reso
     if (expiredProtectedResult) {
       return expiredProtectedResult;
     }
+    // 保护窗口已超时并已导航，不返回链接避免重复打开新标签页
+    if (state.timedOutAndNavigated) {
+      return { status: "no_target" as const };
+    }
   }
 
   if (!state.lastPointer) {
@@ -137,7 +142,7 @@ function consumeExpiredProtectedLinkClick(now: number) {
     url,
     clickAlreadyFired: true,
     reason: "protected_click_expired" as const,
-    detail: "点击保护窗口已过期，页面已继续当前页跳转"
+    detail: "点击保护窗口已过期，未在窗口内消费"
   };
 }
 
@@ -180,12 +185,12 @@ function protectLinkClick(event: MouseEvent, url: string) {
     url,
     timestamp: Date.now(),
     timeout: setTimeout(() => {
-      state.expiredProtectedClick = {
-        url,
-        timestamp: Date.now()
-      };
+      // 保护到期：若 GestureKit 已消费（consumeProtectedLinkClick 会
+      // clearTimeout 此定时器），回调不会执行。未消费时直接导航，
+      // 标记 timedOutAndNavigated，让晚到的手势跳过重复打开。
       state.protectedLinkClick = null;
-      window.location.assign(url);
+      state.timedOutAndNavigated = true;
+      window.location.href = url;
     }, LINK_CLICK_PROTECTION_WINDOW_MS)
   };
 }
@@ -220,7 +225,8 @@ function sharedState(): PointerTrackerState {
     lastLinkClick: null,
     protectedLinkClick: null,
     expiredProtectedClick: null,
-    linkClickProtectionEnabled: true
+    linkClickProtectionEnabled: false,
+    timedOutAndNavigated: false
   };
   return target[key]!;
 }

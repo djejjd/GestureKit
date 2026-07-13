@@ -28,6 +28,7 @@ final class GestureSessionCoordinator {
     private let actionRouter: (String, ActionDescriptor) -> Void
     private let monotonicClockMs: () -> Int64
     private let sessionID: () -> String
+    private let logger: GestureKitLogger
     private var activeSessions: [String: SessionState] = [:]
     /// `GestureSessionEvent` 尚未携带 ID；因此按候选实际到达顺序关联其终态事件，
     /// 不得从 UUID 字符串排序推断归属。
@@ -41,7 +42,8 @@ final class GestureSessionCoordinator {
         contextRouter: @escaping (String, Int64) -> Void = { _, _ in },
         actionRouter: @escaping (String, ActionDescriptor) -> Void = { _, _ in },
         monotonicClockMs: @escaping () -> Int64 = { Int64(DispatchTime.now().uptimeNanoseconds / 1_000_000) },
-        sessionID: @escaping () -> String = { UUID().uuidString }
+        sessionID: @escaping () -> String = { UUID().uuidString },
+        logger: GestureKitLogger = GestureKitLogger()
     ) {
         self.ruleEngine = ruleEngine
         self.guardJournal = guardJournal
@@ -50,6 +52,7 @@ final class GestureSessionCoordinator {
         self.actionRouter = actionRouter
         self.monotonicClockMs = monotonicClockMs
         self.sessionID = sessionID
+        self.logger = logger
     }
 
     /// 候选一出现即先持久化/路由 guard；绝不等待分类或上下文。
@@ -109,14 +112,30 @@ final class GestureSessionCoordinator {
         case .threeFingerSwipeLeft: return .threeFingerSwipeLeft
         case .threeFingerSwipeRight: return .threeFingerSwipeRight
         case .threeFingerTap:
-            guard let centroidX = recognized.centroidX else { return nil }
-            if centroidX <= 0.20 { return .threeFingerTapLeftEdge }
-            if centroidX >= 0.80 { return .threeFingerTapRightEdge }
-            if let pendingCenterTap, now - pendingCenterTap.classifiedAtMs <= Self.centerDoubleTapWindowMs {
+            guard let centroidX = recognized.centroidX else {
+                logger.debug("compose centroidX=nil sessionId=\(sessionID)")
+                return nil
+            }
+            if centroidX <= 0.20 {
+                logger.info("compose edge=left centroidX=\(centroidX) sessionId=\(sessionID)")
+                return .threeFingerTapLeftEdge
+            }
+            if centroidX >= 0.80 {
+                logger.info("compose edge=right centroidX=\(centroidX) sessionId=\(sessionID)")
+                return .threeFingerTapRightEdge
+            }
+            if let pending = pendingCenterTap {
+                let elapsed = now - pending.classifiedAtMs
+                logger.debug("compose pending_tap elapsed=\(elapsed)ms window=\(Self.centerDoubleTapWindowMs)ms sessionId=\(sessionID) pendingSessionId=\(pending.sessionID)")
+                if elapsed <= Self.centerDoubleTapWindowMs {
+                    self.pendingCenterTap = nil
+                    logger.info("compose double_tap sessionId=\(sessionID)")
+                    return .threeFingerDoubleTapCenter
+                }
                 self.pendingCenterTap = nil
-                return .threeFingerDoubleTapCenter
             }
             pendingCenterTap = PendingTap(sessionID: sessionID, recognized: recognized, classifiedAtMs: now)
+            logger.debug("compose pending_stored centroidX=\(centroidX) sessionId=\(sessionID)")
             return .threeFingerTap
         }
     }

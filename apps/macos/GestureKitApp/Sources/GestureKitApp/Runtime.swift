@@ -28,9 +28,27 @@ final class GestureKitRuntime {
     private var internalState = AppInternalStatus()
     private var isPaused = false
     private var pendingRequests: [String: (action: String, timestamp: Int64)] = [:]
-    /// 等待 Provider context_snapshot 的手势；仅认证 v2 session 可写入。
-    private var pendingContextGestures: [String: (gesture: GestureType, providerSessionID: String, deadline: Int64)] = [:]
-    private let executionTimeoutMs: Int64 = 1500
+    /// 组合器：把原始原语（3 种）组合为带区域和重复含义的手势（6 种）。
+    private lazy var gestureCoordinator: GestureSessionCoordinator = GestureSessionCoordinator(
+        guardJournal: { [weak self] id in
+            self?.logger.debug("candidate_started id=\(id)")
+        },
+        guardRouter: { [weak self] _ in },
+        contextRouter: { [weak self] sessionID, deadline in
+            self?.handleCoordinatorContextRequest(sessionID: sessionID, deadline: deadline)
+        },
+        actionRouter: { [weak self] sessionID, action in
+            self?.handleCoordinatorAction(sessionID: sessionID, action: action)
+        },
+        logger: logger
+    )
+    /// coordinator context_request 的 pending 表：用于验证 Provider 回复的合法性。
+    private var pendingCoordinatorSessions: [String: (providerSessionID: String, deadline: Int64)] = [:]
+    /// coordinator 回调中需要知道原始手势类型以判断 requiresTargetRef。
+    /// 候选不重叠（一次只可能有一个候选），因此按 lastCandidateSessionID 索引即可。
+    private var pendingCoordinatorGestureInfo: [String: GestureType] = [:]
+    /// 当前候选对应的 coordinator session ID，供后续 classification 事件关联。
+    private var lastCandidateSessionID: String?
     private var configurationAppliedByProvider: Bool?
     private var operationJournalSequence: Int64 = 0
 
@@ -149,6 +167,26 @@ final class GestureKitRuntime {
     private func processFrame(_ frame: TouchFrame) -> RecognizedGesture? {
         guard !isPaused else { return nil }
         let sessionEvents = recognizer.observe(frame)
+        // 所有事件（candidateStarted、primitiveClassified、primitiveRejected）先送 coordinator
+        // 由它完成区域分类、双击仲裁，再通过 contextRouter/actionRouter 回调驱动后续流程。
+        for sessionEvent in sessionEvents {
+            switch sessionEvent {
+            case .candidateStarted:
+                lastCandidateSessionID = gestureCoordinator.handle(sessionEvent)
+            case .primitiveClassified(let recognized):
+                if let sessionID = lastCandidateSessionID {
+                    pendingCoordinatorGestureInfo[sessionID] = recognized.gesture
+                }
+                gestureCoordinator.handle(sessionEvent)
+            case .primitiveRejected:
+                if let sessionID = lastCandidateSessionID {
+                    pendingCoordinatorGestureInfo.removeValue(forKey: sessionID)
+                }
+                gestureCoordinator.handle(sessionEvent)
+                lastCandidateSessionID = nil
+            }
+        }
+        // 降级诊断和菜单栏事件仍从原始 RecognizedGesture 发出
         guard let event = sessionEvents.compactMap(\.recognizedGesture).first else { return nil }
         guard let gesture = event.gesture else {
             let reason = warningReason(from: event)
@@ -159,7 +197,6 @@ final class GestureKitRuntime {
         publishDiagnostic(for: event)
         emit(event: AppMenuBarEvent(type: .gestureRecognized(gesture: gesture.rawValue)))
         logger.info(gestureMetrics("gesture_recognized gesture=\(gesture.rawValue)", event: event))
-        handle(event)
         return event
     }
 
@@ -171,43 +208,6 @@ final class GestureKitRuntime {
         case .horizontalRatioTooLow: return .dyTooLarge
         case .cooldown: return .cooldown
         default: return .unknown
-        }
-    }
-
-    private func handle(_ event: RecognizedGesture) {
-        guard let gesture = event.gesture else { return }
-        let elementType: ElementType = gesture == .threeFingerTap ? .link : .any
-        let context = appContextResolver.currentContext(elementType: elementType)
-        guard ruleEngine.match(gesture: gesture, context: context) != nil else {
-            if context.browserKind == .chrome {
-                logger.warn("no_rule gesture=\(gesture.rawValue) appBundleId=\(context.appBundleId)", rateLimitKey: "no_rule_\(gesture.rawValue)")
-            } else {
-                logger.warn("unsupported_app gesture=\(gesture.rawValue) appBundleId=\(context.appBundleId)", rateLimitKey: "unsupported_app")
-            }
-            return
-        }
-        guard let session = providerSessions.activeSession() else {
-            logger.warn("authenticated_provider_unavailable", rateLimitKey: "authenticated_provider_unavailable")
-            return
-        }
-        let gestureSessionID = UUID().uuidString
-        let now = currentTimestampMs()
-        let request = ProviderEnvelope(
-            protocolVersion: 2, messageId: UUID().uuidString,
-            providerSessionId: session.providerSessionID, gestureSessionId: gestureSessionID,
-            operationId: nil, type: .contextRequest, timestamp: now,
-            payload: .contextRequest(ContextRequestPayload(
-                gestureSessionId: gestureSessionID,
-                requiresTargetRef: gesture == .threeFingerTap,
-                deadline: now + executionTimeoutMs
-            )), error: nil
-        )
-        do {
-            pendingContextGestures[gestureSessionID] = (gesture, session.providerSessionID, now + executionTimeoutMs)
-            try providerSessions.send(request, to: session.providerSessionID)
-        } catch {
-            pendingContextGestures.removeValue(forKey: gestureSessionID)
-            logger.warn("provider_context_send_failed", rateLimitKey: "provider_context_send_failed")
         }
     }
 
@@ -297,13 +297,16 @@ final class GestureKitRuntime {
 
     /// 控制中心只读取此健康摘要，不接触 Provider 凭据或会话标识。
     var controlCenterHealth: ControlCenterHealth {
-        switch internalState.listeningState {
+        let state = internalState.listeningState
+        let session = providerSessions.activeSession()
+        logger.info("health_check state=\(String(describing: state)) hasSession=\(session != nil)")
+        switch state {
         case .inputError, .ipcError:
             return .listeningUnavailable
         case .idle, .stopped:
             return .preparing
         case .running:
-            guard let session = providerSessions.activeSession() else { return .disconnected }
+            guard let session else { return .disconnected }
             return .connected(capabilityCount: session.capabilities.count, configurationApplied: configurationAppliedByProvider)
         }
     }
@@ -332,6 +335,11 @@ final class GestureKitRuntime {
             logger.info(
                 "action_result action=\(payload.action.rawValue) status=\(payload.status.rawValue) \(details)",
                 rateLimitKey: "action_result_\(payload.action.rawValue)"
+            )
+            logger.debug(
+                "chrome_action_result requestId=\(envelope.id) action=\(payload.action.rawValue) status=\(payload.status.rawValue)",
+                rateLimitKey: "chrome_action_result_\(envelope.id)",
+                interval: 0.5
             )
             handleActionResult(envelope.id, action: payload.action.rawValue, status: payload.status.rawValue, detailsText: details)
             return
@@ -368,7 +376,7 @@ final class GestureKitRuntime {
         case (.providerAuthenticate, .providerAuthenticate(let authentication)):
             guard let response = Data(hexEncoded: authentication.hmac) else { return }
             let providerOutboundSink = self.providerOutboundSink
-            guard let session = try? providerSessions.authenticate(
+            guard (try? providerSessions.authenticate(
                 installId: authentication.installId,
                 response: response,
                 connectionID: connectionID,
@@ -376,16 +384,9 @@ final class GestureKitRuntime {
                 try? server?.send(outbound, to: connectionID)
                 providerOutboundSink?(outbound)
                 }
-            ) else { return }
+            )) != nil else { return }
             configurationAppliedByProvider = false
-            guard let snapshot = try? authoritativeConfigurationSnapshot() else { return }
-            let outbound = ProviderEnvelope(
-                protocolVersion: 2, messageId: UUID().uuidString,
-                providerSessionId: session.providerSessionID, gestureSessionId: nil,
-                operationId: nil, type: .configurationSnapshot, timestamp: currentTimestampMs(),
-                payload: .configurationSnapshot(snapshot), error: nil
-            )
-            try? providerSessions.send(outbound, to: session.providerSessionID)
+            refreshConfigurationSnapshot()
         case (.configurationAck, .configurationAck(let acknowledgement)):
             guard let session = providerSessions.activeSession(),
                   envelope.providerSessionId == session.providerSessionID,
@@ -396,37 +397,45 @@ final class GestureKitRuntime {
             )
             configurationAppliedByProvider = acknowledgement.applied
         case (.contextSnapshot, .contextSnapshot(let snapshot)):
-            guard let gestureID = envelope.gestureSessionId,
-                  let pending = pendingContextGestures[gestureID],
-                  let session = providerSessions.activeSession(),
+            let gsid = envelope.gestureSessionId
+            let pend = gsid.flatMap { pendingCoordinatorSessions[$0] }
+            let act = providerSessions.activeSession()
+            let found = gsid != nil && pend != nil
+            let hasSession = act != nil
+            let sessMatch = pend != nil && act != nil && pend!.providerSessionID == act!.providerSessionID && envelope.providerSessionId == act!.providerSessionID
+            let connOk = act.map { providerSessions.session($0.providerSessionID, belongsTo: connectionID) } ?? false
+            let errOk = envelope.error == nil
+            let expOk = snapshot.expiresAt >= currentTimestampMs()
+            let deadOk = pend.map { $0.deadline >= currentTimestampMs() } ?? false
+            guard let gestureSessionId = gsid, let pending = pend, let session = act,
                   pending.providerSessionID == session.providerSessionID,
                   envelope.providerSessionId == session.providerSessionID,
-                  providerSessions.session(session.providerSessionID, belongsTo: connectionID),
-                  envelope.error == nil,
-                  snapshot.expiresAt >= currentTimestampMs(),
-                  pending.deadline >= currentTimestampMs() else { return }
-            pendingContextGestures.removeValue(forKey: gestureID)
-            let gesture = pending.gesture
-            let actionID: StandardActionID
-            switch gesture {
-            case .threeFingerTap:
-                guard snapshot.targetKind == .standardLink, let targetRef = snapshot.targetRef else { return }
-                actionID = .browserLinkOpenAdjacent
-                let action = ActionDescriptor(actionId: actionID, contextId: snapshot.contextId, targetRef: targetRef, parameters: [:], deadline: currentTimestampMs() + executionTimeoutMs)
-                let request = ProviderEnvelope(protocolVersion: 2, messageId: UUID().uuidString, providerSessionId: session.providerSessionID, gestureSessionId: gestureID, operationId: UUID().uuidString, type: .actionRequest, timestamp: currentTimestampMs(), payload: .actionRequest(action), error: nil)
-                try? providerSessions.send(request, to: session.providerSessionID)
-                appendOperationLifecycleEvent(request)
-            case .threeFingerSwipeLeft, .threeFingerSwipeRight:
-                actionID = gesture == .threeFingerSwipeLeft ? .browserTabActivateNext : .browserTabActivatePrevious
-                let action = ActionDescriptor(actionId: actionID, contextId: snapshot.contextId, targetRef: nil, parameters: [:], deadline: currentTimestampMs() + executionTimeoutMs)
-                let request = ProviderEnvelope(protocolVersion: 2, messageId: UUID().uuidString, providerSessionId: session.providerSessionID, gestureSessionId: gestureID, operationId: UUID().uuidString, type: .actionRequest, timestamp: currentTimestampMs(), payload: .actionRequest(action), error: nil)
-                try? providerSessions.send(request, to: session.providerSessionID)
-                appendOperationLifecycleEvent(request)
+                  connOk, errOk, expOk, deadOk else {
+                logger.info("context_snapshot_reject id=\(gsid ?? "nil") found=\(found) session=\(hasSession) sessMatch=\(sessMatch) connOk=\(connOk) errOk=\(errOk) expOk=\(expOk) deadOk=\(deadOk)")
+                return
             }
+            pendingCoordinatorSessions.removeValue(forKey: gestureSessionId)
+            logger.info("context_snapshot_ok id=\(gestureSessionId) target=\(snapshot.targetKind.rawValue)")
+            let context = ProviderContextSnapshot(
+                contextId: snapshot.contextId,
+                targetKind: snapshot.targetKind,
+                targetRef: snapshot.targetRef,
+                deadline: currentTimestampMs() + 1500
+            )
+            gestureCoordinator.receiveContext(context, for: gestureSessionId)
         case (.actionAccepted, .actionAccepted), (.actionResult, .actionResult):
             guard let session = providerSessions.activeSession(),
                   envelope.providerSessionId == session.providerSessionID,
                   providerSessions.session(session.providerSessionID, belongsTo: connectionID) else { return }
+            let operationId = envelope.operationId ?? ""
+            let gestureSessionId = envelope.gestureSessionId ?? ""
+            logger.debug(
+                "provider_event type=\(envelope.type.rawValue) operationId=\(operationId) gestureSessionId=\(gestureSessionId)",
+                rateLimitKey: "provider_event_\(envelope.type.rawValue)"
+            )
+            if case (.actionResult, .actionResult(let resultPayload)) = (envelope.type, envelope.payload) {
+                logger.info("action_result_outcome operationId=\(operationId) outcome=\(resultPayload.outcome.rawValue) reason=\(resultPayload.reason?.rawValue ?? "nil")")
+            }
             appendOperationLifecycleEvent(envelope)
         case (.telemetryBatch, .telemetryBatch(let batch)):
             guard let session = providerSessions.activeSession(),
@@ -454,6 +463,12 @@ final class GestureKitRuntime {
     func appendOperationLifecycleEvent(_ envelope: ProviderEnvelope) {
         guard let operationJournal, envelope.operationId != nil else { return }
         operationJournalSequence += 1
+        let operationId = envelope.operationId ?? ""
+        let gestureSessionId = envelope.gestureSessionId ?? ""
+        logger.debug(
+            "operation_journal_append type=\(envelope.type.rawValue) operationId=\(operationId) gestureSessionId=\(gestureSessionId) sequence=\(operationJournalSequence)",
+            rateLimitKey: "operation_journal_append_\(envelope.type.rawValue)"
+        )
         let event = ProviderEvent(
             eventId: envelope.messageId,
             producerSessionId: appSessionId,
@@ -485,14 +500,6 @@ final class GestureKitRuntime {
         }
     }
 
-    private func chromeAction(from gesture: GestureType) -> String {
-        switch gesture {
-        case .threeFingerSwipeLeft: return "activate_right_tab"
-        case .threeFingerSwipeRight: return "activate_left_tab"
-        case .threeFingerTap: return "open_link_background"
-        }
-    }
-
     private func authoritativeConfigurationSnapshot() throws -> ConfigurationSnapshotPayload {
         guard let configurationMigration else { throw AppConfigurationUnavailable.storeUnavailable }
         let configuration = try configurationMigration.authoritativeConfiguration()
@@ -501,7 +508,81 @@ final class GestureKitRuntime {
             storeEpoch: configuration.storeEpoch,
             schemaVersion: configuration.schemaVersion,
             configurationVersion: configuration.configurationVersion,
+            diagnosticLoggingEnabled: UserDefaults.standard.bool(forKey: GestureKitLogger.diagnosticLoggingDefaultsKey),
             configJSON: String(decoding: data, as: UTF8.self)
+        )
+    }
+
+    /// coordinator 请求上下文：查活跃 Provider → 发 context_request。
+    /// deadline 来自 coordinator 的单调时钟，但 provider 使用 wall clock；
+    /// 因此 pending 校验和 provider 载荷都换算为 wall clock。
+    private func handleCoordinatorContextRequest(sessionID: String, deadline: Int64) {
+        guard let session = providerSessions.activeSession() else {
+            logger.warn("authenticated_provider_unavailable", rateLimitKey: "authenticated_provider_unavailable")
+            return
+        }
+        let wallDeadline = currentTimestampMs() + GestureSessionCoordinator.contextBudgetMs
+        pendingCoordinatorSessions[sessionID] = (session.providerSessionID, wallDeadline)
+        let gestureType = pendingCoordinatorGestureInfo[sessionID]?.rawValue ?? "unknown"
+        let requiresTargetRef = pendingCoordinatorGestureInfo[sessionID] == .threeFingerTap
+        let request = ProviderEnvelope(
+            protocolVersion: 2, messageId: UUID().uuidString,
+            providerSessionId: session.providerSessionID, gestureSessionId: sessionID,
+            operationId: nil, type: .contextRequest, timestamp: currentTimestampMs(),
+            payload: .contextRequest(ContextRequestPayload(
+                gestureSessionId: sessionID,
+                requiresTargetRef: requiresTargetRef,
+                deadline: wallDeadline
+            )), error: nil
+        )
+        do {
+            try providerSessions.send(request, to: session.providerSessionID)
+            logger.debug("coordinator_context_request gesture=\(gestureType) requiresTargetRef=\(requiresTargetRef) sessionId=\(sessionID)")
+        } catch {
+            pendingCoordinatorSessions.removeValue(forKey: sessionID)
+            logger.warn("provider_context_send_failed gesture=\(gestureType)", rateLimitKey: "provider_context_send_failed")
+        }
+    }
+
+    /// coordinator 已解析出一个动作：发 action_request + 记入操作账本。
+    private func handleCoordinatorAction(sessionID: String, action: ActionDescriptor) {
+        guard let session = providerSessions.activeSession() else { return }
+        let operationId = UUID().uuidString
+        let request = ProviderEnvelope(
+            protocolVersion: 2, messageId: UUID().uuidString,
+            providerSessionId: session.providerSessionID, gestureSessionId: sessionID,
+            operationId: operationId, type: .actionRequest, timestamp: currentTimestampMs(),
+            payload: .actionRequest(action), error: nil
+        )
+        do {
+            try providerSessions.send(request, to: session.providerSessionID)
+            logger.info("coordinator_action_request action=\(action.actionId.rawValue) operationId=\(operationId) sessionId=\(sessionID)")
+        } catch {
+            logger.warn("action_request_send_failed operationId=\(operationId) action=\(action.actionId.rawValue)")
+            return
+        }
+        appendOperationLifecycleEvent(request)
+    }
+
+    func refreshConfigurationSnapshot() {
+        guard let session = providerSessions.activeSession() else { return }
+        guard let snapshot = try? authoritativeConfigurationSnapshot() else { return }
+        configurationAppliedByProvider = false
+        let outbound = ProviderEnvelope(
+            protocolVersion: 2,
+            messageId: UUID().uuidString,
+            providerSessionId: session.providerSessionID,
+            gestureSessionId: nil,
+            operationId: nil,
+            type: .configurationSnapshot,
+            timestamp: currentTimestampMs(),
+            payload: .configurationSnapshot(snapshot),
+            error: nil
+        )
+        try? providerSessions.send(outbound, to: session.providerSessionID)
+        logger.debug(
+            "configuration_snapshot_refreshed diagnosticLoggingEnabled=\(snapshot.diagnosticLoggingEnabled) providerSessionId=\(session.providerSessionID)",
+            rateLimitKey: "configuration_snapshot_refreshed"
         )
     }
 

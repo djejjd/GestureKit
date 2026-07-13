@@ -48,19 +48,24 @@ export class ChromeProvider {
 
   async context(request: ContextRequest): Promise<ContextSnapshot> {
     const now = Date.now();
-    if (request.deadline <= now) return unavailable("page_unavailable", now);
+    if (request.deadline <= now) return unavailable("page_unavailable", request.deadline);
     const tab = await activeTab(this.api);
-    if (!tab?.id) return unavailable("page_unavailable", now);
-    const pageIdentity = safePageIdentity(tab.url);
-    if (!pageIdentity) return unavailable("page_unavailable", now);
+    if (!tab?.id) return unavailable("page_unavailable", request.deadline);
+    const pageIdentityInfo = pageIdentityFromTabURL(tab.url);
+    if (!pageIdentityInfo) return unavailable("page_unavailable", request.deadline);
+    const pageIdentity = request.requiresTargetRef && (pageIdentityInfo.protocol !== "http:" && pageIdentityInfo.protocol !== "https:") ? "" : pageIdentityInfo.identity;
     const contextId = crypto.randomUUID();
     const expiresAt = request.deadline;
+    // 尽早存储 context 使 preflight 能找到它，不受 unavailable 返回路径影响
     this.contexts.set(contextId, {
       gestureSessionId: request.gestureSessionId,
       tabId: tab.id,
       expiresAt,
       allowedActionIds: request.requiresTargetRef ? undefined : SWIPE_ACTION_IDS
     });
+    if (request.requiresTargetRef && pageIdentityInfo.protocol !== "http:" && pageIdentityInfo.protocol !== "https:") {
+      return { contextId, expiresAt, targetKind: "page_unavailable", pageIdentity };
+    }
     if (!request.requiresTargetRef) {
       return { contextId, expiresAt, targetKind: "no_target", pageIdentity };
     }
@@ -71,12 +76,12 @@ export class ChromeProvider {
       resolved = await this.content(tab.id, { type: "gesturekit.resolveLastPointer" }) as PointerResolution;
     } catch {
       if (armed?.status === "guard_armed") await this.releaseGuard(tab.id, request.gestureSessionId);
-      return unavailable("page_unavailable", now);
+      return { contextId, expiresAt, targetKind: "page_unavailable", pageIdentity };
     }
-    if (armed.status !== "guard_armed") return unavailable("page_unavailable", now);
+    if (armed.status !== "guard_armed") return { contextId, expiresAt, targetKind: "page_unavailable", pageIdentity };
     if (resolved.status !== "success") {
       await this.releaseGuard(tab.id, request.gestureSessionId);
-      return unavailable(resolved.status, now);
+      return { contextId, expiresAt, targetKind: resolved.status === "no_target" ? "no_target" : "page_unavailable", pageIdentity };
     }
     const targetRef = crypto.randomUUID();
     this.targets.set(targetRef, { contextId, gestureSessionId: request.gestureSessionId, tabId: tab.id, frameId: resolved.frameId ?? 0, url: resolved.url, expiresAt });
@@ -174,17 +179,18 @@ async function activeTab(api: ChromeApi): Promise<chrome.tabs.Tab | undefined> {
   return (await api.tabs.query({ active: true, lastFocusedWindow: true }))[0];
 }
 
-function unavailable(targetKind: "no_target" | "page_unavailable", now: number): ContextSnapshot {
-  return { contextId: crypto.randomUUID(), expiresAt: now, targetKind, pageIdentity: "" };
+function unavailable(targetKind: "no_target" | "page_unavailable", expiresAt: number): ContextSnapshot {
+  return { contextId: crypto.randomUUID(), expiresAt, targetKind, pageIdentity: "" };
 }
 
-function safePageIdentity(value: string | undefined): string | null {
+function pageIdentityFromTabURL(value: string | undefined): { protocol: string; identity: string } | null {
   if (!value) return null;
   try {
     const url = new URL(value);
-    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
     url.search = "";
     url.hash = "";
-    return url.toString();
-  } catch { return null; }
+    return { protocol: url.protocol, identity: url.toString() };
+  } catch {
+    return null;
+  }
 }

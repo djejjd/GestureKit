@@ -57,6 +57,30 @@ describe("ChromeProvider", () => {
     expect(api.tabs.update).toHaveBeenCalled();
   });
 
+  it("allows swipe-only context on chrome:// settings pages", async () => {
+    const api = {
+      tabs: {
+        query: vi.fn(async () => [{ id: 10, index: 1, windowId: 4, active: true, url: "chrome://settings/" }]),
+        create: vi.fn(),
+        update: vi.fn(async (id) => ({ id })),
+        remove: vi.fn(),
+        goBack: vi.fn(),
+        goForward: vi.fn(),
+        reload: vi.fn()
+      }
+    } satisfies ChromeApi;
+    const provider = new ChromeProvider(api, bridge());
+
+    await expect(provider.context({
+      gestureSessionId: "g-chrome-settings",
+      requiresTargetRef: false,
+      deadline: Date.now() + 1_000
+    })).resolves.toMatchObject({
+      targetKind: "no_target",
+      pageIdentity: "chrome://settings/"
+    });
+  });
+
   it.each([
     "browser.tab.close_current",
     "browser.history.back",
@@ -160,5 +184,95 @@ describe("ChromeProvider", () => {
     expect(messages).toContainEqual({ type: "gesturekit.guardRelease", gestureSessionId: "g-frame" });
     expect(messages).not.toContainEqual({ type: "gesturekit.guardConsume", gestureSessionId: "g-frame" });
     expect(api.tabs.create).not.toHaveBeenCalled();
+  });
+
+  it("returns page_unavailable with request.deadline as expiresAt on chrome:// page", async () => {
+    const api = {
+      tabs: {
+        query: vi.fn(async () => [{ id: 10, index: 1, windowId: 4, active: true, url: "chrome://extensions/" }]),
+        create: vi.fn(),
+        update: vi.fn(async (id) => ({ id })),
+        remove: vi.fn(),
+        goBack: vi.fn(),
+        goForward: vi.fn(),
+        reload: vi.fn()
+      }
+    } satisfies ChromeApi;
+    const provider = new ChromeProvider(api, bridge());
+    const deadline = Date.now() + 10_000;
+
+    const snapshot = await provider.context({
+      gestureSessionId: "g-chrome-page",
+      requiresTargetRef: true,
+      deadline
+    });
+
+    expect(snapshot).toMatchObject({
+      targetKind: "page_unavailable",
+      expiresAt: deadline  // 必须等于 request.deadline，不是 Date.now()
+    });
+  });
+
+  it("stores context on chrome:// page so non-link actions execute", async () => {
+    const api = {
+      tabs: {
+        query: vi.fn(async () => [{ id: 10, index: 1, windowId: 4, active: true, url: "chrome://extensions/" }]),
+        create: vi.fn(),
+        update: vi.fn(async (id) => ({ id })),
+        remove: vi.fn(),
+        goBack: vi.fn(),
+        goForward: vi.fn(),
+        reload: vi.fn()
+      }
+    } satisfies ChromeApi;
+    const provider = new ChromeProvider(api, bridge());
+    const deadline = Date.now() + 10_000;
+
+    const snapshot = await provider.context({
+      gestureSessionId: "g-chrome-close",
+      requiresTargetRef: true,
+      deadline
+    });
+
+    // context 已被存储，close_current 应能通过 preflight 并执行
+    await expect(provider.execute({
+      operationId: "op-chrome-close",
+      actionId: "browser.tab.close_current",
+      contextId: snapshot.contextId,
+      gestureSessionId: "g-chrome-close",
+      deadline
+    })).resolves.toMatchObject({ status: "success" });
+    expect(api.tabs.remove).toHaveBeenCalled();
+  });
+
+  it("stores context and executes swipe actions on chrome:// page", async () => {
+    const api = {
+      tabs: {
+        query: vi.fn(async () => [{ id: 10, index: 1, windowId: 4, active: true, url: "chrome://extensions/" }]),
+        create: vi.fn(),
+        update: vi.fn(async (id) => ({ id })),
+        remove: vi.fn(),
+        goBack: vi.fn(),
+        goForward: vi.fn(),
+        reload: vi.fn()
+      }
+    } satisfies ChromeApi;
+    const provider = new ChromeProvider(api, bridge());
+    const deadline = Date.now() + 10_000;
+
+    const snapshot = await provider.context({
+      gestureSessionId: "g-chrome-swipe",
+      requiresTargetRef: false,
+      deadline
+    });
+
+    await expect(provider.execute({
+      operationId: "op-chrome-swipe",
+      actionId: "browser.tab.activate_next",
+      contextId: snapshot.contextId,
+      gestureSessionId: "g-chrome-swipe",
+      deadline
+    })).resolves.toMatchObject({ status: "success" });
+    expect(api.tabs.update).toHaveBeenCalled();
   });
 });
