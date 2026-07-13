@@ -61,4 +61,39 @@ describe("ChromeProvider", () => {
     await expect(provider.execute({ operationId: "op-3", actionId: "browser.link.open_adjacent", contextId: snapshot.contextId, targetRef: snapshot.targetRef, gestureSessionId: "g-1", deadline: Date.now() + 1_000 })).resolves.toMatchObject({ status: "context_expired" });
     expect(api.tabs.create).not.toHaveBeenCalled();
   });
+
+  it("releases the armed guard when context resolution has no target", async () => {
+    const api = makeApi();
+    const messages: Record<string, unknown>[] = [];
+    const provider = new ChromeProvider(api, async (_tabId, message) => {
+      messages.push(message);
+      if (message.type === "gesturekit.guardArm") return { status: "guard_armed" };
+      if (message.type === "gesturekit.guardRelease") return { status: "guard_released" };
+      return { status: "no_target" };
+    });
+
+    await expect(provider.context({ gestureSessionId: "g-no-target", deadline: Date.now() + 1_000 })).resolves.toMatchObject({ targetKind: "no_target" });
+    expect(messages).toContainEqual({ type: "gesturekit.guardRelease", gestureSessionId: "g-no-target" });
+    expect(api.tabs.create).not.toHaveBeenCalled();
+  });
+
+  it("releases an armed guard when link preflight fails before consumption", async () => {
+    const api = makeApi();
+    let frameId = 0;
+    const messages: Record<string, unknown>[] = [];
+    const provider = new ChromeProvider(api, async (_tabId, message) => {
+      messages.push(message);
+      if (message.type === "gesturekit.guardArm") return { status: "guard_armed" };
+      if (message.type === "gesturekit.guardRelease") return { status: "guard_released" };
+      if (message.type === "gesturekit.guardConsume") return { status: "guard_consumed" };
+      return { status: "success", url: "https://example.com/a", frameId };
+    });
+    const snapshot = await provider.context({ gestureSessionId: "g-frame", deadline: Date.now() + 1_000 });
+    frameId = 1;
+
+    await expect(provider.execute({ operationId: "op-frame", actionId: "browser.link.open_adjacent", contextId: snapshot.contextId, targetRef: snapshot.targetRef, gestureSessionId: "g-frame", deadline: Date.now() + 1_000 })).resolves.toMatchObject({ status: "context_expired" });
+    expect(messages).toContainEqual({ type: "gesturekit.guardRelease", gestureSessionId: "g-frame" });
+    expect(messages).not.toContainEqual({ type: "gesturekit.guardConsume", gestureSessionId: "g-frame" });
+    expect(api.tabs.create).not.toHaveBeenCalled();
+  });
 });
