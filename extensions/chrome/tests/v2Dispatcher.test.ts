@@ -119,6 +119,49 @@ describe("V2Dispatcher", () => {
     expect(acceptedBeforeExecution).toBe(true);
     await expect(store.status("op-duplicate")).resolves.toMatchObject({ state: "success" });
   });
+
+  it("executes only the invocation that created an in-flight acceptance record", async () => {
+    const contexts = new ContextProvider();
+    const sent: ProviderEnvelope[] = [];
+    const store = await createOperationLedgerStore(`dispatcher-race-${crypto.randomUUID()}`);
+    let executions = 0;
+    let releaseAction!: () => void;
+    const actionBlocked = new Promise<void>((resolve) => { releaseAction = resolve; });
+    let firstStarted!: () => void;
+    const firstActionStarted = new Promise<void>((resolve) => { firstStarted = resolve; });
+    const adapter = new ChromeActionAdapter(contexts, async () => {
+      executions += 1;
+      firstStarted();
+      await actionBlocked;
+    });
+    const dispatcher = new V2Dispatcher(contexts, adapter, async () => "https://example.com/a", (message) => sent.push(message), store, "producer-session");
+    const snapshot = contexts.snapshot("https://example.com/a", Date.now(), 2_000);
+    const request = actionRequest(snapshot.contextId, snapshot.targetRef!, "op-race");
+
+    const first = dispatcher.handle(request);
+    await firstActionStarted;
+    const duplicate = dispatcher.handle({ ...request, messageId: crypto.randomUUID() });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(executions).toBe(1);
+    releaseAction();
+    await Promise.all([first, duplicate]);
+  });
+
+  it("returns the persisted failed terminal result to a duplicate request", async () => {
+    const contexts = new ContextProvider();
+    const sent: ProviderEnvelope[] = [];
+    const store = await createOperationLedgerStore(`dispatcher-terminal-duplicate-${crypto.randomUUID()}`);
+    const adapter = new ChromeActionAdapter(contexts, async () => { throw new Error("Chrome tabs failed"); });
+    const dispatcher = new V2Dispatcher(contexts, adapter, async () => "https://example.com/a", (message) => sent.push(message), store, "producer-session");
+    const snapshot = contexts.snapshot("https://example.com/a", Date.now(), 2_000);
+    const request = actionRequest(snapshot.contextId, snapshot.targetRef!, "op-terminal-duplicate");
+
+    await dispatcher.handle(request);
+    await dispatcher.handle({ ...request, messageId: crypto.randomUUID() });
+
+    expect(sent[1]?.payload).toMatchObject({ operationId: "op-terminal-duplicate", outcome: "failed", reason: "chrome_api_error" });
+  });
 });
 
 function actionRequest(contextId: string, targetRef: string, operationId: string): ProviderEnvelope {

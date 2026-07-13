@@ -33,20 +33,20 @@ export class V2Dispatcher {
       const operationId = envelope.operationId!;
       const acceptedAt = Date.now();
       let acceptedEvent: ProviderEvent;
-      let state: LedgerState;
+      let acceptance: { state: LedgerState; created: boolean };
       try {
         acceptedEvent = await this.event(envelope, "action_accepted", {
           operationId,
           acceptedAt
         });
-        state = await this.ledger.accept(operationId, acceptedEvent);
+        acceptance = await this.ledger.acceptWithDisposition(operationId, acceptedEvent);
       } catch {
         // 接受证据无法持久化时禁止触发 Chrome 副作用；连接仍要收到可识别的失败结果。
         this.sendActionResult(envelope, "failed", "storage_full");
         return;
       }
-      if (state !== "accepted") {
-        const duplicate = duplicateResult(state);
+      if (!acceptance.created) {
+        const duplicate = await duplicateResult(this.ledger, operationId, acceptance.state);
         this.sendActionResult(envelope, duplicate.outcome, duplicate.reason);
         return;
       }
@@ -109,11 +109,16 @@ export class V2Dispatcher {
   }
 }
 
-function duplicateResult(state: Exclude<LedgerState, "accepted"> | "accepted"): { outcome: ActionResultOutcome; reason: ActionResultReason } {
-  switch (state) {
-    case "success": return { outcome: "succeeded", reason: "completed" };
-    case "failed": return { outcome: "failed", reason: "provider_disconnected" };
-    case "accepted":
-    case "result_unknown": return { outcome: "result_unknown", reason: "recovery_timeout" };
+async function duplicateResult(
+  ledger: OperationLedgerStore,
+  operationId: string,
+  state: LedgerState
+): Promise<{ outcome: ActionResultOutcome; reason: ActionResultReason }> {
+  if (state === "accepted") return { outcome: "result_unknown", reason: "recovery_timeout" };
+  const event = (await ledger.events(operationId)).findLast((candidate) => candidate.type === "action_result");
+  if (event?.type === "action_result") {
+    const payload = event.payload as { outcome: ActionResultOutcome; reason: ActionResultReason | null };
+    if (payload.reason !== null) return { outcome: payload.outcome, reason: payload.reason };
   }
+  return { outcome: "result_unknown", reason: "recovery_timeout" };
 }

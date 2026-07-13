@@ -13,9 +13,16 @@ export type LedgerRecord = {
   eventIds: string[];
 };
 
+/** 单次 acceptance 事务的结果，明确区分本次新建与读取既有操作。 */
+export type AcceptanceResult = {
+  state: LedgerState;
+  created: boolean;
+};
+
 /** IndexedDB ledger/outbox 的最小访问接口。 */
 export interface OperationLedgerStore {
   accept(operationId: string, event: ProviderEvent): Promise<LedgerState>;
+  acceptWithDisposition(operationId: string, event: ProviderEvent): Promise<AcceptanceResult>;
   finalize(operationId: string, outcome: ActionResultOutcome, event: ProviderEvent): Promise<void>;
   status(operationId: string): Promise<LedgerRecord | null>;
   events(operationId: string): Promise<ProviderEvent[]>;
@@ -55,18 +62,22 @@ class IndexedDBOperationLedgerStore implements OperationLedgerStore {
   constructor(private readonly db: IDBDatabase, private readonly maxOutboxBytes: number, private readonly criticalReserveBytes: number) {}
 
   async accept(operationId: string, event: ProviderEvent): Promise<LedgerState> {
+    return (await this.acceptWithDisposition(operationId, event)).state;
+  }
+
+  async acceptWithDisposition(operationId: string, event: ProviderEvent): Promise<AcceptanceResult> {
     const transaction = this.db.transaction([LEDGER_STORE, OUTBOX_STORE, EVENTS_STORE, METADATA_STORE], "readwrite");
     const ledger = transaction.objectStore(LEDGER_STORE);
     const existing = await request<LedgerRecord | undefined>(ledger.get(operationId));
     if (existing) {
       await transactionDone(transaction);
-      return existing.state;
+      return { state: existing.state, created: false };
     }
     await this.putEvent(transaction, event);
     transaction.objectStore(EVENTS_STORE).put(event);
     ledger.put({ operationId, state: "accepted", updatedAt: event.wallClockMs, terminalAt: null, compactedAt: null, eventIds: [event.eventId] } satisfies LedgerRecord);
     await transactionDone(transaction);
-    return "accepted";
+    return { state: "accepted", created: true };
   }
 
   async finalize(operationId: string, outcome: ActionResultOutcome, event: ProviderEvent): Promise<void> {

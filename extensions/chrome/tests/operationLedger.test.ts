@@ -20,6 +20,15 @@ function event(eventId: string, type: "action_accepted" | "action_result"): Prov
 }
 
 describe("OperationLedger", () => {
+  it("reports whether an atomic acceptance record was created by this call", async () => {
+    const store = await createOperationLedgerStore(`ledger-disposition-${crypto.randomUUID()}`);
+    const accepted = event("event-accepted", "action_accepted");
+
+    await expect(store.acceptWithDisposition("operation-1", accepted)).resolves.toEqual({ state: "accepted", created: true });
+    await expect(store.acceptWithDisposition("operation-1", accepted)).resolves.toEqual({ state: "accepted", created: false });
+    await expect(store.accept("operation-1", accepted)).resolves.toBe("accepted");
+  });
+
   it("persists accepted ledger state and action_accepted event atomically", async () => {
     const store = await createOperationLedgerStore(`ledger-${crypto.randomUUID()}`);
     const accepted = event("event-accepted", "action_accepted");
