@@ -67,7 +67,6 @@ struct OperationHistoryView: View {
                 .foregroundStyle(.secondary)
             Button("导出脱敏证据包") { onExport(item.id) }
                 .buttonStyle(.borderedProminent)
-                .disabled(true)
         }
         .padding(18)
         .frame(maxWidth: .infinity, alignment: .leading)

@@ -26,6 +26,7 @@ final class GestureKitRuntime {
     /// 等待 Provider context_snapshot 的手势；仅认证 v2 session 可写入。
     private var pendingContextGestures: [String: (gesture: GestureType, providerSessionID: String, deadline: Int64)] = [:]
     private let executionTimeoutMs: Int64 = 1500
+    private var configurationAppliedByProvider: Bool?
 
     init(
         menuBarHandler: @escaping (AppMenuBarEvent) -> Void,
@@ -274,6 +275,19 @@ final class GestureKitRuntime {
 
     var isCurrentlyPaused: Bool { isPaused }
 
+    /// 控制中心只读取此健康摘要，不接触 Provider 凭据或会话标识。
+    var controlCenterHealth: ControlCenterHealth {
+        switch internalState.listeningState {
+        case .inputError, .ipcError:
+            return .listeningUnavailable
+        case .idle, .stopped:
+            return .preparing
+        case .running:
+            guard let session = providerSessions.activeSession() else { return .disconnected }
+            return .connected(capabilityCount: session.capabilities.count, configurationApplied: configurationAppliedByProvider)
+        }
+    }
+
     private func handleProbeRequest(_ id: String) -> LocalIPCEnvelope {
         LocalIPCEnvelope(message: .probeResponse(
             id: id,
@@ -336,6 +350,7 @@ final class GestureKitRuntime {
                 try? server?.send(outbound, to: connectionID)
                 }
             ) else { return }
+            configurationAppliedByProvider = false
             guard let snapshot = try? authoritativeConfigurationSnapshot() else { return }
             let outbound = ProviderEnvelope(
                 protocolVersion: 2, messageId: UUID().uuidString,
@@ -352,6 +367,7 @@ final class GestureKitRuntime {
                 "provider_configuration_ack applied=\(acknowledgement.applied) version=\(acknowledgement.appliedVersion)",
                 rateLimitKey: "provider_configuration_ack"
             )
+            configurationAppliedByProvider = acknowledgement.applied
         case (.contextSnapshot, .contextSnapshot(let snapshot)):
             guard let gestureID = envelope.gestureSessionId,
                   let pending = pendingContextGestures[gestureID],

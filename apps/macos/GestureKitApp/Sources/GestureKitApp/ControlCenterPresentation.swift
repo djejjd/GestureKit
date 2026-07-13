@@ -114,3 +114,29 @@ struct ProviderPageState: Equatable {
 struct PrivacyPageState: Equatable {
     let cards: [ControlCenterStatusCard]
 }
+
+/// 手势预设页面只展示 App 权威配置的安全摘要。
+struct PresetPageState: Equatable {
+    let cards: [ControlCenterStatusCard]
+}
+
+/// 运行时提供给控制中心的健康快照；不包含 session ID、凭据或协议错误。
+enum ControlCenterHealth: Equatable {
+    case preparing
+    case disconnected
+    case connected(capabilityCount: Int, configurationApplied: Bool?)
+    case listeningUnavailable
+
+    var runtimeCard: ControlCenterStatusCard {
+        switch self {
+        case .preparing:
+            return .init(title: "运行状态", detail: "正在准备 GestureKit", severity: .informational)
+        case .disconnected:
+            return .init(title: "运行状态", detail: "手势监听正在运行", severity: .informational)
+        case .connected:
+            return .init(title: "运行状态", detail: "手势监听正在运行", severity: .informational)
+        case .listeningUnavailable:
+            return .init(title: "运行状态", detail: "无法开始手势监听", severity: .critical)
+        }
+    }
+}

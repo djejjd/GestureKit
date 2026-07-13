@@ -6,6 +6,7 @@ struct ControlCenterView: View {
     let control: any RuntimeControlling
     let dataSource: any ControlCenterDataSource
     @State private var selection: ControlCenterPage = .overview
+    @State private var refreshToken = 0
 
     init(control: any RuntimeControlling, dataSource: any ControlCenterDataSource) {
         self.control = control
@@ -53,17 +54,21 @@ struct ControlCenterView: View {
 
     @ViewBuilder
     private var pageContent: some View {
+        let _ = refreshToken
         switch selection {
         case .overview:
             OverviewPage(state: dataSource.overview())
         case .operations:
             OperationHistoryView(
                 state: dataSource.operationPage(limit: 20),
-                onLoadMore: {},
-                onExport: { _ in }
+                onLoadMore: {
+                    dataSource.loadMoreOperations()
+                    refreshToken += 1
+                },
+                onExport: exportEvidence
             )
         case .presets:
-            PresetPage()
+            PresetPage(state: dataSource.presetPage())
         case .providers:
             ProviderPage(state: dataSource.providerPage())
         case .privacy:
@@ -71,6 +76,17 @@ struct ControlCenterView: View {
         case .advanced:
             AdvancedPage()
         }
+    }
+
+    private func exportEvidence(operationID: String) {
+        let panel = NSOpenPanel()
+        panel.canChooseFiles = false
+        panel.canChooseDirectories = true
+        panel.canCreateDirectories = true
+        panel.message = "请选择保存脱敏证据包的位置"
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+        try? dataSource.exportEvidence(operationID: operationID, to: url.appendingPathComponent("GestureKit-证据包-\(operationID)"))
+        refreshToken += 1
     }
 }
 

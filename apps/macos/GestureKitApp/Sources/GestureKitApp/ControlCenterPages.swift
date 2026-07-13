@@ -27,9 +27,11 @@ struct PrivacyPage: View {
 }
 
 struct PresetPage: View {
+    let state: PresetPageState
+
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            StatusCardView(card: .init(title: "当前预设", detail: "正在准备配置数据", severity: .informational))
+            pageCards(state.cards)
             Text("V1 使用预设保证行为稳定；完整动作换绑和自定义手势属于后续增强。")
                 .foregroundStyle(.secondary)
         }
