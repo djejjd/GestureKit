@@ -2,7 +2,7 @@ import { executeStandardAction } from "../background/actionExecutor";
 import type { ChromeApi } from "../background/chromeApi";
 import type { StandardActionID } from "./protocol";
 
-export type ContextRequest = { gestureSessionId: string; deadline: number };
+export type ContextRequest = { gestureSessionId: string; requiresTargetRef: boolean; deadline: number };
 export type ContextSnapshot = {
   contextId: string;
   expiresAt: number;
@@ -26,6 +26,7 @@ type PointerResolution =
   | { status: "no_target" }
   | { status: "page_unavailable" };
 type StoredTarget = { contextId: string; gestureSessionId: string; tabId: number; frameId: number; url: string; expiresAt: number };
+type StoredContext = { gestureSessionId: string; tabId: number; expiresAt: number };
 type ContentBridge = (tabId: number, message: Record<string, unknown>) => Promise<unknown>;
 
 /**
@@ -34,6 +35,7 @@ type ContentBridge = (tabId: number, message: Record<string, unknown>) => Promis
  */
 export class ChromeProvider {
   private readonly targets = new Map<string, StoredTarget>();
+  private readonly contexts = new Map<string, StoredContext>();
   private readonly statuses = new Map<string, OperationStatusResponse>();
 
   constructor(
@@ -47,6 +49,14 @@ export class ChromeProvider {
     if (request.deadline <= now) return unavailable("page_unavailable", now);
     const tab = await activeTab(this.api);
     if (!tab?.id) return unavailable("page_unavailable", now);
+    const pageIdentity = safePageIdentity(tab.url);
+    if (!pageIdentity) return unavailable("page_unavailable", now);
+    const contextId = crypto.randomUUID();
+    const expiresAt = request.deadline;
+    this.contexts.set(contextId, { gestureSessionId: request.gestureSessionId, tabId: tab.id, expiresAt });
+    if (!request.requiresTargetRef) {
+      return { contextId, expiresAt, targetKind: "no_target", pageIdentity };
+    }
     let armed: { status?: string } | undefined;
     let resolved: PointerResolution;
     try {
@@ -61,14 +71,7 @@ export class ChromeProvider {
       await this.releaseGuard(tab.id, request.gestureSessionId);
       return unavailable(resolved.status, now);
     }
-    const pageIdentity = safePageIdentity(tab.url);
-    if (!pageIdentity) {
-      await this.releaseGuard(tab.id, request.gestureSessionId);
-      return unavailable("page_unavailable", now);
-    }
-    const contextId = crypto.randomUUID();
     const targetRef = crypto.randomUUID();
-    const expiresAt = request.deadline;
     this.targets.set(targetRef, { contextId, gestureSessionId: request.gestureSessionId, tabId: tab.id, frameId: resolved.frameId ?? 0, url: resolved.url, expiresAt });
     return { contextId, expiresAt, targetKind: "standard_link", targetRef, pageIdentity };
   }
@@ -86,6 +89,15 @@ export class ChromeProvider {
       await this.releaseCurrentGuard(request.gestureSessionId);
       return { status: "context_expired" };
     }
+    const context = this.contexts.get(request.contextId);
+    if (!context || context.expiresAt < now) {
+      return { status: "context_expired" };
+    }
+    if (context.gestureSessionId !== request.gestureSessionId) {
+      return { status: request.actionId === "browser.link.open_adjacent" ? "guard_unavailable" : "context_expired" };
+    }
+    const active = await activeTab(this.api);
+    if (!active?.id || active.id !== context.tabId) return { status: "context_expired" };
     let url: string | undefined;
     if (request.actionId === "browser.link.open_adjacent") {
       const target = request.targetRef ? this.targets.get(request.targetRef) : undefined;
@@ -97,23 +109,22 @@ export class ChromeProvider {
         await this.releaseGuard(target.tabId, request.gestureSessionId);
         return { status: "guard_unavailable" };
       }
-      const tab = await activeTab(this.api);
-      if (!tab?.id || tab.id !== target.tabId) {
+      if (active.id !== target.tabId) {
         await this.releaseGuard(target.tabId, request.gestureSessionId);
         return { status: "context_expired" };
       }
       let current: PointerResolution;
-      try { current = await this.content(tab.id, { type: "gesturekit.resolveLastPointer" }) as PointerResolution; } catch {
-        await this.releaseGuard(tab.id, request.gestureSessionId);
+      try { current = await this.content(active.id, { type: "gesturekit.resolveLastPointer" }) as PointerResolution; } catch {
+        await this.releaseGuard(active.id, request.gestureSessionId);
         return { status: "context_expired" };
       }
       if (current.status !== "success" || (current.frameId ?? 0) !== target.frameId) {
-        await this.releaseGuard(tab.id, request.gestureSessionId);
+        await this.releaseGuard(active.id, request.gestureSessionId);
         return { status: "context_expired" };
       }
       let guard: { status?: string };
-      try { guard = await this.content(tab.id, { type: "gesturekit.guardConsume", gestureSessionId: request.gestureSessionId }) as { status?: string }; } catch {
-        await this.releaseGuard(tab.id, request.gestureSessionId);
+      try { guard = await this.content(active.id, { type: "gesturekit.guardConsume", gestureSessionId: request.gestureSessionId }) as { status?: string }; } catch {
+        await this.releaseGuard(active.id, request.gestureSessionId);
         return { status: "guard_unavailable" };
       }
       if (guard.status !== "guard_consumed") return { status: guard.status === "guard_expired" ? "guard_expired" : "guard_unavailable" };

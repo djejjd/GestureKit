@@ -114,6 +114,7 @@ export interface CapabilitySnapshotPayload {
 
 export interface ContextRequestPayload {
   gestureSessionId: string;
+  requiresTargetRef: boolean;
   deadline: number;
 }
 
@@ -245,7 +246,7 @@ const PAYLOAD_TYPE_MAP: Record<ProviderMessageType, PayloadShape> = {
   provider_challenge: { required: { nonce: "string", expiresAt: "integer" } },
   provider_authenticate: { required: { installId: "string", hmac: "string" } },
   capability_snapshot: { required: { capabilities: "stringArray", capabilityVersion: "integer" } },
-  context_request: { required: { gestureSessionId: "string", deadline: "integer" } },
+  context_request: { required: { gestureSessionId: "string", requiresTargetRef: "boolean", deadline: "integer" } },
   context_snapshot: { required: { contextId: "string", pageIdentity: "string", expiresAt: "integer", targetKind: "targetKind" }, optional: { targetRef: "string" } },
   configuration_snapshot: { required: { storeEpoch: "string", schemaVersion: "integer", configurationVersion: "integer", configJSON: "string" } },
   configuration_ack: { required: { appliedVersion: "integer", applied: "boolean" } },

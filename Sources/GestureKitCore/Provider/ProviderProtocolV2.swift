@@ -195,11 +195,14 @@ public struct CapabilitySnapshotPayload: Codable, Sendable, Equatable {
 public struct ContextRequestPayload: Codable, Sendable, Equatable {
     /// 关联的手势会话 ID
     public let gestureSessionId: String
+    /// 是否需要不透明链接目标；标签页动作只需要当前页面上下文。
+    public let requiresTargetRef: Bool
     /// 请求过期时间（Unix 毫秒时间戳）
     public let deadline: Int64
 
-    public init(gestureSessionId: String, deadline: Int64) {
+    public init(gestureSessionId: String, requiresTargetRef: Bool, deadline: Int64) {
         self.gestureSessionId = gestureSessionId
+        self.requiresTargetRef = requiresTargetRef
         self.deadline = deadline
     }
 }
@@ -833,7 +836,7 @@ public struct ProviderEnvelope: Codable, Sendable, Equatable {
         case .providerChallenge: allowedFields = ["nonce", "expiresAt"]
         case .providerAuthenticate: allowedFields = ["installId", "hmac"]
         case .capabilitySnapshot: allowedFields = ["capabilities", "capabilityVersion"]
-        case .contextRequest: allowedFields = ["gestureSessionId", "deadline"]
+        case .contextRequest: allowedFields = ["gestureSessionId", "requiresTargetRef", "deadline"]
         case .contextSnapshot: allowedFields = ["contextId", "pageIdentity", "expiresAt", "targetKind", "targetRef"]
         case .configurationSnapshot: allowedFields = ["storeEpoch", "schemaVersion", "configurationVersion", "configJSON"]
         case .configurationAck: allowedFields = ["appliedVersion", "applied"]

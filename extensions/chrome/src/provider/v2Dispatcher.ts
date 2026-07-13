@@ -20,14 +20,18 @@ export class V2Dispatcher {
 
   async handle(envelope: ProviderEnvelope): Promise<void> {
     if (envelope.type === "context_request") {
-      const payload = envelope.payload as { deadline: number };
+      const payload = envelope.payload as { gestureSessionId: string; requiresTargetRef: boolean; deadline: number };
       const now = Date.now();
       if (payload.deadline <= now) {
         this.send({ ...envelope, messageId: crypto.randomUUID(), type: "context_snapshot", timestamp: now, payload: { contextId: crypto.randomUUID(), pageIdentity: "", expiresAt: now, targetKind: "page_unavailable", targetRef: null }, error: { code: "context_expired", message: "context_request 已超过 deadline" } });
         return;
       }
       const snapshot = this.chromeProvider
-        ? await this.chromeProvider.context({ gestureSessionId: payload.gestureSessionId, deadline: payload.deadline })
+        ? await this.chromeProvider.context({
+          gestureSessionId: payload.gestureSessionId,
+          requiresTargetRef: payload.requiresTargetRef,
+          deadline: payload.deadline
+        })
         : this.contexts.snapshot(await this.resolveURL(), now, payload.deadline - now);
       this.send({ ...envelope, messageId: crypto.randomUUID(), type: "context_snapshot", timestamp: Date.now(), payload: snapshot, error: null });
       return;

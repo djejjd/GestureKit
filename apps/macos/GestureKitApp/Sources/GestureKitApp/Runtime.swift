@@ -196,7 +196,11 @@ final class GestureKitRuntime {
             protocolVersion: 2, messageId: UUID().uuidString,
             providerSessionId: session.providerSessionID, gestureSessionId: gestureSessionID,
             operationId: nil, type: .contextRequest, timestamp: now,
-            payload: .contextRequest(ContextRequestPayload(gestureSessionId: gestureSessionID, deadline: now + executionTimeoutMs)), error: nil
+            payload: .contextRequest(ContextRequestPayload(
+                gestureSessionId: gestureSessionID,
+                requiresTargetRef: gesture == .threeFingerTap,
+                deadline: now + executionTimeoutMs
+            )), error: nil
         )
         do {
             pendingContextGestures[gestureSessionID] = (gesture, session.providerSessionID, now + executionTimeoutMs)

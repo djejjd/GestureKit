@@ -103,6 +103,12 @@ final class RuntimeLifecycleTests: XCTestCase {
               let gestureSessionID = contextRequest.gestureSessionId else {
             return XCTFail("recognized gesture must cause runtime to request provider context")
         }
+        let encodedContextRequest = try JSONEncoder().encode(contextRequest)
+        let contextRequestObject = try XCTUnwrap(
+            JSONSerialization.jsonObject(with: encodedContextRequest) as? [String: Any]
+        )
+        let contextRequestPayload = try XCTUnwrap(contextRequestObject["payload"] as? [String: Any])
+        XCTAssertEqual(contextRequestPayload["requiresTargetRef"] as? Bool, false)
         runtime.handleProviderEnvelopeForTesting(try JSONEncoder().encode(ProviderEnvelope(
             protocolVersion: 2, messageId: "context-1", providerSessionId: configuration.providerSessionId,
             gestureSessionId: gestureSessionID, operationId: nil, type: .contextSnapshot,

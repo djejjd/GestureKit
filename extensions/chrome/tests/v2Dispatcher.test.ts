@@ -22,7 +22,7 @@ describe("V2Dispatcher", () => {
     const deadline = Date.now() + 2_000;
     await dispatcher.handle({
       protocolVersion: 2, messageId: "m1", providerSessionId: "s1", gestureSessionId: "g1", operationId: null,
-      type: "context_request", timestamp: Date.now(), payload: { gestureSessionId: "g1", deadline }, error: null
+      type: "context_request", timestamp: Date.now(), payload: { gestureSessionId: "g1", requiresTargetRef: true, deadline }, error: null
     });
     expect(sent[0]?.type).toBe("context_snapshot");
     const snapshot = sent[0]?.payload as { contextId: string; targetRef: string };
