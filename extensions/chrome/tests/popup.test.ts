@@ -8,6 +8,7 @@ function setupDom(): void {
     <p id="pageSupport"></p><strong id="appConnection"></strong><strong id="providerConnection"></strong>
     <strong id="presetName"></strong><strong id="latestResult"></strong><p id="latestResultDetail"></p>
     <button id="openControlCenter" type="button"></button>
+    <p id="controlCenterFeedback"></p>
   `;
 }
 
@@ -43,9 +44,22 @@ describe("minimal popup", () => {
     expect(state.latestResult?.title).not.toContain("guard_unavailable");
   });
 
-  it("requests opening the control center", async () => {
+  it("requests opening the control center and shows a successful response", async () => {
+    (chrome.runtime.sendMessage as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({ status: "opened" });
     await initializePopup(document, storageWith({}));
     (document.querySelector("#openControlCenter") as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(document.querySelector("#controlCenterFeedback")?.textContent).toBe("已打开 GestureKit 控制中心"));
     expect(chrome.runtime.sendMessage).toHaveBeenCalledWith({ type: "gesturekit.openControlCenter" });
+  });
+
+  it("shows a visible failure when the control center cannot be opened", async () => {
+    (chrome.runtime.sendMessage as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({})
+      .mockResolvedValueOnce({ status: "unavailable" });
+    await initializePopup(document, storageWith({}));
+    (document.querySelector("#openControlCenter") as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(document.querySelector("#controlCenterFeedback")?.textContent).toBe("无法打开控制中心，请确认 GestureKit 已连接"));
   });
 });

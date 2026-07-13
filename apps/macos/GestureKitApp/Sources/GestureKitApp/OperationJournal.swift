@@ -610,6 +610,8 @@ public final class OperationJournal: OperationJournaling, @unchecked Sendable {
         case .healthResponse(let value): return try encoder.encode(value)
         case .operationStatusRequest(let value): return try encoder.encode(value)
         case .operationStatusResponse(let value): return try encoder.encode(value)
+        case .controlCenterOpenRequest(let value): return try encoder.encode(value)
+        case .controlCenterOpenResponse(let value): return try encoder.encode(value)
         }
     }
 

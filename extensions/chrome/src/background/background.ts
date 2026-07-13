@@ -14,6 +14,7 @@ import { ChromeProvider } from "../provider/chromeProvider";
 import { V2Dispatcher } from "../provider/v2Dispatcher";
 import { createOperationLedgerStore } from "../provider/operationLedger";
 import { TelemetryConnection } from "../provider/telemetryConnection";
+import { createControlCenterRequestForwarder } from "./controlCenterRequest";
 import { loadGestureSettings } from "../settings/gestureSettings";
 import {
   isSettingsSyncStatus,
@@ -36,6 +37,8 @@ let manager: ReturnType<typeof createNativePortManager>;
 const v2Contexts = new ContextProvider();
 const providerLedger = createOperationLedgerStore();
 const producerSessionId = crypto.randomUUID();
+let authenticatedProviderSessionId: string | null = null;
+let controlCenterRequestForwarder: ReturnType<typeof createControlCenterRequestForwarder> | null = null;
 // v2 boundary keeps resolved page URLs and target references inside Chrome.
 const chromeProvider = new ChromeProvider(chromeApi, async (tabId, message) => {
   try { return await chrome.tabs.sendMessage(tabId, message); }
@@ -166,12 +169,19 @@ const reconnectablePort = createReconnectableNativePort({
   connect: () => chrome.runtime.connectNative(HOST_NAME),
   attach: (port) => {
     manager = createManager(port);
+    authenticatedProviderSessionId = null;
+    controlCenterRequestForwarder = createControlCenterRequestForwarder(
+      () => port,
+      () => authenticatedProviderSessionId
+    );
     const v2Dispatcher = providerLedger.then((ledger) => createV2Dispatcher(port, ledger));
     const telemetryConnection = providerLedger.then((store) => new TelemetryConnection(store, producerSessionId, (message) => port.postMessage(message)));
     port.onMessage.addListener((message) => {
       try {
         const envelope = decodeProviderEnvelope(message) as ProviderEnvelope;
+        if (controlCenterRequestForwarder.handle(envelope)) return;
         if (envelope.type === "configuration_snapshot") {
+          authenticatedProviderSessionId = envelope.providerSessionId;
           void handleConfigurationSnapshot(
             port,
             envelope,
@@ -196,6 +206,13 @@ const reconnectablePort = createReconnectableNativePort({
 });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type === "gesturekit.openControlCenter") {
+    (controlCenterRequestForwarder?.open() ?? Promise.resolve({ status: "unavailable" }))
+      .then(sendResponse)
+      .catch(() => sendResponse({ status: "unavailable" }));
+    return true;
+  }
+
   if (message?.type !== "gesturekit.runConnectionProbe") {
     return false;
   }

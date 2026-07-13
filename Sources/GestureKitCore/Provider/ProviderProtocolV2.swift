@@ -53,6 +53,8 @@ public enum ProviderMessageType: String, Codable, Sendable, CaseIterable, Equata
     case healthResponse = "health_response"
     case operationStatusRequest = "operation_status_request"
     case operationStatusResponse = "operation_status_response"
+    case controlCenterOpenRequest = "control_center_open_request"
+    case controlCenterOpenResponse = "control_center_open_response"
 }
 
 // MARK: - 结构化错误
@@ -405,9 +407,20 @@ public struct OperationStatusResponsePayload: Codable, Sendable, Equatable {
     }
 }
 
+/// control_center_open_request 不携带任意参数；App 只接受当前认证 Provider 会话的请求。
+public struct ControlCenterOpenRequestPayload: Codable, Sendable, Equatable {
+    public init() {}
+}
+
+/// control_center_open_response 让 Provider 将明确结果回显给 popup。
+public struct ControlCenterOpenResponsePayload: Codable, Sendable, Equatable {
+    public let opened: Bool
+    public init(opened: Bool) { self.opened = opened }
+}
+
 // MARK: - Payload 联合类型
 
-/// ProviderEnvelope 的 payload 联合类型，共 17 种。
+/// ProviderEnvelope 的 payload 联合类型，共 19 种。
 ///
 /// 解码通过 dispatchPayload 函数按 type → payload 映射表严格分发，
 /// 不使用 try-catch 猜测策略。type-payload 不匹配直接拒绝。
@@ -435,6 +448,8 @@ public enum ProviderPayload: Codable, Sendable, Equatable {
     case healthResponse(HealthResponsePayload)
     case operationStatusRequest(OperationStatusRequestPayload)
     case operationStatusResponse(OperationStatusResponsePayload)
+    case controlCenterOpenRequest(ControlCenterOpenRequestPayload)
+    case controlCenterOpenResponse(ControlCenterOpenResponsePayload)
 
     // MARK: Convenience accessors
 
@@ -495,6 +510,8 @@ public enum ProviderPayload: Codable, Sendable, Equatable {
         case .healthResponse(let v):          data = (try? encoder.encode(v)) ?? Data()
         case .operationStatusRequest(let v):  data = (try? encoder.encode(v)) ?? Data()
         case .operationStatusResponse(let v): data = (try? encoder.encode(v)) ?? Data()
+        case .controlCenterOpenRequest(let v): data = (try? encoder.encode(v)) ?? Data()
+        case .controlCenterOpenResponse(let v): data = (try? encoder.encode(v)) ?? Data()
         }
         guard !data.isEmpty, let dict = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {
             return [:]
@@ -562,7 +579,7 @@ internal struct AnyJSONBox: Codable, Equatable {
 }
 
 /// 将类型映射到对应的 payload Codable 类型，供编码/解码使用。
-/// 所有 17 种消息类型必须有对应条目。
+/// 所有 19 种消息类型必须有对应条目。
 public let payloadTypeMap: [ProviderMessageType: Codable.Type] = [
     .providerHello: ProviderHelloPayload.self,
     .providerChallenge: ProviderChallengePayload.self,
@@ -581,6 +598,8 @@ public let payloadTypeMap: [ProviderMessageType: Codable.Type] = [
     .healthResponse: HealthResponsePayload.self,
     .operationStatusRequest: OperationStatusRequestPayload.self,
     .operationStatusResponse: OperationStatusResponsePayload.self,
+    .controlCenterOpenRequest: ControlCenterOpenRequestPayload.self,
+    .controlCenterOpenResponse: ControlCenterOpenResponsePayload.self,
 ]
 
 // MARK: - 协议信封
@@ -789,6 +808,12 @@ public struct ProviderEnvelope: Codable, Sendable, Equatable {
             case is OperationStatusResponsePayload.Type:
                 let v = try decoder.decode(OperationStatusResponsePayload.self, from: payloadData)
                 return .operationStatusResponse(v)
+            case is ControlCenterOpenRequestPayload.Type:
+                let v = try decoder.decode(ControlCenterOpenRequestPayload.self, from: payloadData)
+                return .controlCenterOpenRequest(v)
+            case is ControlCenterOpenResponsePayload.Type:
+                let v = try decoder.decode(ControlCenterOpenResponsePayload.self, from: payloadData)
+                return .controlCenterOpenResponse(v)
             default:
                 throw ProviderProtocolError.unknownMessageType(type.rawValue)
             }
@@ -821,6 +846,8 @@ public struct ProviderEnvelope: Codable, Sendable, Equatable {
         case .healthResponse: allowedFields = ["probeSequence", "healthy"]
         case .operationStatusRequest: allowedFields = ["operationId"]
         case .operationStatusResponse: allowedFields = ["operationId", "outcome"]
+        case .controlCenterOpenRequest: allowedFields = []
+        case .controlCenterOpenResponse: allowedFields = ["opened"]
         }
         let unknownFields = Set(object.keys).subtracting(allowedFields)
         guard unknownFields.isEmpty else {
@@ -852,6 +879,8 @@ public struct ProviderEnvelope: Codable, Sendable, Equatable {
         case .healthResponse(let v): encodable = v
         case .operationStatusRequest(let v): encodable = v
         case .operationStatusResponse(let v): encodable = v
+        case .controlCenterOpenRequest(let v): encodable = v
+        case .controlCenterOpenResponse(let v): encodable = v
         }
         try container.encode(encodable, forKey: .payload)
     }
@@ -1003,6 +1032,8 @@ extension ProviderEvent {
         case .healthResponse(let v): try container.encode(v, forKey: .payload)
         case .operationStatusRequest(let v): try container.encode(v, forKey: .payload)
         case .operationStatusResponse(let v): try container.encode(v, forKey: .payload)
+        case .controlCenterOpenRequest(let v): try container.encode(v, forKey: .payload)
+        case .controlCenterOpenResponse(let v): try container.encode(v, forKey: .payload)
         }
     }
 }

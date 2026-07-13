@@ -5,6 +5,39 @@ import XCTest
 
 @MainActor
 final class RuntimeLifecycleTests: XCTestCase {
+    func testAuthenticatedControlCenterRequestInvokesUIAndReturnsSuccess() throws {
+        var opened = 0
+        let (runtime, sessionID, connectionID, outbound) = try makeAuthenticatedRuntime { opened += 1 }
+        let request = ProviderEnvelope(
+            protocolVersion: 2, messageId: "open-control-center", providerSessionId: sessionID,
+            gestureSessionId: nil, operationId: nil, type: .controlCenterOpenRequest, timestamp: 1,
+            payload: .controlCenterOpenRequest(ControlCenterOpenRequestPayload()), error: nil
+        )
+
+        runtime.handleProviderEnvelopeForTesting(try JSONEncoder().encode(request), connectionID: connectionID)
+
+        XCTAssertEqual(opened, 1)
+        XCTAssertEqual(outbound.latest(of: .controlCenterOpenResponse)?.providerSessionId, sessionID)
+        XCTAssertEqual(outbound.latest(of: .controlCenterOpenResponse)?.messageId, request.messageId)
+    }
+
+    func testUnauthenticatedControlCenterRequestDoesNotInvokeUI() throws {
+        var opened = 0
+        let runtime = GestureKitRuntime(
+            menuBarHandler: { _ in }, touchBackend: LifecycleStubTouchBackend(),
+            settingsStore: LifecycleStubSettingsStore(), logger: GestureKitLogger(terminalWriter: { _ in }),
+            operationJournal: RuntimeRecordingJournal(), controlCenterOpenHandler: { opened += 1 }
+        )
+        let request = ProviderEnvelope(
+            protocolVersion: 2, messageId: "open-control-center", providerSessionId: "untrusted",
+            gestureSessionId: nil, operationId: nil, type: .controlCenterOpenRequest, timestamp: 1,
+            payload: .controlCenterOpenRequest(ControlCenterOpenRequestPayload()), error: nil
+        )
+
+        runtime.handleProviderEnvelopeForTesting(try JSONEncoder().encode(request), connectionID: UUID())
+
+        XCTAssertEqual(opened, 0)
+    }
     func testUnauthenticatedTelemetryBatchDoesNotAppendToOperationJournal() throws {
         let journal = RuntimeRecordingJournal()
         let runtime = makeRuntime(operationJournal: journal)
@@ -118,6 +151,31 @@ final class RuntimeLifecycleTests: XCTestCase {
             settingsStore: LifecycleStubSettingsStore(),
             logger: GestureKitLogger(terminalWriter: { _ in }), operationJournal: operationJournal
         )
+    }
+
+    private func makeAuthenticatedRuntime(
+        controlCenterOpenHandler: @escaping () -> Void
+    ) throws -> (GestureKitRuntime, String, UUID, ProviderOutboundRecorder) {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent("RuntimeControlCenter-\(UUID().uuidString)")
+        let store = ProviderCredentialStore(directory: directory)
+        let sessions = ProviderSessionRegistry(credentialStore: store)
+        let outbound = ProviderOutboundRecorder()
+        let connectionID = UUID()
+        let installID = "control-center-provider"
+        let hello = ProviderHelloPayload(installId: installID, protocolVersions: [2], environment: "test")
+        let nonce = try sessions.beginAuthentication(hello)
+        let response = ProviderAuthenticator(secret: try store.secret(for: installID)).response(for: installID, nonce: nonce)
+        let session = try sessions.authenticate(
+            installId: installID, response: response, connectionID: connectionID,
+            sink: { outbound.append($0) }
+        )
+        let runtime = GestureKitRuntime(
+            menuBarHandler: { _ in }, touchBackend: LifecycleStubTouchBackend(),
+            settingsStore: LifecycleStubSettingsStore(), logger: GestureKitLogger(terminalWriter: { _ in }),
+            providerSessions: sessions, providerOutboundSink: { outbound.append($0) },
+            controlCenterOpenHandler: controlCenterOpenHandler
+        )
+        return (runtime, session.providerSessionID, connectionID, outbound)
     }
 
     private func telemetryBatch(providerSessionID: String, operationID: String) -> ProviderEnvelope {

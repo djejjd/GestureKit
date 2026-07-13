@@ -23,6 +23,7 @@ final class GestureKitRuntime {
     private let providerSessions: ProviderSessionRegistry
     /// 测试 transport 边界时捕获真实出站消息；生产环境保持 nil。
     private let providerOutboundSink: ProviderSessionSink?
+    private let controlCenterOpenHandler: () -> Void
     private let appSessionId: String
     private var internalState = AppInternalStatus()
     private var isPaused = false
@@ -42,6 +43,7 @@ final class GestureKitRuntime {
         providerSessions: ProviderSessionRegistry = ProviderSessionRegistry(),
         appContextResolver: AppContextResolver = AppContextResolver(),
         providerOutboundSink: ProviderSessionSink? = nil,
+        controlCenterOpenHandler: @escaping () -> Void = {},
         diagnosticSink: @escaping (LocalIPCEnvelope) -> Void = { _ in }
     ) {
         self.menuBarHandler = menuBarHandler
@@ -54,6 +56,7 @@ final class GestureKitRuntime {
         self.providerSessions = providerSessions
         self.appContextResolver = appContextResolver
         self.providerOutboundSink = providerOutboundSink
+        self.controlCenterOpenHandler = controlCenterOpenHandler
         self.diagnosticSink = diagnosticSink
         self.ruleEngine = RuleEngine(rules: (try? settingsStore.loadRules()) ?? DefaultRules.v1)
         self.appSessionId = UUID().uuidString
@@ -426,6 +429,18 @@ final class GestureKitRuntime {
                   envelope.providerSessionId == session.providerSessionID,
                   providerSessions.session(session.providerSessionID, belongsTo: connectionID) else { return }
             appendTelemetryLifecycleEvents(batch.events)
+        case (.controlCenterOpenRequest, .controlCenterOpenRequest):
+            guard let session = providerSessions.activeSession(),
+                  envelope.providerSessionId == session.providerSessionID,
+                  providerSessions.session(session.providerSessionID, belongsTo: connectionID) else { return }
+            controlCenterOpenHandler()
+            let response = ProviderEnvelope(
+                protocolVersion: 2, messageId: envelope.messageId,
+                providerSessionId: session.providerSessionID, gestureSessionId: nil, operationId: nil,
+                type: .controlCenterOpenResponse, timestamp: currentTimestampMs(),
+                payload: .controlCenterOpenResponse(ControlCenterOpenResponsePayload(opened: true)), error: nil
+            )
+            try? providerSessions.send(response, to: session.providerSessionID)
         default:
             logger.warn("provider_v2_unauthorized_message", rateLimitKey: "provider_v2_unauthorized_message")
         }

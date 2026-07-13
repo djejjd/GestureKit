@@ -11,7 +11,7 @@
     "providerSessionId": { "$ref": "#/$defs/nonEmptyString" },
     "gestureSessionId": { "type": ["string", "null"] },
     "operationId": { "type": ["string", "null"] },
-    "type": { "enum": ["provider_hello", "provider_challenge", "provider_authenticate", "capability_snapshot", "context_request", "context_snapshot", "configuration_snapshot", "configuration_ack", "action_request", "action_accepted", "action_result", "telemetry_batch", "telemetry_ack", "health_probe", "health_response", "operation_status_request", "operation_status_response"] },
+    "type": { "enum": ["provider_hello", "provider_challenge", "provider_authenticate", "capability_snapshot", "context_request", "context_snapshot", "configuration_snapshot", "configuration_ack", "action_request", "action_accepted", "action_result", "telemetry_batch", "telemetry_ack", "health_probe", "health_response", "operation_status_request", "operation_status_response", "control_center_open_request", "control_center_open_response"] },
     "timestamp": { "type": "integer", "minimum": 0 },
     "payload": { "type": "object" },
     "error": { "anyOf": [{ "type": "null" }, { "$ref": "#/$defs/error" }] }
@@ -34,6 +34,8 @@
     { "if": { "properties": { "type": { "const": "health_response" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/healthResponse" } } } },
     { "if": { "properties": { "type": { "const": "operation_status_request" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/operationStatusRequest" } } } },
     { "if": { "properties": { "type": { "const": "operation_status_response" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/operationStatusResponse" } } } }
+    ,{ "if": { "properties": { "type": { "const": "control_center_open_request" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/controlCenterOpenRequest" } } } }
+    ,{ "if": { "properties": { "type": { "const": "control_center_open_response" } } }, "then": { "properties": { "payload": { "$ref": "#/$defs/controlCenterOpenResponse" } } } }
   ],
   "$defs": {
     "nonEmptyString": { "type": "string", "minLength": 1 },
@@ -55,6 +57,8 @@
     "healthProbe": { "type": "object", "additionalProperties": false, "required": ["probeSequence", "sentAt"], "properties": { "probeSequence": { "type": "integer", "minimum": 0 }, "sentAt": { "type": "integer", "minimum": 0 } } },
     "healthResponse": { "type": "object", "additionalProperties": false, "required": ["probeSequence", "healthy"], "properties": { "probeSequence": { "type": "integer", "minimum": 0 }, "healthy": { "type": "boolean" } } },
     "operationStatusRequest": { "type": "object", "additionalProperties": false, "required": ["operationId"], "properties": { "operationId": { "$ref": "#/$defs/nonEmptyString" } } },
-    "operationStatusResponse": { "type": "object", "additionalProperties": false, "required": ["operationId", "outcome"], "properties": { "operationId": { "$ref": "#/$defs/nonEmptyString" }, "outcome": { "enum": ["succeeded", "failed", "result_unknown"] } } }
+    "operationStatusResponse": { "type": "object", "additionalProperties": false, "required": ["operationId", "outcome"], "properties": { "operationId": { "$ref": "#/$defs/nonEmptyString" }, "outcome": { "enum": ["succeeded", "failed", "result_unknown"] } } },
+    "controlCenterOpenRequest": { "type": "object", "additionalProperties": false },
+    "controlCenterOpenResponse": { "type": "object", "additionalProperties": false, "required": ["opened"], "properties": { "opened": { "type": "boolean" } } }
   }
 }

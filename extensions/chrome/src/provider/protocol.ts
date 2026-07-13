@@ -35,7 +35,7 @@ export type StandardActionID =
 
 // MARK: - 消息类型
 
-/** Provider Protocol v2 支持的消息类型（17 种）。 */
+/** Provider Protocol v2 支持的消息类型（19 种）。 */
 export type ProviderMessageType =
   | "provider_hello"
   | "provider_challenge"
@@ -53,7 +53,9 @@ export type ProviderMessageType =
   | "health_probe"
   | "health_response"
   | "operation_status_request"
-  | "operation_status_response";
+  | "operation_status_response"
+  | "control_center_open_request"
+  | "control_center_open_response";
 
 // MARK: - 终端状态与原因枚举
 
@@ -191,6 +193,12 @@ export interface OperationStatusResponsePayload {
   outcome: ActionResultOutcome;
 }
 
+export interface ControlCenterOpenRequestPayload {}
+
+export interface ControlCenterOpenResponsePayload {
+  opened: boolean;
+}
+
 // MARK: - Payload 联合类型
 
 /**
@@ -214,13 +222,15 @@ export type ProviderPayload =
   | HealthProbePayload
   | HealthResponsePayload
   | OperationStatusRequestPayload
-  | OperationStatusResponsePayload;
+  | OperationStatusResponsePayload
+  | ControlCenterOpenRequestPayload
+  | ControlCenterOpenResponsePayload;
 
 // MARK: - Type → Payload 映射表
 
 /**
  * 消息类型到 payload 类型的映射表。
- * 所有 17 种消息类型必须有对应条目，type-payload 不匹配直接拒绝。
+ * 所有 19 种消息类型必须有对应条目，type-payload 不匹配直接拒绝。
  */
 type PayloadFieldKind = "string" | "integer" | "boolean" | "stringArray" | "integerArray" | "object" | "stringMap" | "actionId" | "targetKind" | "outcome" | "reason" | "eventArray";
 
@@ -248,6 +258,8 @@ const PAYLOAD_TYPE_MAP: Record<ProviderMessageType, PayloadShape> = {
   health_response: { required: { probeSequence: "integer", healthy: "boolean" } },
   operation_status_request: { required: { operationId: "string" } },
   operation_status_response: { required: { operationId: "string", outcome: "outcome" } },
+  control_center_open_request: { required: {} },
+  control_center_open_response: { required: { opened: "boolean" } },
 };
 
 // MARK: - Provider Error
@@ -311,6 +323,8 @@ const VALID_MESSAGE_TYPES: readonly ProviderMessageType[] = [
   "health_response",
   "operation_status_request",
   "operation_status_response",
+  "control_center_open_request",
+  "control_center_open_response",
 ];
 
 const VALID_MESSAGE_TYPE_SET = new Set<string>(VALID_MESSAGE_TYPES);

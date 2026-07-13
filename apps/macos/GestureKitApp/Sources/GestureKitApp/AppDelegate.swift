@@ -15,7 +15,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         operationJournal = journal
         runtime = GestureKitRuntime(menuBarHandler: { [weak self] event in
             self?.menuBar?.apply(event: event)
-        }, settingsStore: settingsStore, operationJournal: journal)
+        }, settingsStore: settingsStore, operationJournal: journal, controlCenterOpenHandler: { [weak self] in
+            self?.showControlCenter()
+        })
         let control = RuntimeControl(runtime: runtime!)
         self.control = control
         let menuBar = MenuBarController(control: control) { [weak self] in
