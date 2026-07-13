@@ -10,7 +10,7 @@ final class GestureKitRuntime {
     private let menuBarHandler: (AppMenuBarEvent) -> Void
     private var recognizer = GestureRecognizer()
     private let ruleEngine: RuleEngine
-    private let appContextResolver = AppContextResolver()
+    private let appContextResolver: AppContextResolver
     private let touchBackend: any TouchBackend
     private let settingsStore: any SettingsStore
     private let configurationMigration: ConfigurationMigration?
@@ -21,6 +21,8 @@ final class GestureKitRuntime {
     private var listeningTask: Task<Void, Never>?
     private var eventServer: LocalEventServer?
     private let providerSessions: ProviderSessionRegistry
+    /// 测试 transport 边界时捕获真实出站消息；生产环境保持 nil。
+    private let providerOutboundSink: ProviderSessionSink?
     private let appSessionId: String
     private var internalState = AppInternalStatus()
     private var isPaused = false
@@ -38,6 +40,8 @@ final class GestureKitRuntime {
         logger: GestureKitLogger = GestureKitLogger(),
         operationJournal: (any OperationJournaling)? = nil,
         providerSessions: ProviderSessionRegistry = ProviderSessionRegistry(),
+        appContextResolver: AppContextResolver = AppContextResolver(),
+        providerOutboundSink: ProviderSessionSink? = nil,
         diagnosticSink: @escaping (LocalIPCEnvelope) -> Void = { _ in }
     ) {
         self.menuBarHandler = menuBarHandler
@@ -48,6 +52,8 @@ final class GestureKitRuntime {
         self.logger = logger
         self.operationJournal = operationJournal
         self.providerSessions = providerSessions
+        self.appContextResolver = appContextResolver
+        self.providerOutboundSink = providerOutboundSink
         self.diagnosticSink = diagnosticSink
         self.ruleEngine = RuleEngine(rules: (try? settingsStore.loadRules()) ?? DefaultRules.v1)
         self.appSessionId = UUID().uuidString
@@ -351,14 +357,17 @@ final class GestureKitRuntime {
             guard let nonce = try? providerSessions.beginAuthentication(hello) else { return }
             let challenge = ProviderEnvelope(protocolVersion: 2, messageId: UUID().uuidString, providerSessionId: envelope.providerSessionId, gestureSessionId: nil, operationId: nil, type: .providerChallenge, timestamp: currentTimestampMs(), payload: .providerChallenge(ProviderChallengePayload(nonce: nonce.base64EncodedString(), expiresAt: currentTimestampMs() + 30_000)), error: nil)
             try? server?.send(challenge, to: connectionID)
+            providerOutboundSink?(challenge)
         case (.providerAuthenticate, .providerAuthenticate(let authentication)):
             guard let response = Data(hexEncoded: authentication.hmac) else { return }
+            let providerOutboundSink = self.providerOutboundSink
             guard let session = try? providerSessions.authenticate(
                 installId: authentication.installId,
                 response: response,
                 connectionID: connectionID,
                 sink: { [weak server] outbound in
                 try? server?.send(outbound, to: connectionID)
+                providerOutboundSink?(outbound)
                 }
             ) else { return }
             configurationAppliedByProvider = false

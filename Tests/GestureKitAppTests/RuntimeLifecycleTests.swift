@@ -5,60 +5,99 @@ import XCTest
 
 @MainActor
 final class RuntimeLifecycleTests: XCTestCase {
-    func testAuthenticatedTelemetryBatchAppendsProviderLifecycleEventsToRequestTimeline() throws {
+    func testUnauthenticatedTelemetryBatchDoesNotAppendToOperationJournal() throws {
+        let journal = RuntimeRecordingJournal()
+        let runtime = makeRuntime(operationJournal: journal)
+        let batch = telemetryBatch(providerSessionID: "untrusted-provider", operationID: "operation-1")
+
+        runtime.handleProviderEnvelopeForTesting(try JSONEncoder().encode(batch), connectionID: UUID())
+
+        XCTAssertTrue(journal.events.isEmpty)
+    }
+
+    func testRuntimeHandshakeActionRequestAndAuthenticatedTelemetryShareOperationTimeline() throws {
         let credentialDirectory = FileManager.default.temporaryDirectory
             .appendingPathComponent("RuntimeLifecycleTelemetry-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: credentialDirectory) }
         let credentialStore = ProviderCredentialStore(directory: credentialDirectory)
         let sessions = ProviderSessionRegistry(credentialStore: credentialStore)
         let journal = RuntimeRecordingJournal()
+        let outbound = ProviderOutboundRecorder()
         let runtime = GestureKitRuntime(
             menuBarHandler: { _ in },
             touchBackend: LifecycleStubTouchBackend(),
             settingsStore: LifecycleStubSettingsStore(),
             logger: GestureKitLogger(terminalWriter: { _ in }),
             operationJournal: journal,
-            providerSessions: sessions
+            providerSessions: sessions,
+            appContextResolver: AppContextResolver(bundleIdProvider: { "com.google.Chrome" }),
+            providerOutboundSink: { outbound.append($0) }
         )
         let connectionID = UUID()
         let installID = "chrome-telemetry-test"
         let hello = ProviderHelloPayload(installId: installID, protocolVersions: [2], environment: "test")
-        let nonce = try sessions.beginAuthentication(hello)
+        runtime.handleProviderEnvelopeForTesting(try JSONEncoder().encode(ProviderEnvelope(
+            protocolVersion: 2, messageId: "hello-1", providerSessionId: "provisional-provider",
+            gestureSessionId: nil, operationId: nil, type: .providerHello, timestamp: 100,
+            payload: .providerHello(hello), error: nil
+        )), connectionID: connectionID)
+        guard case .providerChallenge(let challenge)? = outbound.latest(of: .providerChallenge)?.payload,
+              let nonce = Data(base64Encoded: challenge.nonce) else {
+            return XCTFail("runtime must issue a provider challenge")
+        }
         let response = ProviderAuthenticator(secret: try credentialStore.secret(for: installID))
             .response(for: installID, nonce: nonce)
-        let session = try sessions.authenticate(
-            installId: installID,
-            nonce: nonce,
-            response: response,
-            connectionID: connectionID
-        )
-
-        let request = ProviderEnvelope(
-            protocolVersion: 2, messageId: "request-1", providerSessionId: session.providerSessionID,
-            gestureSessionId: "gesture-1", operationId: "operation-1", type: .actionRequest,
-            timestamp: 100, payload: .actionRequest(ActionDescriptor(
-                actionId: .browserPageReload, contextId: "context-1", targetRef: nil,
-                parameters: [:], deadline: 1_000
+        runtime.handleProviderEnvelopeForTesting(try JSONEncoder().encode(ProviderEnvelope(
+            protocolVersion: 2, messageId: "authenticate-1", providerSessionId: "provisional-provider",
+            gestureSessionId: nil, operationId: nil, type: .providerAuthenticate, timestamp: 101,
+            payload: .providerAuthenticate(ProviderAuthenticatePayload(
+                installId: installID,
+                hmac: response.map { String(format: "%02x", $0) }.joined()
             )), error: nil
-        )
-        runtime.appendOperationLifecycleEvent(request)
+        )), connectionID: connectionID)
+        guard let configuration = outbound.latest(of: .configurationSnapshot) else {
+            return XCTFail("runtime must send configuration after authentication")
+        }
+
+        _ = runtime.processFrameForTesting(.frame(time: 0.00, activeTouches: [
+            .touch(1, 0.30, 0.40), .touch(2, 0.32, 0.40), .touch(3, 0.34, 0.40)
+        ]))
+        _ = runtime.processFrameForTesting(.frame(time: 0.16, activeTouches: [
+            .touch(1, 0.42, 0.40), .touch(2, 0.44, 0.40), .touch(3, 0.46, 0.40)
+        ]))
+        _ = runtime.processFrameForTesting(.frame(time: 0.26, activeTouches: []))
+        guard let contextRequest = outbound.latest(of: .contextRequest),
+              let gestureSessionID = contextRequest.gestureSessionId else {
+            return XCTFail("recognized gesture must cause runtime to request provider context")
+        }
+        runtime.handleProviderEnvelopeForTesting(try JSONEncoder().encode(ProviderEnvelope(
+            protocolVersion: 2, messageId: "context-1", providerSessionId: configuration.providerSessionId,
+            gestureSessionId: gestureSessionID, operationId: nil, type: .contextSnapshot,
+            timestamp: 110, payload: .contextSnapshot(ContextSnapshotPayload(
+                contextId: "context-1", pageIdentity: "page-1", expiresAt: currentTimestampMs() + 10_000,
+                targetKind: .noTarget, targetRef: nil
+            )), error: nil
+        )), connectionID: connectionID)
+        guard let request = outbound.latest(of: .actionRequest), let operationID = request.operationId else {
+            return XCTFail("runtime must emit an action request after valid context")
+        }
 
         let accepted = ProviderEvent(
-            eventId: "accepted-1", producerSessionId: session.providerSessionID, producerSequence: 7,
-            causedByEventId: "request-1", monotonicClockMs: 110, wallClockMs: 110,
-            gestureSessionId: "gesture-1", operationId: "operation-1", type: .actionAccepted,
-            payload: .actionAccepted(ActionAcceptedPayload(operationId: "operation-1", acceptedAt: 110))
+            eventId: "accepted-1", producerSessionId: configuration.providerSessionId, producerSequence: 7,
+            causedByEventId: request.messageId, monotonicClockMs: 110, wallClockMs: 110,
+            gestureSessionId: gestureSessionID, operationId: operationID, type: .actionAccepted,
+            payload: .actionAccepted(ActionAcceptedPayload(operationId: operationID, acceptedAt: 110))
         )
         let result = ProviderEvent(
-            eventId: "result-1", producerSessionId: session.providerSessionID, producerSequence: 8,
+            eventId: "result-1", producerSessionId: configuration.providerSessionId, producerSequence: 8,
             causedByEventId: "accepted-1", monotonicClockMs: 120, wallClockMs: 120,
-            gestureSessionId: "gesture-1", operationId: "operation-1", type: .actionResult,
+            gestureSessionId: gestureSessionID, operationId: operationID, type: .actionResult,
             payload: .actionResult(ProviderActionResultPayload(
-                operationId: "operation-1", outcome: .succeeded, reason: nil, completedAt: 120
+                operationId: operationID, outcome: .succeeded, reason: nil, completedAt: 120
             ))
         )
         let batch = ProviderEnvelope(
-            protocolVersion: 2, messageId: "batch-1", providerSessionId: session.providerSessionID,
+            protocolVersion: 2, messageId: "batch-1", providerSessionId: configuration.providerSessionId,
             gestureSessionId: nil, operationId: nil, type: .telemetryBatch, timestamp: 130,
             payload: .telemetryBatch(TelemetryBatchPayload(events: [accepted, result])), error: nil
         )
@@ -66,11 +105,33 @@ final class RuntimeLifecycleTests: XCTestCase {
         runtime.handleProviderEnvelopeForTesting(try JSONEncoder().encode(batch), connectionID: connectionID)
 
         XCTAssertEqual(journal.events.map(\.type), [.actionRequest, .actionAccepted, .actionResult])
-        XCTAssertEqual(journal.events.map(\.eventId), ["request-1", "accepted-1", "result-1"])
-        XCTAssertEqual(journal.events.map(\.operationId), ["operation-1", "operation-1", "operation-1"])
+        XCTAssertEqual(journal.events.map(\.eventId), [request.messageId, "accepted-1", "result-1"])
+        XCTAssertEqual(journal.events.map(\.operationId), [operationID, operationID, operationID])
         guard journal.events.count == 3 else { return }
-        XCTAssertEqual(journal.events[1].producerSessionId, session.providerSessionID)
+        XCTAssertEqual(journal.events[1].producerSessionId, configuration.providerSessionId)
         XCTAssertEqual(journal.events[2].producerSequence, 8)
+    }
+
+    private func makeRuntime(operationJournal: RuntimeRecordingJournal) -> GestureKitRuntime {
+        GestureKitRuntime(
+            menuBarHandler: { _ in }, touchBackend: LifecycleStubTouchBackend(),
+            settingsStore: LifecycleStubSettingsStore(),
+            logger: GestureKitLogger(terminalWriter: { _ in }), operationJournal: operationJournal
+        )
+    }
+
+    private func telemetryBatch(providerSessionID: String, operationID: String) -> ProviderEnvelope {
+        let accepted = ProviderEvent(
+            eventId: "accepted-1", producerSessionId: providerSessionID, producerSequence: 1,
+            causedByEventId: "request-1", monotonicClockMs: 110, wallClockMs: 110,
+            gestureSessionId: "gesture-1", operationId: operationID, type: .actionAccepted,
+            payload: .actionAccepted(ActionAcceptedPayload(operationId: operationID, acceptedAt: 110))
+        )
+        return ProviderEnvelope(
+            protocolVersion: 2, messageId: "batch-1", providerSessionId: providerSessionID,
+            gestureSessionId: nil, operationId: nil, type: .telemetryBatch, timestamp: 120,
+            payload: .telemetryBatch(TelemetryBatchPayload(events: [accepted])), error: nil
+        )
     }
 
     /// 运行时必须持有操作账本；控制中心读取的账本才能包含真实 Provider 操作。
@@ -259,9 +320,13 @@ private extension TouchSample {
     }
 }
 
-private struct LifecycleStubSettingsStore: SettingsStore {
+private struct LifecycleStubSettingsStore: SettingsStore, AppConfigurationStore {
     func loadRules() throws -> [Rule] { DefaultRules.v1 }
     func saveRules(_ rules: [Rule]) throws {}
+    func loadAppConfiguration() throws -> AppConfiguration? { AppConfiguration.initial(storeEpoch: "runtime-lifecycle-tests") }
+    func saveAppConfiguration(_ configuration: AppConfiguration) throws {}
+    func importLegacyAppConfiguration(_ configuration: AppConfiguration) throws {}
+    func hasLegacyMigrationMarker() throws -> Bool { false }
 }
 
 private final class RuntimeRecordingJournal: OperationJournaling, @unchecked Sendable {
@@ -270,4 +335,25 @@ private final class RuntimeRecordingJournal: OperationJournaling, @unchecked Sen
     func recoverExpired(now: Int64) throws -> [RecoveredOperation] { [] }
     func query(_ filter: OperationFilter, limit: Int) throws -> [OperationTimeline] { [] }
     func exportEvidence(operationId: String, to url: URL) throws {}
+}
+
+private final class ProviderOutboundRecorder: @unchecked Sendable {
+    private let lock = NSLock()
+    private var values: [ProviderEnvelope] = []
+
+    func append(_ envelope: ProviderEnvelope) {
+        lock.lock()
+        values.append(envelope)
+        lock.unlock()
+    }
+
+    func latest(of type: ProviderMessageType) -> ProviderEnvelope? {
+        lock.lock()
+        defer { lock.unlock() }
+        return values.last { $0.type == type }
+    }
+}
+
+private func currentTimestampMs() -> Int64 {
+    Int64(Date().timeIntervalSince1970 * 1_000)
 }
