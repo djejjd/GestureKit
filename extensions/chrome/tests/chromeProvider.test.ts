@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { ChromeProvider } from "../src/provider/chromeProvider";
 import type { ChromeApi } from "../src/background/chromeApi";
+import type { StandardActionID } from "../src/provider/protocol";
 
 function makeApi(): ChromeApi {
   return {
@@ -43,14 +44,42 @@ describe("ChromeProvider", () => {
     expect(api.tabs.create).not.toHaveBeenCalled();
   });
 
-  it("executes browser.tab.activate_next without a link targetRef", async () => {
+  it.each([
+    "browser.tab.activate_previous",
+    "browser.tab.activate_next"
+  ] satisfies StandardActionID[])("executes %s without a link targetRef", async (actionId) => {
     const api = makeApi();
     const provider = new ChromeProvider(api, bridge());
     const deadline = Date.now() + 1_000;
     const snapshot = await provider.context({ gestureSessionId: "g-1", requiresTargetRef: false, deadline });
 
-    await expect(provider.execute({ operationId: "op-2", actionId: "browser.tab.activate_next", contextId: snapshot.contextId, gestureSessionId: "g-1", deadline })).resolves.toMatchObject({ status: "success" });
+    await expect(provider.execute({ operationId: "op-2", actionId, contextId: snapshot.contextId, gestureSessionId: "g-1", deadline })).resolves.toMatchObject({ status: "success" });
     expect(api.tabs.update).toHaveBeenCalled();
+  });
+
+  it.each([
+    "browser.tab.close_current",
+    "browser.history.back",
+    "browser.history.forward",
+    "browser.page.reload"
+  ] satisfies StandardActionID[])("rejects %s from a swipe context", async (actionId) => {
+    const api = makeApi();
+    const provider = new ChromeProvider(api, bridge());
+    const deadline = Date.now() + 1_000;
+    const snapshot = await provider.context({ gestureSessionId: "g-swipe-scope", requiresTargetRef: false, deadline });
+
+    await expect(provider.execute({
+      operationId: `op-${actionId}`,
+      actionId,
+      contextId: snapshot.contextId,
+      gestureSessionId: "g-swipe-scope",
+      deadline
+    })).resolves.toMatchObject({ status: "context_expired" });
+
+    expect(api.tabs.remove).not.toHaveBeenCalled();
+    expect(api.tabs.goBack).not.toHaveBeenCalled();
+    expect(api.tabs.goForward).not.toHaveBeenCalled();
+    expect(api.tabs.reload).not.toHaveBeenCalled();
   });
 
   it("creates a live tab context and executes a swipe when no recent pointer exists", async () => {

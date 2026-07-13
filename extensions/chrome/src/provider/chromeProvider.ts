@@ -26,8 +26,10 @@ type PointerResolution =
   | { status: "no_target" }
   | { status: "page_unavailable" };
 type StoredTarget = { contextId: string; gestureSessionId: string; tabId: number; frameId: number; url: string; expiresAt: number };
-type StoredContext = { gestureSessionId: string; tabId: number; expiresAt: number };
+type StoredContext = { gestureSessionId: string; tabId: number; expiresAt: number; allowedActionIds?: readonly StandardActionID[] };
 type ContentBridge = (tabId: number, message: Record<string, unknown>) => Promise<unknown>;
+
+const SWIPE_ACTION_IDS = ["browser.tab.activate_previous", "browser.tab.activate_next"] as const satisfies readonly StandardActionID[];
 
 /**
  * Chrome Provider v2 boundary. URLs stay in this process behind session-bound
@@ -53,7 +55,12 @@ export class ChromeProvider {
     if (!pageIdentity) return unavailable("page_unavailable", now);
     const contextId = crypto.randomUUID();
     const expiresAt = request.deadline;
-    this.contexts.set(contextId, { gestureSessionId: request.gestureSessionId, tabId: tab.id, expiresAt });
+    this.contexts.set(contextId, {
+      gestureSessionId: request.gestureSessionId,
+      tabId: tab.id,
+      expiresAt,
+      allowedActionIds: request.requiresTargetRef ? undefined : SWIPE_ACTION_IDS
+    });
     if (!request.requiresTargetRef) {
       return { contextId, expiresAt, targetKind: "no_target", pageIdentity };
     }
@@ -95,6 +102,9 @@ export class ChromeProvider {
     }
     if (context.gestureSessionId !== request.gestureSessionId) {
       return { status: request.actionId === "browser.link.open_adjacent" ? "guard_unavailable" : "context_expired" };
+    }
+    if (context.allowedActionIds && !context.allowedActionIds.includes(request.actionId)) {
+      return { status: "context_expired" };
     }
     const active = await activeTab(this.api);
     if (!active?.id || active.id !== context.tabId) return { status: "context_expired" };
