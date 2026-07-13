@@ -5,6 +5,74 @@ import XCTest
 
 @MainActor
 final class RuntimeLifecycleTests: XCTestCase {
+    func testAuthenticatedTelemetryBatchAppendsProviderLifecycleEventsToRequestTimeline() throws {
+        let credentialDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("RuntimeLifecycleTelemetry-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: credentialDirectory) }
+        let credentialStore = ProviderCredentialStore(directory: credentialDirectory)
+        let sessions = ProviderSessionRegistry(credentialStore: credentialStore)
+        let journal = RuntimeRecordingJournal()
+        let runtime = GestureKitRuntime(
+            menuBarHandler: { _ in },
+            touchBackend: LifecycleStubTouchBackend(),
+            settingsStore: LifecycleStubSettingsStore(),
+            logger: GestureKitLogger(terminalWriter: { _ in }),
+            operationJournal: journal,
+            providerSessions: sessions
+        )
+        let connectionID = UUID()
+        let installID = "chrome-telemetry-test"
+        let hello = ProviderHelloPayload(installId: installID, protocolVersions: [2], environment: "test")
+        let nonce = try sessions.beginAuthentication(hello)
+        let response = ProviderAuthenticator(secret: try credentialStore.secret(for: installID))
+            .response(for: installID, nonce: nonce)
+        let session = try sessions.authenticate(
+            installId: installID,
+            nonce: nonce,
+            response: response,
+            connectionID: connectionID
+        )
+
+        let request = ProviderEnvelope(
+            protocolVersion: 2, messageId: "request-1", providerSessionId: session.providerSessionID,
+            gestureSessionId: "gesture-1", operationId: "operation-1", type: .actionRequest,
+            timestamp: 100, payload: .actionRequest(ActionDescriptor(
+                actionId: .browserPageReload, contextId: "context-1", targetRef: nil,
+                parameters: [:], deadline: 1_000
+            )), error: nil
+        )
+        runtime.appendOperationLifecycleEvent(request)
+
+        let accepted = ProviderEvent(
+            eventId: "accepted-1", producerSessionId: session.providerSessionID, producerSequence: 7,
+            causedByEventId: "request-1", monotonicClockMs: 110, wallClockMs: 110,
+            gestureSessionId: "gesture-1", operationId: "operation-1", type: .actionAccepted,
+            payload: .actionAccepted(ActionAcceptedPayload(operationId: "operation-1", acceptedAt: 110))
+        )
+        let result = ProviderEvent(
+            eventId: "result-1", producerSessionId: session.providerSessionID, producerSequence: 8,
+            causedByEventId: "accepted-1", monotonicClockMs: 120, wallClockMs: 120,
+            gestureSessionId: "gesture-1", operationId: "operation-1", type: .actionResult,
+            payload: .actionResult(ProviderActionResultPayload(
+                operationId: "operation-1", outcome: .succeeded, reason: nil, completedAt: 120
+            ))
+        )
+        let batch = ProviderEnvelope(
+            protocolVersion: 2, messageId: "batch-1", providerSessionId: session.providerSessionID,
+            gestureSessionId: nil, operationId: nil, type: .telemetryBatch, timestamp: 130,
+            payload: .telemetryBatch(TelemetryBatchPayload(events: [accepted, result])), error: nil
+        )
+
+        runtime.handleProviderEnvelopeForTesting(try JSONEncoder().encode(batch), connectionID: connectionID)
+
+        XCTAssertEqual(journal.events.map(\.type), [.actionRequest, .actionAccepted, .actionResult])
+        XCTAssertEqual(journal.events.map(\.eventId), ["request-1", "accepted-1", "result-1"])
+        XCTAssertEqual(journal.events.map(\.operationId), ["operation-1", "operation-1", "operation-1"])
+        guard journal.events.count == 3 else { return }
+        XCTAssertEqual(journal.events[1].producerSessionId, session.providerSessionID)
+        XCTAssertEqual(journal.events[2].producerSequence, 8)
+    }
+
     /// 运行时必须持有操作账本；控制中心读取的账本才能包含真实 Provider 操作。
     func testRuntimeOwnsInjectedOperationJournalForProviderOperationLifecycle() {
         let journal = RuntimeRecordingJournal()

@@ -20,7 +20,7 @@ final class GestureKitRuntime {
     private let diagnosticSink: (LocalIPCEnvelope) -> Void
     private var listeningTask: Task<Void, Never>?
     private var eventServer: LocalEventServer?
-    private let providerSessions = ProviderSessionRegistry()
+    private let providerSessions: ProviderSessionRegistry
     private let appSessionId: String
     private var internalState = AppInternalStatus()
     private var isPaused = false
@@ -37,6 +37,7 @@ final class GestureKitRuntime {
         settingsStore: any SettingsStore = UserDefaultsSettingsStore(),
         logger: GestureKitLogger = GestureKitLogger(),
         operationJournal: (any OperationJournaling)? = nil,
+        providerSessions: ProviderSessionRegistry = ProviderSessionRegistry(),
         diagnosticSink: @escaping (LocalIPCEnvelope) -> Void = { _ in }
     ) {
         self.menuBarHandler = menuBarHandler
@@ -46,6 +47,7 @@ final class GestureKitRuntime {
             .map(ConfigurationMigration.init(store:))
         self.logger = logger
         self.operationJournal = operationJournal
+        self.providerSessions = providerSessions
         self.diagnosticSink = diagnosticSink
         self.ruleEngine = RuleEngine(rules: (try? settingsStore.loadRules()) ?? DefaultRules.v1)
         self.appSessionId = UUID().uuidString
@@ -335,7 +337,11 @@ final class GestureKitRuntime {
     }
 
     /// v2 认证消息只在 transport 边界处理；未认证连接不能进入旧动作或配置处理路径。
-    private func handleProviderEnvelope(_ data: Data, connectionID: UUID, server: LocalEventServer) {
+    func handleProviderEnvelopeForTesting(_ data: Data, connectionID: UUID) {
+        handleProviderEnvelope(data, connectionID: connectionID, server: nil)
+    }
+
+    private func handleProviderEnvelope(_ data: Data, connectionID: UUID, server: LocalEventServer?) {
         guard let envelope = try? JSONDecoder().decode(ProviderEnvelope.self, from: data) else {
             logger.warn("provider_v2_decode_rejected", rateLimitKey: "provider_v2_decode_rejected")
             return
@@ -344,7 +350,7 @@ final class GestureKitRuntime {
         case (.providerHello, .providerHello(let hello)):
             guard let nonce = try? providerSessions.beginAuthentication(hello) else { return }
             let challenge = ProviderEnvelope(protocolVersion: 2, messageId: UUID().uuidString, providerSessionId: envelope.providerSessionId, gestureSessionId: nil, operationId: nil, type: .providerChallenge, timestamp: currentTimestampMs(), payload: .providerChallenge(ProviderChallengePayload(nonce: nonce.base64EncodedString(), expiresAt: currentTimestampMs() + 30_000)), error: nil)
-            try? server.send(challenge, to: connectionID)
+            try? server?.send(challenge, to: connectionID)
         case (.providerAuthenticate, .providerAuthenticate(let authentication)):
             guard let response = Data(hexEncoded: authentication.hmac) else { return }
             guard let session = try? providerSessions.authenticate(
@@ -406,6 +412,11 @@ final class GestureKitRuntime {
                   envelope.providerSessionId == session.providerSessionID,
                   providerSessions.session(session.providerSessionID, belongsTo: connectionID) else { return }
             appendOperationLifecycleEvent(envelope)
+        case (.telemetryBatch, .telemetryBatch(let batch)):
+            guard let session = providerSessions.activeSession(),
+                  envelope.providerSessionId == session.providerSessionID,
+                  providerSessions.session(session.providerSessionID, belongsTo: connectionID) else { return }
+            appendTelemetryLifecycleEvents(batch.events)
         default:
             logger.warn("provider_v2_unauthorized_message", rateLimitKey: "provider_v2_unauthorized_message")
         }
@@ -431,6 +442,18 @@ final class GestureKitRuntime {
             try operationJournal.append(event)
         } catch {
             logger.error("operation_journal_append_failed error=\"\(error)\"")
+        }
+    }
+
+    /// telemetry_batch 的事件已经由 Provider 生成并带有独立的溯源字段，入账时不得重写。
+    private func appendTelemetryLifecycleEvents(_ events: [ProviderEvent]) {
+        guard let operationJournal else { return }
+        for event in events {
+            do {
+                try operationJournal.append(event)
+            } catch {
+                logger.error("operation_journal_append_failed error=\"\(error)\"")
+            }
         }
     }
 
