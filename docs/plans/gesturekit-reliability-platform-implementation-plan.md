@@ -612,7 +612,7 @@ import "fake-indexeddb/auto";
 test: { environment: "jsdom", setupFiles: ["./tests/setup.ts"] }
 ```
 
-- [ ] **Step 1: 写 accepted/final 原子事务失败测试**
+- [x] **Step 1: 写 accepted/final 原子事务失败测试**
 
 ```ts
 it("persists accepted ledger state and action_accepted event atomically", async () => {
@@ -627,23 +627,23 @@ it("returns the existing state without executing a duplicate operation", async (
 });
 ```
 
-- [ ] **Step 2: 运行测试，确认失败**
+- [x] **Step 2: 运行测试，确认失败**
 
 Run: `npm test -- --run tests/operationLedger.test.ts tests/telemetryOutbox.test.ts`
 
 Expected: FAIL，缺少 IndexedDB store。
 
-- [ ] **Step 3: 实现单数据库原子事务**
+- [x] **Step 3: 实现单数据库原子事务**
 
 使用一个 IndexedDB database，包含 `ledger`、`outbox`、`metadata` object stores。`accept` 在同一 readwrite transaction 写入 ledger 和 `action_accepted` event；`finalize` 在同一 transaction 写入 terminal ledger 和 `action_result` event。ACK 只删除 outbox event，不得修改 ledger。
 
 完整 ledger 在 App 确认 final event 后保留 10 分钟，再压缩为 7 天 tombstone。5 MB 容量内预留 1 MB 给未确认关键事件；无法写关键记录时返回 `provider_storage_full`，调用方不得执行 Chrome 副作用。
 
-- [ ] **Step 4: 实现 ACK、压缩和对账**
+- [x] **Step 4: 实现 ACK、压缩和对账**
 
 `telemetry_ack` 使用 event ID 列表。重连顺序固定为认证、`operation_status_request`、ledger 对账、按 `producerSequence` 发送 batch、等待 ACK。测试 10,000 tombstone、24 小时离线队列、满载 ACK 回收，以及 worker 在 accepted/final transaction 提交前后中断。
 
-- [ ] **Step 5: 运行 Chrome 完整测试**
+- [x] **Step 5: 运行 Chrome 完整测试**
 
 Run: `npm test -- --run tests/operationLedger.test.ts tests/telemetryOutbox.test.ts tests/reconciliation.test.ts`
 
@@ -653,7 +653,7 @@ Run: `npm test -- --run`
 
 Expected: PASS。
 
-- [ ] **Step 6: 提交**
+- [x] **Step 6: 提交**
 
 ```bash
 git add extensions/chrome/package.json extensions/chrome/package-lock.json extensions/chrome/vitest.config.ts extensions/chrome/src/provider extensions/chrome/tests/setup.ts extensions/chrome/tests/operationLedger.test.ts extensions/chrome/tests/telemetryOutbox.test.ts extensions/chrome/tests/reconciliation.test.ts
