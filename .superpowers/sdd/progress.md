@@ -1,0 +1,8 @@
+Task 1: complete (commits acf8992..617f93e, review clean)
+Task 2: complete (commits 499ef9a..7dfaf73, review clean)
+Task 3: complete (commit d30b388, main-thread review approved)
+V2 Task 6: complete (commits 29a1e75..093d551 and 7050346, narrow review approved; 21 Chrome test files / 141 tests and build verified)
+V2 Task 7: complete (commits 1142d91..ad0aff5, narrow review approved; 132 Swift tests and build verified)
+V2 Task 8: complete (commits 8065698..b31554b, live-path review fixes applied; 22 Chrome test files / 149 tests and build verified)
+V2 Task 9: complete (commits 83d7260..b08fe93, narrow review approved; 136 Swift tests, 151 Chrome tests, and builds verified)
+V2 Task 11: complete (commits 082634f..887ecd3, provider protocol smoke and docs evidence verified)
