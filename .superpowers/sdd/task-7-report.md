@@ -32,3 +32,13 @@
 - `guardJournal` / `guardRouter` 由 coordinator 注入，以维持 App 边界和定向路由；Task 8 前没有 Chrome guard 或 `InteractionShield` 行为。
 - 项目仍保留旧的 `Rule` / `ActionType` 存量设置模型以避免本任务扩大设置迁移；新的 `RuleResolving` 路径不以该 Chrome 旧动作模型为输入或输出。后续应在配置迁移任务中删除旧模型并将 Runtime 完整切换到 coordinator。
 - 未改变 V1 手势识别范围、权限或 TCC 路径；page-guard 仍不是唯一 guard，clean-TCC 仍未验证。
+
+## 审查后补充（Task 7 follow-up）
+
+审查要求的三项 coordinator 边界已用新增测试先行覆盖并修正：
+
+- 候选 ID 以实际到达 FIFO 队列关联 classified/rejected 事件，不再按 UUID 字典序选择；rejected 会移除其 session 和可能的待组合点按。测试覆盖两个重叠候选、先分类第一个、再拒绝第二个及后续无候选分类。
+- 每个已分类 session 保存自己的 `ComposedGesture` 和单调分类时间。`receiveContext(_:for:)` 只接收 session ID 和 provider context，不要求调用方再次传递组合；测试覆盖分类后 context 到达即按该 session 的左轻扫语义派发。
+- context 到达后以 `DispatchTime` 单调毫秒计算 elapsed，同时要求不超过 120 ms context 和 150 ms action 派发预算；不信任 `ActionDescriptor.deadline`。测试在 deadline 为 `Int64.max` 但单调 elapsed 为 151 ms 时确认不派发。
+
+补充 RED：新增测试在移除 caller-supplied `gesture` 参数前无法编译，明确暴露 context 未绑定 session composition。补充 GREEN：`GestureSessionCoordinatorTests` 4 passed。

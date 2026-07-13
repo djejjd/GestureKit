@@ -18,4 +18,63 @@ final class GestureSessionCoordinatorTests: XCTestCase {
         XCTAssertEqual(journaled, [sessionId!])
         XCTAssertEqual(routed, [sessionId!])
     }
+
+    func testOverlappingCandidatesClassifyInArrivalOrderAndRejectedSessionIsRemoved() {
+        var requested: [String] = []
+        var ids = ["first", "second"]
+        let coordinator = GestureSessionCoordinator(
+            contextRouter: { id, _ in requested.append(id) },
+            sessionID: { ids.removeFirst() }
+        )
+        let first = coordinator.handle(.candidateStarted(candidate))
+        let second = coordinator.handle(.candidateStarted(candidate))
+
+        XCTAssertEqual(coordinator.handle(.primitiveClassified(swipeLeft)), first)
+        XCTAssertEqual(coordinator.handle(.primitiveRejected(rejected)), second)
+        XCTAssertEqual(requested, ["first"])
+        XCTAssertNil(coordinator.handle(.primitiveClassified(swipeLeft)))
+    }
+
+    func testContextAfterClassificationUsesSessionCompositionWithoutCallerSupplyingGesture() {
+        var actions: [(String, StandardActionID)] = []
+        let coordinator = GestureSessionCoordinator(
+            actionRouter: { id, action in actions.append((id, action.actionId)) },
+            monotonicClockMs: { 10 },
+            sessionID: { "session" }
+        )
+        let id = coordinator.handle(.candidateStarted(candidate))!
+        _ = coordinator.handle(.primitiveClassified(swipeLeft))
+
+        coordinator.receiveContext(ProviderContextSnapshot(contextId: "ctx", targetKind: .noTarget, targetRef: nil, deadline: 1), for: id)
+
+        XCTAssertEqual(actions.map(\.0), ["session"])
+        XCTAssertEqual(actions.map(\.1), [.browserTabActivateNext])
+    }
+
+    func testContextAfterActionBudgetDoesNotDispatchEvenWhenDescriptorDeadlineIsFuture() {
+        var now: Int64 = 0
+        var actionCount = 0
+        let coordinator = GestureSessionCoordinator(
+            actionRouter: { _, _ in actionCount += 1 },
+            monotonicClockMs: { now },
+            sessionID: { "session" }
+        )
+        let id = coordinator.handle(.candidateStarted(candidate))!
+        _ = coordinator.handle(.primitiveClassified(swipeLeft))
+        now = 151
+
+        coordinator.receiveContext(ProviderContextSnapshot(contextId: "ctx", targetKind: .noTarget, targetRef: nil, deadline: .max), for: id)
+
+        XCTAssertEqual(actionCount, 0)
+    }
 }
+
+private let candidate = GestureCandidate(startedAt: 0, centroidX: 0.5, centroidY: 0.5)
+private let swipeLeft = RecognizedGesture(
+    gesture: .threeFingerSwipeLeft, status: .success, reason: .success,
+    durationMs: 120, dx: -0.2, dy: 0, thresholds: .standard, centroidX: 0.5, centroidY: 0.5
+)
+private let rejected = RecognizedGesture(
+    gesture: nil, status: .gestureUnstable, reason: .distanceTooShort,
+    durationMs: 120, dx: 0, dy: 0, thresholds: .standard, centroidX: 0.5, centroidY: 0.5
+)
