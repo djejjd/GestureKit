@@ -2,7 +2,7 @@
 
 日期：2026-07-01
 
-更新日期：2026-07-10
+更新日期：2026-07-14
 
 相关文档：
 
@@ -270,6 +270,7 @@ V1 规格验收需要形成以下证据：
 
 - 手势稳定性矩阵完成并归档。
 - 单元测试覆盖规则匹配、协议编解码、URL 过滤、tab 边界、链接识别。
+- `scripts/dev/test-provider-protocol.sh` 通过并输出 `provider_protocol_ok`，同时 `scripts/dev/test-smoke-check.sh` 验证 `smoke-check.sh` 会在安装 native host 后调用该脚本。
 - 至少一次手动端到端验证覆盖三指点按链接、三指快速左轻扫、三指快速右轻扫。
 - 失败场景至少覆盖无链接、当前窗口或活动标签页不可用、页面不可注入、native host 断开。
 - Page guard 时序 Spike 必须归档候选、IPC、Service Worker、content script 与 DOM 事件的单调时钟；只有 `passed` 才能验收三指点按链接。

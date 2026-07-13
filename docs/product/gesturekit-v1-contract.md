@@ -2,7 +2,7 @@
 
 日期：2026-06-23
 
-更新日期：2026-07-10
+更新日期：2026-07-14
 
 相关文档：
 
@@ -174,6 +174,7 @@ V1 只有在以下条件满足时才能判定完成：
 - URL scheme 过滤有测试。
 - Chrome tab 左右切换边界有测试。
 - content script 普通链接识别有测试。
+- `scripts/dev/test-provider-protocol.sh` 通过并输出 `provider_protocol_ok`，且其覆盖范围包括 Host self-test、App 认证动作链路、Chrome Provider capability snapshot、telemetry ACK 和重连对账。
 - Page guard 时序 Spike 已归档候选、IPC、Service Worker、content script 和 DOM 事件的单调时钟，并明确判定为 `passed`；`passed_with_notes` 或 `failed` 不得通过三指点按链接验收。
 - Clean-TCC Spike 已使用正式签名/打包形态，在重置 TCC、Input Monitoring 与 Accessibility 均关闭的环境验证首次启动、重启和权限撤销，并记录基础 TouchBackend 与可选 active filter 的权限结论。
 - 至少完成一次手动端到端验证：三指点按链接、边缘三指点按切 tab、中间三指双击关闭 tab、三指快速左轻扫、三指快速右轻扫。

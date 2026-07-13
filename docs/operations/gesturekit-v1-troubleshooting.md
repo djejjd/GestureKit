@@ -15,6 +15,13 @@
 - dry-run 里 Swift 命令是否显示为 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift ...`；如果你的 Xcode 不在这个路径，先导出正确的 `DEVELOPER_DIR` 再重跑。
 - 如果你在别的位置构建过 host，改用 `--host-path /absolute/path/to/GestureKitHost`。
 - dry-run 输出现在按 shell-safe 形式展示真实命令；如果路径里有空格，看到反斜杠转义是预期行为。
+- 如果 `smoke-check.sh` 已经把 `./scripts/dev/test-provider-protocol.sh` 调起来，但脚本没有输出 `provider_protocol_ok`，先单独跑：
+
+```bash
+./scripts/dev/test-provider-protocol.sh
+```
+
+如果这里失败，优先检查 `DEVELOPER_DIR`、SwiftPM 缓存权限和 `extensions/chrome` 里的协议测试；`--real` 路径是故意 fail-closed 的，不表示自动化失效。
 
 ## 2. `swift run GestureKitHost --self-test` 失败
 

@@ -149,3 +149,12 @@ probe 候选行会输出累计计数，例如 `[counts tap=3 left=0 right=0 uncl
 - 不记录浏览历史或页面内容。
 - 只记录候选事件摘要、成功次数、失败次数和必要环境信息。
 - 如果使用日志片段，只保留足以说明结论的短摘要。
+
+## 10. 补充说明：协议 smoke 不是手势矩阵替代品
+
+2026-07-14 已补充自动化协议 smoke 脚本 `./scripts/dev/test-provider-protocol.sh`，并在自动化环境中输出 `provider_protocol_ok`。它验证的是 Provider、host、App 和 Chrome 之间的协议链路，不替代本文件里的人工手势稳定性结果。
+
+因此：
+
+- 本矩阵的结论仍以 2026-07-01 记录为准。
+- `provider_protocol_ok` 只能作为端到端协议连通性的补充证据，不能把人工手势证据从本文件中省略。

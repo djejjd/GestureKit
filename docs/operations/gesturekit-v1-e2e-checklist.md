@@ -11,6 +11,7 @@
 
 - [ ] 已按 `docs/operations/gesturekit-v1-local-install.md` 加载 unpacked extension，并记录实际扩展 ID。
 - [ ] 已运行 `./scripts/dev/smoke-check.sh --extension-id <extension-id>`，确认脚本实际使用的 Swift 入口、host 自检、manifest 安装和 `smoke.html` 打开链路都成功。
+- [ ] 已运行 `./scripts/dev/test-provider-protocol.sh`，确认输出 `provider_protocol_ok`。
 - [ ] 如需复查链路但不实际执行，可运行 `./scripts/dev/smoke-check.sh --extension-id <extension-id> --dry-run`。
 - [ ] 如果此时 `smoke.html` 显示 `app_unavailable`，已按“预检查阶段 App 未启动”的预期处理，而不是误判为脚本失败。
 
@@ -89,6 +90,7 @@
 zsh scripts/dev/test-render-native-host-manifest.sh
 zsh scripts/dev/test-install-native-host.sh
 zsh scripts/dev/test-smoke-check.sh
+zsh scripts/dev/test-provider-protocol.sh
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift build
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift run GestureKitHost --self-test
