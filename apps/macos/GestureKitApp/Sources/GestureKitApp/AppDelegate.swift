@@ -8,18 +8,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var menuBar: MenuBarController?
     private var controlCenter: ControlCenterWindowController?
     private let settingsStore = UserDefaultsSettingsStore()
+    private var operationJournal: (any OperationJournaling)?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        let journal = try? OperationJournal(path: journalURL().path)
+        operationJournal = journal
         runtime = GestureKitRuntime(menuBarHandler: { [weak self] event in
             self?.menuBar?.apply(event: event)
-        }, settingsStore: settingsStore)
+        }, settingsStore: settingsStore, operationJournal: journal)
         let control = RuntimeControl(runtime: runtime!)
         self.control = control
         let menuBar = MenuBarController(control: control) { [weak self] in
             self?.showControlCenter()
         }
         self.menuBar = menuBar
-        controlCenter = ControlCenterWindowController(control: control, dataSource: makeControlCenterDataSource())
+        controlCenter = ControlCenterWindowController(control: control, dataSource: makeControlCenterDataSource(journal: journal))
 
         runtime?.start()
 
@@ -34,8 +37,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         NSApp.activate(ignoringOtherApps: true)
     }
 
-    private func makeControlCenterDataSource() -> any ControlCenterDataSource {
-        guard let journal = try? OperationJournal(path: journalURL().path) else {
+    private func makeControlCenterDataSource(journal: (any OperationJournaling)?) -> any ControlCenterDataSource {
+        guard let journal else {
             return PreviewControlCenterDataSource()
         }
         return RuntimeControlCenterDataSource(

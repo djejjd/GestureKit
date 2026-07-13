@@ -15,6 +15,8 @@ final class GestureKitRuntime {
     private let settingsStore: any SettingsStore
     private let configurationMigration: ConfigurationMigration?
     private let logger: GestureKitLogger
+    /// 与控制中心共用的操作账本；仅记录已进入 Provider 操作生命周期的事件。
+    private let operationJournal: (any OperationJournaling)?
     private let diagnosticSink: (LocalIPCEnvelope) -> Void
     private var listeningTask: Task<Void, Never>?
     private var eventServer: LocalEventServer?
@@ -27,12 +29,14 @@ final class GestureKitRuntime {
     private var pendingContextGestures: [String: (gesture: GestureType, providerSessionID: String, deadline: Int64)] = [:]
     private let executionTimeoutMs: Int64 = 1500
     private var configurationAppliedByProvider: Bool?
+    private var operationJournalSequence: Int64 = 0
 
     init(
         menuBarHandler: @escaping (AppMenuBarEvent) -> Void,
         touchBackend: any TouchBackend = MultitouchSupportBackend(),
         settingsStore: any SettingsStore = UserDefaultsSettingsStore(),
         logger: GestureKitLogger = GestureKitLogger(),
+        operationJournal: (any OperationJournaling)? = nil,
         diagnosticSink: @escaping (LocalIPCEnvelope) -> Void = { _ in }
     ) {
         self.menuBarHandler = menuBarHandler
@@ -41,6 +45,7 @@ final class GestureKitRuntime {
         self.configurationMigration = (settingsStore as? any AppConfigurationStore)
             .map(ConfigurationMigration.init(store:))
         self.logger = logger
+        self.operationJournal = operationJournal
         self.diagnosticSink = diagnosticSink
         self.ruleEngine = RuleEngine(rules: (try? settingsStore.loadRules()) ?? DefaultRules.v1)
         self.appSessionId = UUID().uuidString
@@ -388,14 +393,44 @@ final class GestureKitRuntime {
                 let action = ActionDescriptor(actionId: actionID, contextId: snapshot.contextId, targetRef: targetRef, parameters: [:], deadline: currentTimestampMs() + executionTimeoutMs)
                 let request = ProviderEnvelope(protocolVersion: 2, messageId: UUID().uuidString, providerSessionId: session.providerSessionID, gestureSessionId: gestureID, operationId: UUID().uuidString, type: .actionRequest, timestamp: currentTimestampMs(), payload: .actionRequest(action), error: nil)
                 try? providerSessions.send(request, to: session.providerSessionID)
+                appendOperationLifecycleEvent(request)
             case .threeFingerSwipeLeft, .threeFingerSwipeRight:
                 actionID = gesture == .threeFingerSwipeLeft ? .browserTabActivateNext : .browserTabActivatePrevious
                 let action = ActionDescriptor(actionId: actionID, contextId: snapshot.contextId, targetRef: nil, parameters: [:], deadline: currentTimestampMs() + executionTimeoutMs)
                 let request = ProviderEnvelope(protocolVersion: 2, messageId: UUID().uuidString, providerSessionId: session.providerSessionID, gestureSessionId: gestureID, operationId: UUID().uuidString, type: .actionRequest, timestamp: currentTimestampMs(), payload: .actionRequest(action), error: nil)
                 try? providerSessions.send(request, to: session.providerSessionID)
+                appendOperationLifecycleEvent(request)
             }
+        case (.actionAccepted, .actionAccepted), (.actionResult, .actionResult):
+            guard let session = providerSessions.activeSession(),
+                  envelope.providerSessionId == session.providerSessionID,
+                  providerSessions.session(session.providerSessionID, belongsTo: connectionID) else { return }
+            appendOperationLifecycleEvent(envelope)
         default:
             logger.warn("provider_v2_unauthorized_message", rateLimitKey: "provider_v2_unauthorized_message")
+        }
+    }
+
+    /// 将已验证的 Provider 操作消息追加到控制中心读取的同一账本。
+    func appendOperationLifecycleEvent(_ envelope: ProviderEnvelope) {
+        guard let operationJournal, envelope.operationId != nil else { return }
+        operationJournalSequence += 1
+        let event = ProviderEvent(
+            eventId: envelope.messageId,
+            producerSessionId: appSessionId,
+            producerSequence: operationJournalSequence,
+            causedByEventId: nil,
+            monotonicClockMs: envelope.timestamp,
+            wallClockMs: envelope.timestamp,
+            gestureSessionId: envelope.gestureSessionId,
+            operationId: envelope.operationId,
+            type: envelope.type,
+            payload: envelope.payload
+        )
+        do {
+            try operationJournal.append(event)
+        } catch {
+            logger.error("operation_journal_append_failed error=\"\(error)\"")
         }
     }
 

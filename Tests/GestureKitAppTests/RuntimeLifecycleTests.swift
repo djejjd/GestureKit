@@ -5,6 +5,45 @@ import XCTest
 
 @MainActor
 final class RuntimeLifecycleTests: XCTestCase {
+    /// 运行时必须持有操作账本；控制中心读取的账本才能包含真实 Provider 操作。
+    func testRuntimeOwnsInjectedOperationJournalForProviderOperationLifecycle() {
+        let journal = RuntimeRecordingJournal()
+        let runtime = GestureKitRuntime(
+            menuBarHandler: { _ in },
+            touchBackend: LifecycleStubTouchBackend(),
+            settingsStore: LifecycleStubSettingsStore(),
+            logger: GestureKitLogger(terminalWriter: { _ in }),
+            operationJournal: journal
+        )
+
+        XCTAssertTrue(
+            Mirror(reflecting: runtime).children.contains { $0.label == "operationJournal" },
+            "运行时必须持有用于记录真实 Provider 操作的 OperationJournaling 实例"
+        )
+
+        let request = ProviderEnvelope(
+            protocolVersion: 2,
+            messageId: "request-1",
+            providerSessionId: "provider-1",
+            gestureSessionId: "gesture-1",
+            operationId: "operation-1",
+            type: .actionRequest,
+            timestamp: 42,
+            payload: .actionRequest(ActionDescriptor(
+                actionId: .browserPageReload,
+                contextId: "context-1",
+                targetRef: nil,
+                parameters: [:],
+                deadline: 100
+            )),
+            error: nil
+        )
+        runtime.appendOperationLifecycleEvent(request)
+
+        XCTAssertEqual(journal.events.map(\.operationId), ["operation-1"])
+        XCTAssertEqual(journal.events.first?.type, .actionRequest)
+    }
+
     func testStartEmitsAppStartedLog() {
         let runtime = GestureKitRuntime(
             menuBarHandler: { _ in },
@@ -155,4 +194,12 @@ private extension TouchSample {
 private struct LifecycleStubSettingsStore: SettingsStore {
     func loadRules() throws -> [Rule] { DefaultRules.v1 }
     func saveRules(_ rules: [Rule]) throws {}
+}
+
+private final class RuntimeRecordingJournal: OperationJournaling, @unchecked Sendable {
+    var events: [ProviderEvent] = []
+    func append(_ event: ProviderEvent) throws { events.append(event) }
+    func recoverExpired(now: Int64) throws -> [RecoveredOperation] { [] }
+    func query(_ filter: OperationFilter, limit: Int) throws -> [OperationTimeline] { [] }
+    func exportEvidence(operationId: String, to url: URL) throws {}
 }

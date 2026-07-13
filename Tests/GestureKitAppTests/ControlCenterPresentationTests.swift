@@ -70,6 +70,25 @@ final class ControlCenterPresentationTests: XCTestCase {
         XCTAssertEqual(source.presetPage().cards.first?.detail, "标准浏览预设")
         XCTAssertTrue(source.providerPage().cards.contains { $0.detail == "当前预设正在同步" })
     }
+
+    func testRuntimeDataSourceForwardsEvidenceExportToJournal() throws {
+        let journal = ExportRecordingJournal()
+        let source = RuntimeControlCenterDataSource(
+            journal: journal,
+            configurationStore: StubConfigurationStore(configuration: .initial()),
+            health: { .preparing }
+        )
+        let destination = URL(fileURLWithPath: "/tmp/gesturekit-evidence")
+
+        try source.exportEvidence(operationID: "operation-42", to: destination)
+
+        XCTAssertEqual(journal.exportedOperationID, "operation-42")
+        XCTAssertEqual(journal.exportedURL, destination)
+    }
+
+    func testEvidenceExportFailureHasChineseUserFacingStatus() {
+        XCTAssertEqual(evidenceExportStatusMessage(for: ExportFailure.sample), "证据包导出失败，请检查所选位置后重试")
+    }
 }
 
 private final class StubJournal: OperationJournaling, @unchecked Sendable {
@@ -87,4 +106,18 @@ private struct StubConfigurationStore: AppConfigurationStore {
     func saveAppConfiguration(_ configuration: AppConfiguration) throws {}
     func importLegacyAppConfiguration(_ configuration: AppConfiguration) throws {}
     func hasLegacyMigrationMarker() throws -> Bool { false }
+}
+
+private enum ExportFailure: Error { case sample }
+
+private final class ExportRecordingJournal: OperationJournaling, @unchecked Sendable {
+    var exportedOperationID: String?
+    var exportedURL: URL?
+    func append(_ event: ProviderEvent) throws {}
+    func recoverExpired(now: Int64) throws -> [RecoveredOperation] { [] }
+    func query(_ filter: OperationFilter, limit: Int) throws -> [OperationTimeline] { [] }
+    func exportEvidence(operationId: String, to url: URL) throws {
+        exportedOperationID = operationId
+        exportedURL = url
+    }
 }

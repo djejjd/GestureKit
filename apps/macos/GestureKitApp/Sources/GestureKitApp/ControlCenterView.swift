@@ -7,6 +7,7 @@ struct ControlCenterView: View {
     let dataSource: any ControlCenterDataSource
     @State private var selection: ControlCenterPage = .overview
     @State private var refreshToken = 0
+    @State private var evidenceExportStatus: String?
 
     init(control: any RuntimeControlling, dataSource: any ControlCenterDataSource) {
         self.control = control
@@ -43,6 +44,10 @@ struct ControlCenterView: View {
                     Text(selection.rawValue)
                         .font(.system(size: 28, weight: .bold, design: .rounded))
                     pageContent
+                    if let evidenceExportStatus {
+                        Text(evidenceExportStatus)
+                            .foregroundStyle(.red)
+                    }
                 }
                 .padding(30)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -85,9 +90,18 @@ struct ControlCenterView: View {
         panel.canCreateDirectories = true
         panel.message = "请选择保存脱敏证据包的位置"
         guard panel.runModal() == .OK, let url = panel.url else { return }
-        try? dataSource.exportEvidence(operationID: operationID, to: url.appendingPathComponent("GestureKit-证据包-\(operationID)"))
+        do {
+            try dataSource.exportEvidence(operationID: operationID, to: url.appendingPathComponent("GestureKit-证据包-\(operationID)"))
+            evidenceExportStatus = "证据包已导出"
+        } catch {
+            evidenceExportStatus = evidenceExportStatusMessage(for: error)
+        }
         refreshToken += 1
     }
+}
+
+func evidenceExportStatusMessage(for error: Error) -> String {
+    "证据包导出失败，请检查所选位置后重试"
 }
 
 /// 承载 SwiftUI 控制中心的 AppKit 窗口控制器。
