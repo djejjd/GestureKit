@@ -61,7 +61,8 @@ describe("ChromeProvider", () => {
     "browser.tab.close_current",
     "browser.history.back",
     "browser.history.forward",
-    "browser.page.reload"
+    "browser.page.reload",
+    "browser.link.open_adjacent"
   ] satisfies StandardActionID[])("rejects %s from a swipe context", async (actionId) => {
     const api = makeApi();
     const provider = new ChromeProvider(api, bridge());
@@ -80,6 +81,7 @@ describe("ChromeProvider", () => {
     expect(api.tabs.goBack).not.toHaveBeenCalled();
     expect(api.tabs.goForward).not.toHaveBeenCalled();
     expect(api.tabs.reload).not.toHaveBeenCalled();
+    expect(api.tabs.create).not.toHaveBeenCalled();
   });
 
   it("creates a live tab context and executes a swipe when no recent pointer exists", async () => {
