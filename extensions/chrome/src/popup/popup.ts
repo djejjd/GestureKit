@@ -21,12 +21,18 @@ export async function initializePopup(doc: Document, storage: PopupStorage): Pro
   });
 
   doc.querySelector<HTMLButtonElement>("#openControlCenter")?.addEventListener("click", async () => {
-    const result = await chrome.runtime?.sendMessage?.({ type: "gesturekit.openControlCenter" }) as { status?: string } | undefined;
     const feedback = doc.querySelector<HTMLElement>("#controlCenterFeedback");
-    if (feedback) {
-      feedback.textContent = result?.status === "opened"
-        ? "已打开 GestureKit 控制中心"
-        : "无法打开控制中心，请确认 GestureKit 已连接";
+    try {
+      const result = await chrome.runtime?.sendMessage?.({ type: "gesturekit.openControlCenter" }) as { status?: string } | undefined;
+      if (feedback) {
+        feedback.textContent = result?.status === "opened"
+          ? "已打开 GestureKit 控制中心"
+          : "无法打开控制中心，请确认 GestureKit 已连接";
+      }
+    } catch {
+      if (feedback) {
+        feedback.textContent = "无法打开控制中心，请确认 GestureKit 已连接";
+      }
     }
   });
 

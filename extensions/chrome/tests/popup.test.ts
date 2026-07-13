@@ -62,4 +62,13 @@ describe("minimal popup", () => {
     (document.querySelector("#openControlCenter") as HTMLButtonElement).click();
     await vi.waitFor(() => expect(document.querySelector("#controlCenterFeedback")?.textContent).toBe("无法打开控制中心，请确认 GestureKit 已连接"));
   });
+
+  it("shows a visible failure when opening the control center request is rejected", async () => {
+    (chrome.runtime.sendMessage as ReturnType<typeof vi.fn>)
+      .mockResolvedValueOnce({})
+      .mockRejectedValueOnce(new Error("background unavailable"));
+    await initializePopup(document, storageWith({}));
+    (document.querySelector("#openControlCenter") as HTMLButtonElement).click();
+    await vi.waitFor(() => expect(document.querySelector("#controlCenterFeedback")?.textContent).toBe("无法打开控制中心，请确认 GestureKit 已连接"));
+  });
 });
