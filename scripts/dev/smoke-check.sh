@@ -14,7 +14,7 @@ fi
 
 usage() {
   cat <<'EOF' >&2
-usage: smoke-check.sh --extension-id <id> [--host-path <path>] [--dry-run]
+usage: smoke-check.sh [--host-path <path>] [--dry-run]
 EOF
 }
 
@@ -51,9 +51,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$extension_id" ]]; then
-  echo "missing required argument: --extension-id" >&2
-  usage
-  exit 1
+  extension_id=$(node "$repo_root/extensions/chrome/scripts/extension-id.mjs")
 fi
 
 print_argv() {
@@ -94,7 +92,6 @@ else
 fi
 
 run_or_print "$repo_root/scripts/dev/install-native-host.sh" \
-  --extension-id "$extension_id" \
   --host-path "$host_path"
 
 run_or_print "$repo_root/scripts/dev/test-provider-protocol.sh"

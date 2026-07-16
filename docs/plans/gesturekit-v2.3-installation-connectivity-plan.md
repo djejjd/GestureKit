@@ -70,20 +70,20 @@
 - `./scripts/dev/install-local.sh [--host-path <absolute-path>] [--dry-run]` 不接受 `--extension-id`。
 - `install-native-host.sh` 与 `smoke-check.sh` 由 extension ID CLI 取得 ID；保留仅供回归测试的显式 ID 覆盖入口，不在用户帮助中展示。
 
-- [ ] **Step 1：写失败 shell 测试**
+- [x] **Step 1：写失败 shell 测试**
   - 断言 `install-local.sh --dry-run` 输出 Swift build、扩展 build、推导出的 extension ID、manifest 目标和 `chrome://extensions` 加载路径。
   - 断言输出中不存在 `--extension-id <...>` 或人工复制 ID 提示。
-- [ ] **Step 2：运行失败测试**
+- [x] **Step 2：运行失败测试**
   - 运行：`zsh scripts/dev/test-install-local.sh`
   - 预期：失败，提示安装入口不存在。
-- [ ] **Step 3：实现安装编排**
+- [x] **Step 3：实现安装编排**
   - 复用 `smoke-check.sh` 的 `DEVELOPER_DIR` 选择规则和 `print_argv` 格式。
   - 顺序固定为 Swift build、扩展 build、manifest 安装；任一步失败立即退出并写明阶段。
   - 实际执行后输出稳定 ID、manifest 路径、扩展目录和用户仍需手工执行的 Chrome 加载步骤。
-- [ ] **Step 4：接入既有脚本并通过测试**
+- [x] **Step 4：接入既有脚本并通过测试**
   - 运行：`zsh scripts/dev/test-render-native-host-manifest.sh && zsh scripts/dev/test-install-native-host.sh && zsh scripts/dev/test-smoke-check.sh && zsh scripts/dev/test-install-local.sh`
   - 预期：四项 shell 测试通过。
-- [ ] **Step 5：提交**
+- [x] **Step 5：提交**
   - `git commit -m "feat(install): add extension-id-free local installer"`
 
 ### Task 3：分阶段健康检查
