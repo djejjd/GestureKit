@@ -7,6 +7,7 @@ host_path="$repo_root/.build/debug/GestureKitHost"
 dry_run=false
 default_developer_dir=/Applications/Xcode.app/Contents/Developer
 developer_dir="${DEVELOPER_DIR:-}"
+chrome_app="${GESTUREKIT_CHROME_APP:-Google Chrome}"
 
 if [[ -z "$developer_dir" && -d "$default_developer_dir" ]]; then
   developer_dir="$default_developer_dir"
@@ -96,4 +97,4 @@ run_or_print "$repo_root/scripts/dev/install-native-host.sh" \
 
 run_or_print "$repo_root/scripts/dev/test-provider-protocol.sh"
 
-run_or_print open "chrome-extension://$extension_id/smoke.html"
+run_or_print open -a "$chrome_app" "chrome-extension://$extension_id/smoke.html"
