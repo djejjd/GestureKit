@@ -113,28 +113,21 @@ npm run build
 
 ## 本地安装
 
-1. 打开 `chrome://extensions`。
-2. 开启 Developer mode。
-3. 选择 Load unpacked，并选择 `extensions/chrome`。
-4. 复制扩展 ID。
-5. 编辑 `spikes/native-messaging/host-manifest/com.gesturekit.host.json`：
-   - 把 `path` 改成 `.build/debug/GestureKitHost` 的绝对路径。
-   - 把 `allowed_origins` 改成你的 Chrome 扩展 ID。
-6. 复制 manifest 到 Chrome Native Messaging host 目录：
+在仓库根目录执行：
 
 ```bash
-mkdir -p "$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts"
-cp spikes/native-messaging/host-manifest/com.gesturekit.host.json \
-  "$HOME/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.gesturekit.host.json"
+./scripts/dev/install-local.sh
 ```
 
-启动 App：
+该入口会构建 host 与扩展，并安装 Native Messaging manifest；不需要复制扩展 ID 或手工编辑 manifest。随后在 `chrome://extensions` 开启 Developer mode，选择 Load unpacked 并选择 `extensions/chrome`。详细步骤见[本地安装说明](docs/operations/local-install.md)。
+
+启动 App 后，可在另一个终端运行：
 
 ```bash
-swift run GestureKitApp
+./scripts/dev/smoke-check.sh
 ```
 
-重新构建 Chrome 扩展后，需要到 `chrome://extensions` 手动刷新 GestureKit 扩展。
+它会在 Google Chrome 打开 smoke 页面，页面显示 `status: "connected"` 即表示端到端连通。
 
 ## 日志
 
@@ -176,8 +169,8 @@ npm run build
 - [V2 UI 框架实施计划](docs/plans/gesturekit-v2-ui-scaffold-plan.md)
 - [实施计划](docs/plans/gesturekit-reliability-platform-implementation-plan.md)
 - [架构决策记录](docs/adr/)
-- [本地安装说明](docs/operations/gesturekit-v1-local-install.md)
-- [端到端验收清单](docs/operations/gesturekit-v1-e2e-checklist.md)
+- [本地安装说明](docs/operations/local-install.md)
+- [端到端验收清单](docs/operations/e2e-checklist.md)
 
 ## 后续方向
 
@@ -263,4 +256,4 @@ npm test
 npm run build
 ```
 
-For installation details, see [Local install guide](docs/operations/gesturekit-v1-local-install.md).
+For installation details, see [Local install guide](docs/operations/local-install.md).

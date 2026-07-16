@@ -10,8 +10,8 @@
 - `docs/product/gesturekit-v1-requirements.md`
 - `docs/architecture/gesturekit-v1-technical-design.md`
 - `docs/plans/gesturekit-v1-product-implementation-plan.md`
-- `docs/operations/gesturekit-v1-local-install.md`
-- `docs/operations/gesturekit-v1-e2e-checklist.md`
+- `docs/operations/local-install.md`
+- `docs/operations/e2e-checklist.md`
 
 ## 1. 目标
 

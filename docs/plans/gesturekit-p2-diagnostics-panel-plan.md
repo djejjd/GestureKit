@@ -28,7 +28,7 @@
 - `extensions/chrome/src/background/nativePortManager.ts`：动作结果也写入诊断 buffer。
 - `extensions/chrome/src/popup/popup.ts` / `popup.html` / `popup.css`：新增可折叠诊断 UI、复制、清空。
 - `Tests/GestureKitCoreTests/*`、`Tests/GestureKitAppTests/*`、`extensions/chrome/tests/*`：覆盖协议、诊断 buffer、popup 行为。
-- `README.md`、`docs/operations/gesturekit-v1-e2e-checklist.md`：更新使用和验收说明。
+- `README.md`、`docs/operations/e2e-checklist.md`：更新使用和验收说明。
 
 ## Task 1: 协议和 Swift 诊断摘要
 
@@ -107,7 +107,7 @@
 
 **Files:**
 - Modify: `README.md`
-- Modify: `docs/operations/gesturekit-v1-e2e-checklist.md`
+- Modify: `docs/operations/e2e-checklist.md`
 - Modify: `docs/plans/gesturekit-p2-diagnostics-panel-plan.md`
 
 - [x] Update README with diagnostic panel behavior and privacy boundary.

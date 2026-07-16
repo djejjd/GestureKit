@@ -84,8 +84,8 @@ extensions/chrome/
   tests/pointerTracker.test.ts
 
 docs/operations/
-  gesturekit-v1-local-install.md
-  gesturekit-v1-e2e-checklist.md
+  local-install.md
+  e2e-checklist.md
 ```
 
 ## 3. 实施原则
@@ -2111,14 +2111,14 @@ git commit -m "feat: bridge app gestures to native host"
 
 **Files:**
 
-- Create: `docs/operations/gesturekit-v1-local-install.md`
-- Create: `docs/operations/gesturekit-v1-e2e-checklist.md`
+- Create: `docs/operations/local-install.md`
+- Create: `docs/operations/e2e-checklist.md`
 - Modify: `spikes/native-messaging/host-manifest/com.gesturekit.host.json`
 - Modify: `README.md`
 
 - [x] **Step 1: 编写本地安装文档**
 
-创建 `docs/operations/gesturekit-v1-local-install.md`：
+创建 `docs/operations/local-install.md`：
 
 ```markdown
 # GestureKit V1 本地安装说明
@@ -2170,7 +2170,7 @@ swift run GestureKitApp
 
 - [x] **Step 2: 编写端到端清单**
 
-创建 `docs/operations/gesturekit-v1-e2e-checklist.md`：
+创建 `docs/operations/e2e-checklist.md`：
 
 ```markdown
 # GestureKit V1 端到端验收清单
@@ -2221,8 +2221,8 @@ npm run build
 
 本地安装和端到端验收见：
 
-- `docs/operations/gesturekit-v1-local-install.md`
-- `docs/operations/gesturekit-v1-e2e-checklist.md`
+- `docs/operations/local-install.md`
+- `docs/operations/e2e-checklist.md`
 ```
 
 - [x] **Step 4: 运行文档和构建校验**
@@ -2272,7 +2272,7 @@ Expected: 所有命令退出码为 0。
 
 - [ ] **Step 2: 人工端到端验收**
 
-按 `docs/operations/gesturekit-v1-e2e-checklist.md` 完成清单，并把结果追加到同一文档的“执行记录”小节。
+按 `docs/operations/e2e-checklist.md` 完成清单，并把结果追加到同一文档的“执行记录”小节。
 
 - [ ] **Step 3: 子 agent 审核**
 

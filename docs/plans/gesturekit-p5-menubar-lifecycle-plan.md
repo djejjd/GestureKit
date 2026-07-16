@@ -42,9 +42,9 @@
   - 新增文件。覆盖 `start/stop/refreshStatus`、运行状态回调、连接状态变化。
 - `Tests/GestureKitAppTests/RuntimeProbeTests.swift`
   - 需要补齐 probe 驱动下的状态更新覆盖。
-- `docs/operations/gesturekit-v1-e2e-checklist.md`
+- `docs/operations/e2e-checklist.md`
   - 增加菜单栏状态与生命周期人工验收步骤。
-- `docs/operations/gesturekit-v1-troubleshooting.md`
+- `docs/operations/troubleshooting.md`
   - 增加菜单栏状态词与排障映射。
 - `docs/plans/gesturekit-v1-progress-archive.md`
   - P5 完成后补归档。
@@ -406,8 +406,8 @@ git commit -m "feat: surface connection state in menu bar runtime"
 - Modify: `apps/macos/GestureKitApp/Sources/GestureKitApp/MenuBarController.swift`
 - Modify: `apps/macos/GestureKitApp/Sources/GestureKitApp/AppDelegate.swift`
 - Modify: `Tests/GestureKitAppTests/MenuBarControllerTests.swift`
-- Modify: `docs/operations/gesturekit-v1-e2e-checklist.md`
-- Modify: `docs/operations/gesturekit-v1-troubleshooting.md`
+- Modify: `docs/operations/e2e-checklist.md`
+- Modify: `docs/operations/troubleshooting.md`
 
 **Interfaces:**
 - Produces menu actions:
@@ -421,8 +421,8 @@ func openTroubleshootingGuide()
 - Local docs paths:
 
 ```text
-docs/operations/gesturekit-v1-local-install.md
-docs/operations/gesturekit-v1-troubleshooting.md
+docs/operations/local-install.md
+docs/operations/troubleshooting.md
 ```
 
 - [ ] **Step 1: 写失败测试，约束菜单动作分发**
@@ -461,7 +461,7 @@ protocol RuntimeControlling: AnyObject {
 
 ```swift
 func openTroubleshootingGuide() {
-    let url = repoRoot.appendingPathComponent("docs/operations/gesturekit-v1-troubleshooting.md")
+    let url = repoRoot.appendingPathComponent("docs/operations/troubleshooting.md")
     NSWorkspace.shared.open(url)
 }
 ```
@@ -486,8 +486,8 @@ Expected: PASS
 git add apps/macos/GestureKitApp/Sources/GestureKitApp/MenuBarController.swift \
   apps/macos/GestureKitApp/Sources/GestureKitApp/AppDelegate.swift \
   Tests/GestureKitAppTests/MenuBarControllerTests.swift \
-  docs/operations/gesturekit-v1-e2e-checklist.md \
-  docs/operations/gesturekit-v1-troubleshooting.md
+  docs/operations/e2e-checklist.md \
+  docs/operations/troubleshooting.md
 git commit -m "feat: add menu bar troubleshooting actions"
 ```
 

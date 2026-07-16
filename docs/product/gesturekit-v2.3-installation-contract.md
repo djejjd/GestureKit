@@ -1,6 +1,6 @@
 # GestureKit V2.3 安装与连接闭环契约
 
-> 状态：开发中
+> 状态：验收完成，待 PR 合并
 >
 > 目标：消除本地开发和日常使用中因 Chrome 扩展 ID、Native Messaging manifest、构建产物路径不一致造成的手工配置与连接不确定性。
 
@@ -57,3 +57,9 @@ V2.3 不交付：
 预计工作量为 2 至 3 个开发日：稳定 ID 与测试约 0.5 天，安装编排约 0.5 天，health check 约 1 天，真实 Chrome 验收和文档约 0.5 至 1 天。
 
 V2.3.0 仅在四项验收完成并通过 PR 审查后发布。环境适配或安装脚本缺陷以 `v2.3.1` 补丁版本处理，不混入新手势或新动作。
+
+## 7. 验收记录
+
+- 自动化：安装、health check、Native Messaging manifest 和扩展测试均由仓库脚本覆盖并通过。
+- 人工：已确认扩展稳定 ID 为 `pdegbjhgibenmgaaplhnpbnhaaipndoh`，smoke 页面显示 `status: "connected"`。
+- 后续：四指/五指输入误识别为三指双击，以及由此影响的新标签页行为，属于手势识别安全修复，单独纳入 `v2.3.1`，不改变本契约的安装与连通性范围。

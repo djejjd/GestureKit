@@ -27,8 +27,8 @@
 | `scripts/dev/health-check.sh` | 输出各安装/连接阶段的可诊断状态。 |
 | `scripts/dev/test-install-local.sh` | 验证安装入口 dry-run 与参数透传。 |
 | `scripts/dev/test-health-check.sh` | 验证失败阶段和下一步提示。 |
-| `docs/operations/gesturekit-v1-local-install.md` | 更新为 V2.3 安装步骤。 |
-| `docs/operations/gesturekit-v1-troubleshooting.md` | 更新为 V2.3 health check 排障入口。 |
+| `docs/operations/local-install.md` | 更新为 V2.3 安装步骤。 |
+| `docs/operations/troubleshooting.md` | 更新为 V2.3 health check 排障入口。 |
 
 ---
 
@@ -118,23 +118,23 @@
 ### Task 4：文档、端到端验收与发布准备
 
 **文件：**
-- 修改：`docs/operations/gesturekit-v1-local-install.md`
-- 修改：`docs/operations/gesturekit-v1-troubleshooting.md`
-- 修改：`docs/operations/gesturekit-v1-e2e-checklist.md`
+- 修改：`docs/operations/local-install.md`
+- 修改：`docs/operations/troubleshooting.md`
+- 修改：`docs/operations/e2e-checklist.md`
 - 修改：`README.md`
 - 修改：`docs/product/gesturekit-v2.3-installation-contract.md`
 
-- [ ] **Step 1：更新首次安装与更新流程**
+- [x] **Step 1：更新首次安装与更新流程**
   - 只保留 `install-local.sh`、`health-check.sh` 和 Chrome 手工加载扩展的步骤。
   - 明确切换分支后无需复制 ID，但应重新执行安装入口以更新 host 路径和 manifest。
-- [ ] **Step 2：更新排障表**
+- [x] **Step 2：更新排障表**
   - 按 health check 阶段列出失败原因、下一步命令和预期结果。
   - 移除“记录扩展 ID”“手工传入 `--extension-id`”要求。
-- [ ] **Step 3：执行全量验证**
+- [x] **Step 3：执行全量验证**
   - 运行：`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test`
   - 运行：`cd extensions/chrome && npm test && npm run build`
   - 运行：全部 `scripts/dev/test-*.sh`。
-- [ ] **Step 4：执行手动验收**
+- [x] **Step 4：执行手动验收**
   - 从干净构建产物运行 `install-local.sh`，在 Chrome 手动 Load unpacked 后运行 `health-check.sh --real`。
   - 分别记录 App 未启动的 `WAITING` 与 App 启动后的 `PASS`。
 - [ ] **Step 5：提交**

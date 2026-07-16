@@ -1004,8 +1004,8 @@ git commit -m "feat: add app control center and minimal popup"
 
 - Modify: `scripts/dev/smoke-check.sh`
 - Create: `scripts/dev/test-provider-protocol.sh`
-- Modify: `docs/operations/gesturekit-v1-e2e-checklist.md`
-- Modify: `docs/operations/gesturekit-v1-troubleshooting.md`
+- Modify: `docs/operations/e2e-checklist.md`
+- Modify: `docs/operations/troubleshooting.md`
 - Modify: `docs/research/trackpad-gesture-stability-matrix.md`
 - Modify: `docs/product/gesturekit-v1-contract.md`
 - Modify: `docs/product/gesturekit-v1-requirements.md`
@@ -1064,7 +1064,7 @@ Expected: exit 0，包含 `provider_protocol_ok`。
 将 clean-TCC、page guard、手势稳定性和端到端矩阵结果写入研究/运维文档。未达到 page guard `passed` 时不得把三指点按链接标记为完成。
 
 ```bash
-git add scripts/dev/smoke-check.sh scripts/dev/test-provider-protocol.sh docs/operations/gesturekit-v1-e2e-checklist.md docs/operations/gesturekit-v1-troubleshooting.md docs/research/trackpad-gesture-stability-matrix.md docs/product/gesturekit-v1-contract.md docs/product/gesturekit-v1-requirements.md extensions/chrome apps/macos Sources Tests native-host
+git add scripts/dev/smoke-check.sh scripts/dev/test-provider-protocol.sh docs/operations/e2e-checklist.md docs/operations/troubleshooting.md docs/research/trackpad-gesture-stability-matrix.md docs/product/gesturekit-v1-contract.md docs/product/gesturekit-v1-requirements.md extensions/chrome apps/macos Sources Tests native-host
 git commit -m "feat: complete reliable gesture provider platform"
 ```
 

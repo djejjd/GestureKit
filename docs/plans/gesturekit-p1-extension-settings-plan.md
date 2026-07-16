@@ -59,7 +59,7 @@
 
 **Files:**
 - Modify: `README.md`
-- Modify: `docs/operations/gesturekit-v1-e2e-checklist.md`
+- Modify: `docs/operations/e2e-checklist.md`
 - Modify: `docs/product/gesturekit-v1-requirements.md`
 
 **Steps:**

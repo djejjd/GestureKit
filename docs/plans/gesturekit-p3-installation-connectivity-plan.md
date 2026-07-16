@@ -47,9 +47,9 @@ extensions/chrome/manifest.json
 extensions/chrome/scripts/build.mjs
 
 docs/operations/
-  gesturekit-v1-local-install.md
-  gesturekit-v1-e2e-checklist.md
-  gesturekit-v1-troubleshooting.md
+  local-install.md
+  e2e-checklist.md
+  troubleshooting.md
 ```
 
 ### Task 1: Native Host Manifest Renderer
@@ -645,9 +645,9 @@ git commit -m "feat: add connectivity probe"
 **Files:**
 - Create: `scripts/dev/smoke-check.sh`
 - Create: `scripts/dev/test-smoke-check.sh`
-- Modify: `docs/operations/gesturekit-v1-local-install.md`
-- Modify: `docs/operations/gesturekit-v1-e2e-checklist.md`
-- Create: `docs/operations/gesturekit-v1-troubleshooting.md`
+- Modify: `docs/operations/local-install.md`
+- Modify: `docs/operations/e2e-checklist.md`
+- Create: `docs/operations/troubleshooting.md`
 
 **Interfaces:**
 - Consumes: `scripts/dev/install-native-host.sh`, `swift build`, `swift run GestureKitHost --self-test`, `npm run build`
@@ -823,8 +823,8 @@ Expected: PASS for all script tests, Swift tests, host self-test, extension test
 git add \
   scripts/dev/smoke-check.sh \
   scripts/dev/test-smoke-check.sh \
-  docs/operations/gesturekit-v1-local-install.md \
-  docs/operations/gesturekit-v1-e2e-checklist.md \
-  docs/operations/gesturekit-v1-troubleshooting.md
+  docs/operations/local-install.md \
+  docs/operations/e2e-checklist.md \
+  docs/operations/troubleshooting.md
 git commit -m "docs: close p3 installation workflow"
 ```
