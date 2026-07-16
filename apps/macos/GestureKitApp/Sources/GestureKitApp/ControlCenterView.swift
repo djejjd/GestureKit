@@ -10,6 +10,7 @@ struct ControlCenterView: View {
     @State private var refreshToken = 0
     @State private var evidenceExportStatus: String?
     @State private var showingClearConfirmation = false
+    @State private var showingRestoreDefaultsConfirmation = false
 
     init(control: any RuntimeControlling, dataSource: any ControlCenterDataSource) {
         self.control = control
@@ -88,7 +89,12 @@ struct ControlCenterView: View {
                 Text("这只会隐藏当前操作记录列表，不会删除本地诊断日志或已导出的证据包。")
             }
         case .presets:
-            PresetPage(state: dataSource.presetPage(), onBindingChanged: updateBinding, onSensitivityChanged: updateSensitivity)
+            PresetPage(state: dataSource.presetPage(), onBindingChanged: updateBinding, onSensitivityChanged: updateSensitivity, onRestoreDefaults: { showingRestoreDefaultsConfirmation = true })
+            .confirmationDialog("恢复默认配置？", isPresented: $showingRestoreDefaultsConfirmation, titleVisibility: .visible) {
+                Button("恢复默认配置", role: .destructive, action: restoreDefaults)
+            } message: {
+                Text("将恢复三项手势开关和轻扫灵敏度，不会删除操作记录或诊断日志。")
+            }
         case .providers:
             ProviderPage(state: dataSource.providerPage())
         case .privacy:
@@ -117,6 +123,12 @@ struct ControlCenterView: View {
         } catch {
             evidenceExportStatus = "轻扫灵敏度更新失败，请稍后重试"
         }
+        refreshToken += 1
+    }
+
+    private func restoreDefaults() {
+        do { try dataSource.restoreDefaultConfiguration(); evidenceExportStatus = nil }
+        catch { evidenceExportStatus = "恢复默认配置失败，请稍后重试" }
         refreshToken += 1
     }
 

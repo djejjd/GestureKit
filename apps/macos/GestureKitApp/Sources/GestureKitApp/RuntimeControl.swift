@@ -11,6 +11,7 @@ protocol RuntimeControlling: AnyObject {
     func refreshConfigurationSnapshot()
     func updateBinding(id: String, enabled: Bool) throws
     func updateSensitivity(_ sensitivity: SwipeSensitivity) throws
+    func restoreDefaultConfiguration() throws
 }
 
 @MainActor
@@ -45,4 +46,5 @@ final class RuntimeControl: RuntimeControlling {
 
     func updateBinding(id: String, enabled: Bool) throws { try runtime?.updateBinding(id: id, enabled: enabled) }
     func updateSensitivity(_ sensitivity: SwipeSensitivity) throws { try runtime?.updateSensitivity(sensitivity) }
+    func restoreDefaultConfiguration() throws { try runtime?.restoreDefaultConfiguration() }
 }

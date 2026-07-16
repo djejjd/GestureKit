@@ -12,6 +12,7 @@ protocol ControlCenterDataSource {
     func presetPage() -> PresetPageState
     func updateBinding(id: String, enabled: Bool) throws
     func updateSensitivity(_ sensitivity: SwipeSensitivity) throws
+    func restoreDefaultConfiguration() throws
     func exportEvidence(operationID: String, to url: URL) throws
 }
 
@@ -54,6 +55,7 @@ final class PreviewControlCenterDataSource: ControlCenterDataSource {
     }
     func updateBinding(id: String, enabled: Bool) throws {}
     func updateSensitivity(_ sensitivity: SwipeSensitivity) throws {}
+    func restoreDefaultConfiguration() throws {}
 
     func exportEvidence(operationID: String, to url: URL) throws {}
 }
@@ -66,19 +68,22 @@ final class RuntimeControlCenterDataSource: ControlCenterDataSource {
     private let health: () -> ControlCenterHealth
     private let updateBindingHandler: (String, Bool) throws -> Void
     private let updateSensitivityHandler: (SwipeSensitivity) throws -> Void
+    private let restoreDefaultsHandler: () throws -> Void
 
     init(
         journal: any OperationJournaling,
         configurationStore: any AppConfigurationStore,
         health: @escaping () -> ControlCenterHealth,
         updateBinding: @escaping (String, Bool) throws -> Void = { _, _ in },
-        updateSensitivity: @escaping (SwipeSensitivity) throws -> Void = { _ in }
+        updateSensitivity: @escaping (SwipeSensitivity) throws -> Void = { _ in },
+        restoreDefaults: @escaping () throws -> Void = {}
     ) {
         self.journal = journal
         self.configurationStore = configurationStore
         self.health = health
         self.updateBindingHandler = updateBinding
         self.updateSensitivityHandler = updateSensitivity
+        self.restoreDefaultsHandler = restoreDefaults
     }
 
     func overview() -> ControlCenterOverview {
@@ -149,13 +154,25 @@ final class RuntimeControlCenterDataSource: ControlCenterDataSource {
         }
         let supported = configuration.rules.filter { ["link-open-adjacent", "swipe-left-next-tab", "swipe-right-previous-tab"].contains($0.id) }
         return PresetPageState(
-            cards: [.init(title: "配置版本", detail: "版本 \(configuration.configurationVersion)", severity: .informational)],
+            cards: [
+                .init(title: "配置版本", detail: "版本 \(configuration.configurationVersion)", severity: .informational),
+                configurationStatusCard(health())
+            ],
             bindings: supported.map { .init(id: $0.id, gesture: displayGestureNameForBinding($0.gestureDefinitionId), action: displayActionName($0.actionId), enabled: $0.enabled) },
             sensitivity: configuration.recognition.swipeSensitivity
         )
     }
+
+    private func configurationStatusCard(_ health: ControlCenterHealth) -> ControlCenterStatusCard {
+        switch health {
+        case .connected(_, true): return .init(title: "配置应用状态", detail: "已保存，运行中已应用，Chrome 已确认", severity: .informational)
+        case .connected: return .init(title: "配置应用状态", detail: "已保存，运行中已应用，正在等待 Chrome 确认", severity: .warning)
+        default: return .init(title: "配置应用状态", detail: "已保存，运行中已应用，等待 Chrome 连接", severity: .warning)
+        }
+    }
     func updateBinding(id: String, enabled: Bool) throws { try updateBindingHandler(id, enabled) }
     func updateSensitivity(_ sensitivity: SwipeSensitivity) throws { try updateSensitivityHandler(sensitivity) }
+    func restoreDefaultConfiguration() throws { try restoreDefaultsHandler() }
 
     func exportEvidence(operationID: String, to url: URL) throws {
         try journal.exportEvidence(operationId: operationID, to: url)
@@ -206,7 +223,8 @@ final class RuntimeControlCenterDataSource: ControlCenterDataSource {
         }
         let gesture = displayGestureName(descriptor.parameters["gesture"])
         let action = displayActionName(descriptor.actionId)
-        return gesture.map { "\($0) · \(action)" } ?? action
+        let title = gesture.map { "\($0) · \(action)" } ?? action
+        return descriptor.parameters["configurationVersion"].map { "\(title) · 配置版本 \($0)" } ?? title
     }
 }
 

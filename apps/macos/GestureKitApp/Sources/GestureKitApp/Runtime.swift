@@ -273,6 +273,20 @@ final class GestureKitRuntime {
         apply(configuration: updated)
     }
 
+    func restoreDefaultConfiguration() throws {
+        guard let configurationMigration else { throw AppConfigurationUnavailable.storeUnavailable }
+        let current = try configurationMigration.authoritativeConfiguration()
+        let restored = AppConfiguration(
+            storeEpoch: current.storeEpoch,
+            schemaVersion: 3,
+            configurationVersion: current.configurationVersion + 1,
+            rules: DefaultRules.v1Bindings,
+            recognition: .standard
+        )
+        try (settingsStore as? any AppConfigurationStore)?.saveAppConfiguration(restored)
+        apply(configuration: restored)
+    }
+
     /// 仅用于 v1 -> v2 的一次性切换；marker 已存在时旧设置写入必须失败关闭。
     private func applyLegacySettingsUpdate(_ payload: SettingsUpdatePayload) -> SettingsAckPayload {
         guard let configurationMigration,
@@ -424,7 +438,9 @@ final class GestureKitRuntime {
         case (.configurationAck, .configurationAck(let acknowledgement)):
             guard let session = providerSessions.activeSession(),
                   envelope.providerSessionId == session.providerSessionID,
-                  providerSessions.session(session.providerSessionID, belongsTo: connectionID) else { return }
+                  providerSessions.session(session.providerSessionID, belongsTo: connectionID),
+                  let configuration = try? configurationMigration?.authoritativeConfiguration(),
+                  acknowledgement.appliedVersion == configuration.configurationVersion else { return }
             logger.info(
                 "provider_configuration_ack applied=\(acknowledgement.applied) version=\(acknowledgement.appliedVersion)",
                 rateLimitKey: "provider_configuration_ack"
@@ -623,16 +639,21 @@ final class GestureKitRuntime {
     /// coordinator 已解析出一个动作：发 action_request + 记入操作账本。
     private func handleCoordinatorAction(sessionID: String, action: ActionDescriptor) {
         guard let session = providerSessions.activeSession() else { return }
+        var parameters = action.parameters
+        if let version = try? configurationMigration?.authoritativeConfiguration().configurationVersion {
+            parameters["configurationVersion"] = "\(version)"
+        }
+        let configuredAction = ActionDescriptor(actionId: action.actionId, contextId: action.contextId, targetRef: action.targetRef, parameters: parameters, deadline: action.deadline)
         let operationId = UUID().uuidString
         let request = ProviderEnvelope(
             protocolVersion: 2, messageId: UUID().uuidString,
             providerSessionId: session.providerSessionID, gestureSessionId: sessionID,
             operationId: operationId, type: .actionRequest, timestamp: currentTimestampMs(),
-            payload: .actionRequest(action), error: nil
+            payload: .actionRequest(configuredAction), error: nil
         )
         do {
             try providerSessions.send(request, to: session.providerSessionID)
-            logger.info("coordinator_action_request action=\(action.actionId.rawValue) operationId=\(operationId) sessionId=\(sessionID)")
+            logger.info("coordinator_action_request action=\(configuredAction.actionId.rawValue) operationId=\(operationId) sessionId=\(sessionID)")
         } catch {
             logger.warn("action_request_send_failed operationId=\(operationId) action=\(action.actionId.rawValue)")
             return

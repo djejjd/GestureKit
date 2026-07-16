@@ -191,4 +191,5 @@ final class SpyRuntimeControl: RuntimeControlling {
     func refreshConfigurationSnapshot() {}
     func updateBinding(id: String, enabled: Bool) throws {}
     func updateSensitivity(_ sensitivity: SwipeSensitivity) throws {}
+    func restoreDefaultConfiguration() throws {}
 }

@@ -31,6 +31,7 @@ struct PresetPage: View {
     let state: PresetPageState
     let onBindingChanged: (String, Bool) -> Void
     let onSensitivityChanged: (SwipeSensitivity) -> Void
+    let onRestoreDefaults: () -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -57,6 +58,8 @@ struct PresetPage: View {
                 Text("灵敏").tag(SwipeSensitivity.sensitive)
             }
             .pickerStyle(.segmented)
+            Button("恢复默认配置", action: onRestoreDefaults)
+                .buttonStyle(.bordered)
         }
     }
 }
