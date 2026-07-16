@@ -8,6 +8,7 @@ protocol RuntimeControlling: AnyObject {
     func quitApplication()
     func openLogDirectory()
     func refreshConfigurationSnapshot()
+    func updateBinding(id: String, enabled: Bool) throws
 }
 
 @MainActor
@@ -39,4 +40,6 @@ final class RuntimeControl: RuntimeControlling {
     func refreshConfigurationSnapshot() {
         runtime?.refreshConfigurationSnapshot()
     }
+
+    func updateBinding(id: String, enabled: Bool) throws { try runtime?.updateBinding(id: id, enabled: enabled) }
 }

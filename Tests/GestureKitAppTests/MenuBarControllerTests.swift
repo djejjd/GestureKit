@@ -188,4 +188,5 @@ final class SpyRuntimeControl: RuntimeControlling {
     func quitApplication() {}
     func openLogDirectory() { openLogCount += 1 }
     func refreshConfigurationSnapshot() {}
+    func updateBinding(id: String, enabled: Bool) throws {}
 }

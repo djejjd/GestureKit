@@ -258,6 +258,14 @@ final class GestureKitRuntime {
         refreshConfigurationSnapshot()
     }
 
+    func updateBinding(id: String, enabled: Bool) throws {
+        guard let configurationMigration else { throw AppConfigurationUnavailable.storeUnavailable }
+        let configuration = try configurationMigration.authoritativeConfiguration()
+        let updated = try configuration.updatingBinding(id: id, enabled: enabled)
+        try (settingsStore as? any AppConfigurationStore)?.saveAppConfiguration(updated)
+        apply(configuration: updated)
+    }
+
     /// 仅用于 v1 -> v2 的一次性切换；marker 已存在时旧设置写入必须失败关闭。
     private func applyLegacySettingsUpdate(_ payload: SettingsUpdatePayload) -> SettingsAckPayload {
         guard let configurationMigration,
