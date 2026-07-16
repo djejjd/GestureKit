@@ -29,18 +29,38 @@ struct ProviderPage: View {
         VStack(alignment: .leading, spacing: 14) {
             if let provider { StatusCardView(card: provider) }
             if !capabilities.isEmpty {
-                DisclosureGroup("查看能力（\(capabilities.count) 项）", isExpanded: $showingCapabilities) {
-                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
-                        ForEach(Array(capabilities.enumerated()), id: \.offset) { _, capability in
-                        Label(capability.detail, systemImage: capabilityIcon(capability.detail))
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .padding(12)
-                                .background(.background, in: RoundedRectangle(cornerRadius: 10))
+                VStack(alignment: .leading, spacing: 0) {
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.2)) {
+                            showingCapabilities.toggle()
                         }
+                    } label: {
+                        HStack {
+                            Text("查看能力（\(capabilities.count) 项）")
+                            Spacer()
+                            Image(systemName: showingCapabilities ? "chevron.down" : "chevron.right")
+                                .font(.caption.weight(.semibold))
+                                .foregroundStyle(.secondary)
+                        }
+                        .contentShape(Rectangle())
                     }
-                    .padding(.top, 8)
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("浏览器可用能力")
+                    .accessibilityValue(showingCapabilities ? "已展开" : "已折叠")
+                    .padding(16)
+
+                    if showingCapabilities {
+                        LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+                            ForEach(Array(capabilities.enumerated()), id: \.offset) { _, capability in
+                                Label(capability.detail, systemImage: capabilityIcon(capability.detail))
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .padding(12)
+                                    .background(.background, in: RoundedRectangle(cornerRadius: 10))
+                            }
+                        }
+                        .padding([.horizontal, .bottom], 16)
+                    }
                 }
-                .padding(16)
                 .background(.background, in: RoundedRectangle(cornerRadius: 14))
                 .overlay(RoundedRectangle(cornerRadius: 14).stroke(.quaternary))
             }
