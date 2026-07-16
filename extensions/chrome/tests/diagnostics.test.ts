@@ -61,6 +61,17 @@ describe("diagnostics", () => {
     expect(saved[99].id).toBe("diag-100");
   });
 
+  it("uses the bounded default diagnostic retention", async () => {
+    const storage = storageWith(Array.from({ length: 50 }, (_, index) => swipeEntry(index)));
+
+    await appendDiagnostic(storage, swipeEntry(50));
+
+    const saved = storage.state[DIAGNOSTICS_STORAGE_KEY] as GestureDiagnosticEntry[];
+    expect(saved).toHaveLength(50);
+    expect(saved[0].id).toBe("diag-1");
+    expect(saved[49].id).toBe("diag-50");
+  });
+
   it("summarizes recent swipe success rate and main failure reason", () => {
     const events = [
       ...Array.from({ length: 7 }, (_, index) => swipeEntry(index, "success")),

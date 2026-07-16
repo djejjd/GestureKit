@@ -13,6 +13,7 @@ import type { EffectiveSwipeRecognition } from "../settings/swipeRecognition";
 import type { SettingsSyncStatus } from "../background/settingsSync";
 
 export const DIAGNOSTICS_STORAGE_KEY = "gesturekitDiagnostics";
+export const DEFAULT_DIAGNOSTIC_LIMIT = 50;
 
 export type DiagnosticsStorage = {
   get(key: string): Promise<Record<string, unknown>>;
@@ -50,10 +51,10 @@ export type DiagnosticsSummary = {
 export async function appendDiagnostic(
   storage: DiagnosticsStorage,
   entry: GestureDiagnosticEntry,
-  limit = 100
+  limit = DEFAULT_DIAGNOSTIC_LIMIT
 ): Promise<GestureDiagnosticEntry[]> {
   const result = await storage.get(DIAGNOSTICS_STORAGE_KEY);
-  const existing = normalizeDiagnostics(result[DIAGNOSTICS_STORAGE_KEY]);
+  const existing = normalizeDiagnostics(result[DIAGNOSTICS_STORAGE_KEY], limit);
   const next = [...existing, entry].slice(-limit);
   await storage.set({ [DIAGNOSTICS_STORAGE_KEY]: next });
   return next;
@@ -71,11 +72,11 @@ export function diagnosticEntryFromMessage(message: DiagnosticEventMessage): Ges
   };
 }
 
-export function normalizeDiagnostics(value: unknown): GestureDiagnosticEntry[] {
+export function normalizeDiagnostics(value: unknown, limit = DEFAULT_DIAGNOSTIC_LIMIT): GestureDiagnosticEntry[] {
   if (!Array.isArray(value)) {
     return [];
   }
-  return value.filter(isDiagnosticEntry).slice(-100);
+  return value.filter(isDiagnosticEntry).slice(-limit);
 }
 
 export function summarizeDiagnostics(events: GestureDiagnosticEntry[]): DiagnosticsSummary {

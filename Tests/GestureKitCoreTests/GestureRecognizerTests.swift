@@ -119,6 +119,52 @@ final class GestureRecognizerTests: XCTestCase {
         XCTAssertNil(event?.gesture)
         XCTAssertEqual(event?.status, .gestureUnstable)
     }
+
+    func testFourFingerInterruptionInvalidatesThreeFingerSessionUntilAllTouchesLift() {
+        var recognizer = GestureRecognizer()
+
+        XCTAssertEqual(recognizer.observe(threeTouches(time: 0.00)).count, 1)
+        let interruption = recognizer.observe(fourTouches(time: 0.05))
+        guard case .primitiveRejected(let rejected)? = interruption.first else {
+            return XCTFail("四指接管时必须终止三指候选，避免协调器保留陈旧 session")
+        }
+        XCTAssertEqual(rejected.status, .gestureUnstable)
+        XCTAssertEqual(rejected.reason, .unknown)
+        XCTAssertTrue(recognizer.observe(threeTouches(time: 0.10)).isEmpty)
+        XCTAssertTrue(recognizer.observe(.frame(time: 0.15, activeTouches: [])).isEmpty)
+
+        XCTAssertEqual(recognizer.observe(threeTouches(time: 0.20)).count, 1)
+        XCTAssertEqual(completed(&recognizer, .frame(time: 0.30, activeTouches: []))?.gesture, .threeFingerTap)
+    }
+
+    func testFewerTouchesCompleteSessionButDoNotReenterUntilAllTouchesLift() {
+        var recognizer = GestureRecognizer()
+
+        XCTAssertEqual(recognizer.observe(threeTouches(time: 0.00)).count, 1)
+        XCTAssertEqual(recognizer.observe(twoTouches(time: 0.05)).compactMap(\.recognizedGesture).first?.gesture, .threeFingerTap)
+        XCTAssertTrue(recognizer.observe(threeTouches(time: 0.10)).isEmpty)
+        XCTAssertTrue(recognizer.observe(.frame(time: 0.15, activeTouches: [])).isEmpty)
+
+        XCTAssertEqual(recognizer.observe(threeTouches(time: 0.20)).count, 1)
+        XCTAssertEqual(completed(&recognizer, .frame(time: 0.30, activeTouches: []))?.gesture, .threeFingerTap)
+    }
+
+    func testFiveFingerInterruptionInvalidatesThreeFingerSessionUntilAllTouchesLift() {
+        var recognizer = GestureRecognizer()
+
+        XCTAssertEqual(recognizer.observe(threeTouches(time: 0.00)).count, 1)
+        let interruption = recognizer.observe(fiveTouches(time: 0.05))
+        guard case .primitiveRejected(let rejected)? = interruption.first else {
+            return XCTFail("五指接管时必须终止三指候选，避免协调器保留陈旧 session")
+        }
+        XCTAssertEqual(rejected.status, .gestureUnstable)
+        XCTAssertEqual(rejected.reason, .unknown)
+        XCTAssertTrue(recognizer.observe(threeTouches(time: 0.10)).isEmpty)
+        XCTAssertTrue(recognizer.observe(.frame(time: 0.15, activeTouches: [])).isEmpty)
+
+        XCTAssertEqual(recognizer.observe(threeTouches(time: 0.20)).count, 1)
+        XCTAssertEqual(completed(&recognizer, .frame(time: 0.30, activeTouches: []))?.gesture, .threeFingerTap)
+    }
 }
 
 private extension TouchSample {
@@ -129,4 +175,20 @@ private extension TouchSample {
 
 private func completed(_ recognizer: inout GestureRecognizer, _ frame: TouchFrame) -> RecognizedGesture? {
     recognizer.observe(frame).compactMap(\.recognizedGesture).first
+}
+
+private func threeTouches(time: TimeInterval) -> TouchFrame {
+    .frame(time: time, activeTouches: [.touch(1, 0.30, 0.40), .touch(2, 0.32, 0.40), .touch(3, 0.34, 0.40)])
+}
+
+private func twoTouches(time: TimeInterval) -> TouchFrame {
+    .frame(time: time, activeTouches: [.touch(1, 0.30, 0.40), .touch(2, 0.32, 0.40)])
+}
+
+private func fourTouches(time: TimeInterval) -> TouchFrame {
+    .frame(time: time, activeTouches: [.touch(1, 0.30, 0.40), .touch(2, 0.32, 0.40), .touch(3, 0.34, 0.40), .touch(4, 0.36, 0.40)])
+}
+
+private func fiveTouches(time: TimeInterval) -> TouchFrame {
+    .frame(time: time, activeTouches: [.touch(1, 0.30, 0.40), .touch(2, 0.32, 0.40), .touch(3, 0.34, 0.40), .touch(4, 0.36, 0.40), .touch(5, 0.38, 0.40)])
 }
