@@ -120,6 +120,21 @@ struct PrivacyPageState: Equatable {
 /// 手势预设页面只展示 App 权威配置的安全摘要。
 struct PresetPageState: Equatable {
     let cards: [ControlCenterStatusCard]
+    let bindings: [GestureBindingPresentation]
+    let sensitivity: SwipeSensitivity
+
+    init(cards: [ControlCenterStatusCard], bindings: [GestureBindingPresentation] = [], sensitivity: SwipeSensitivity = .standard) {
+        self.cards = cards
+        self.bindings = bindings
+        self.sensitivity = sensitivity
+    }
+}
+
+struct GestureBindingPresentation: Identifiable, Equatable {
+    let id: String
+    let gesture: String
+    let action: String
+    let enabled: Bool
 }
 
 /// 运行时提供给控制中心的健康快照；不包含 session ID、凭据或协议错误。

@@ -1,4 +1,5 @@
 import SwiftUI
+import GestureKitCore
 
 /// 控制中心除操作记录外的页面组件，均只依赖表现模型。
 struct OverviewPage: View {
@@ -32,10 +33,27 @@ struct PresetPage: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             pageCards(state.cards)
-            Text("V1 使用预设保证行为稳定；完整动作换绑和自定义手势属于后续增强。")
+            ForEach(state.bindings) { binding in
+                HStack {
+                    VStack(alignment: .leading) {
+                        Text(binding.gesture).font(.headline)
+                        Text(binding.action).foregroundStyle(.secondary)
+                    }
+                    Spacer()
+                    Text(binding.enabled ? "已启用" : "已关闭")
+                        .foregroundStyle(binding.enabled ? .green : .secondary)
+                }
+                .padding(14)
+                .background(.background, in: RoundedRectangle(cornerRadius: 12))
+            }
+            Text("轻扫灵敏度：\(sensitivityName(state.sensitivity))")
                 .foregroundStyle(.secondary)
         }
     }
+}
+
+private func sensitivityName(_ value: SwipeSensitivity) -> String {
+    switch value { case .robust: "稳健"; case .standard: "标准"; case .sensitive: "灵敏" }
 }
 
 struct AdvancedPage: View {

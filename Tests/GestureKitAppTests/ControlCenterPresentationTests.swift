@@ -104,7 +104,8 @@ final class ControlCenterPresentationTests: XCTestCase {
             health: { .connected(capabilities: [.browserPageReload], configurationApplied: false) }
         )
 
-        XCTAssertEqual(source.presetPage().cards.first?.detail, "标准浏览预设")
+        XCTAssertEqual(source.presetPage().cards.first?.detail, "版本 1")
+        XCTAssertEqual(source.presetPage().bindings.count, 3)
         XCTAssertTrue(source.providerPage().cards.contains { $0.detail == "当前预设正在同步" })
     }
 

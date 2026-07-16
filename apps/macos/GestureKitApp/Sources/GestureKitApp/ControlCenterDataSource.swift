@@ -134,13 +134,15 @@ final class RuntimeControlCenterDataSource: ControlCenterDataSource {
     }
 
     func presetPage() -> PresetPageState {
-        let detail: String
-        if ((try? configurationStore.loadAppConfiguration()) ?? nil) != nil {
-            detail = "标准浏览预设"
-        } else {
-            detail = "正在准备配置数据"
+        guard let configuration = try? configurationStore.loadAppConfiguration() else {
+            return PresetPageState(cards: [.init(title: "手势与操作", detail: "正在准备配置数据", severity: .informational)])
         }
-        return PresetPageState(cards: [.init(title: "当前预设", detail: detail, severity: .informational)])
+        let supported = configuration.rules.filter { ["link-open-adjacent", "swipe-left-next-tab", "swipe-right-previous-tab"].contains($0.id) }
+        return PresetPageState(
+            cards: [.init(title: "配置版本", detail: "版本 \(configuration.configurationVersion)", severity: .informational)],
+            bindings: supported.map { .init(id: $0.id, gesture: displayGestureNameForBinding($0.gestureDefinitionId), action: displayActionName($0.actionId), enabled: $0.enabled) },
+            sensitivity: configuration.recognition.swipeSensitivity
+        )
     }
 
     func exportEvidence(operationID: String, to url: URL) throws {
@@ -193,6 +195,15 @@ final class RuntimeControlCenterDataSource: ControlCenterDataSource {
         let gesture = displayGestureName(descriptor.parameters["gesture"])
         let action = displayActionName(descriptor.actionId)
         return gesture.map { "\($0) · \(action)" } ?? action
+    }
+}
+
+private func displayGestureNameForBinding(_ id: String) -> String {
+    switch id {
+    case "three-finger-tap": return "三指点按链接"
+    case "three-finger-swipe-left": return "三指左滑"
+    case "three-finger-swipe-right": return "三指右滑"
+    default: return "手势"
     }
 }
 
