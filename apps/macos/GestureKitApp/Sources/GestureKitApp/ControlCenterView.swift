@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import GestureKitCore
 
 /// Task 10A 控制中心：只负责固定导航和页面组合，数据由只读数据源提供。
 struct ControlCenterView: View {
@@ -87,7 +88,7 @@ struct ControlCenterView: View {
                 Text("这只会隐藏当前操作记录列表，不会删除本地诊断日志或已导出的证据包。")
             }
         case .presets:
-            PresetPage(state: dataSource.presetPage(), onBindingChanged: updateBinding)
+            PresetPage(state: dataSource.presetPage(), onBindingChanged: updateBinding, onSensitivityChanged: updateSensitivity)
         case .providers:
             ProviderPage(state: dataSource.providerPage())
         case .privacy:
@@ -105,6 +106,16 @@ struct ControlCenterView: View {
             evidenceExportStatus = nil
         } catch {
             evidenceExportStatus = "手势设置更新失败，请稍后重试"
+        }
+        refreshToken += 1
+    }
+
+    private func updateSensitivity(_ sensitivity: SwipeSensitivity) {
+        do {
+            try dataSource.updateSensitivity(sensitivity)
+            evidenceExportStatus = nil
+        } catch {
+            evidenceExportStatus = "轻扫灵敏度更新失败，请稍后重试"
         }
         refreshToken += 1
     }

@@ -62,6 +62,17 @@ public struct AppConfiguration: Codable, Equatable, Sendable {
         )
     }
 
+    public func updatingSensitivity(_ sensitivity: SwipeSensitivity) -> AppConfiguration {
+        AppConfiguration(
+            storeEpoch: storeEpoch,
+            schemaVersion: schemaVersion,
+            configurationVersion: configurationVersion + 1,
+            gestureDefinitions: gestureDefinitions,
+            rules: rules,
+            recognition: .preset(sensitivity)
+        )
+    }
+
     private enum CodingKeys: String, CodingKey { case storeEpoch, schemaVersion, configurationVersion, gestureDefinitions, rules, recognition }
 
     public init(from decoder: Decoder) throws {

@@ -47,7 +47,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             journal: journal,
             configurationStore: settingsStore,
             health: { [weak self] in self?.runtime?.controlCenterHealth ?? .preparing },
-            updateBinding: { [weak self] id, enabled in try self?.runtime?.updateBinding(id: id, enabled: enabled) }
+            updateBinding: { [weak self] id, enabled in try self?.runtime?.updateBinding(id: id, enabled: enabled) },
+            updateSensitivity: { [weak self] value in try self?.runtime?.updateSensitivity(value) }
         )
     }
 

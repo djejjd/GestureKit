@@ -266,6 +266,13 @@ final class GestureKitRuntime {
         apply(configuration: updated)
     }
 
+    func updateSensitivity(_ sensitivity: SwipeSensitivity) throws {
+        guard let configurationMigration else { throw AppConfigurationUnavailable.storeUnavailable }
+        let updated = try configurationMigration.authoritativeConfiguration().updatingSensitivity(sensitivity)
+        try (settingsStore as? any AppConfigurationStore)?.saveAppConfiguration(updated)
+        apply(configuration: updated)
+    }
+
     /// 仅用于 v1 -> v2 的一次性切换；marker 已存在时旧设置写入必须失败关闭。
     private func applyLegacySettingsUpdate(_ payload: SettingsUpdatePayload) -> SettingsAckPayload {
         guard let configurationMigration,

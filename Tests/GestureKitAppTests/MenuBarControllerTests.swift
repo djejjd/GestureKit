@@ -1,6 +1,7 @@
 import Foundation
 @testable import GestureKitApp
 import XCTest
+import GestureKitCore
 
 @MainActor
 final class MenuBarControllerTests: XCTestCase {
@@ -189,4 +190,5 @@ final class SpyRuntimeControl: RuntimeControlling {
     func openLogDirectory() { openLogCount += 1 }
     func refreshConfigurationSnapshot() {}
     func updateBinding(id: String, enabled: Bool) throws {}
+    func updateSensitivity(_ sensitivity: SwipeSensitivity) throws {}
 }

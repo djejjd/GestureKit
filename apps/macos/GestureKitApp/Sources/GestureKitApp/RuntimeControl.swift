@@ -1,5 +1,6 @@
 import AppKit
 import Foundation
+import GestureKitCore
 
 @MainActor
 protocol RuntimeControlling: AnyObject {
@@ -9,6 +10,7 @@ protocol RuntimeControlling: AnyObject {
     func openLogDirectory()
     func refreshConfigurationSnapshot()
     func updateBinding(id: String, enabled: Bool) throws
+    func updateSensitivity(_ sensitivity: SwipeSensitivity) throws
 }
 
 @MainActor
@@ -42,4 +44,5 @@ final class RuntimeControl: RuntimeControlling {
     }
 
     func updateBinding(id: String, enabled: Bool) throws { try runtime?.updateBinding(id: id, enabled: enabled) }
+    func updateSensitivity(_ sensitivity: SwipeSensitivity) throws { try runtime?.updateSensitivity(sensitivity) }
 }

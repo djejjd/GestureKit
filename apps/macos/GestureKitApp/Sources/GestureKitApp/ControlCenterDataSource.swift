@@ -11,6 +11,7 @@ protocol ControlCenterDataSource {
     func privacyPage() -> PrivacyPageState
     func presetPage() -> PresetPageState
     func updateBinding(id: String, enabled: Bool) throws
+    func updateSensitivity(_ sensitivity: SwipeSensitivity) throws
     func exportEvidence(operationID: String, to url: URL) throws
 }
 
@@ -52,6 +53,7 @@ final class PreviewControlCenterDataSource: ControlCenterDataSource {
         ])
     }
     func updateBinding(id: String, enabled: Bool) throws {}
+    func updateSensitivity(_ sensitivity: SwipeSensitivity) throws {}
 
     func exportEvidence(operationID: String, to url: URL) throws {}
 }
@@ -63,17 +65,20 @@ final class RuntimeControlCenterDataSource: ControlCenterDataSource {
     private let configurationStore: any AppConfigurationStore
     private let health: () -> ControlCenterHealth
     private let updateBindingHandler: (String, Bool) throws -> Void
+    private let updateSensitivityHandler: (SwipeSensitivity) throws -> Void
 
     init(
         journal: any OperationJournaling,
         configurationStore: any AppConfigurationStore,
         health: @escaping () -> ControlCenterHealth,
-        updateBinding: @escaping (String, Bool) throws -> Void = { _, _ in }
+        updateBinding: @escaping (String, Bool) throws -> Void = { _, _ in },
+        updateSensitivity: @escaping (SwipeSensitivity) throws -> Void = { _ in }
     ) {
         self.journal = journal
         self.configurationStore = configurationStore
         self.health = health
         self.updateBindingHandler = updateBinding
+        self.updateSensitivityHandler = updateSensitivity
     }
 
     func overview() -> ControlCenterOverview {
@@ -150,6 +155,7 @@ final class RuntimeControlCenterDataSource: ControlCenterDataSource {
         )
     }
     func updateBinding(id: String, enabled: Bool) throws { try updateBindingHandler(id, enabled) }
+    func updateSensitivity(_ sensitivity: SwipeSensitivity) throws { try updateSensitivityHandler(sensitivity) }
 
     func exportEvidence(operationID: String, to url: URL) throws {
         try journal.exportEvidence(operationId: operationID, to: url)

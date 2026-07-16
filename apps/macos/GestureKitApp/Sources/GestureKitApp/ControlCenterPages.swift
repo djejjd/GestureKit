@@ -30,6 +30,7 @@ struct PrivacyPage: View {
 struct PresetPage: View {
     let state: PresetPageState
     let onBindingChanged: (String, Bool) -> Void
+    let onSensitivityChanged: (SwipeSensitivity) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -50,15 +51,16 @@ struct PresetPage: View {
                 .padding(14)
                 .background(.background, in: RoundedRectangle(cornerRadius: 12))
             }
-            Text("轻扫灵敏度：\(sensitivityName(state.sensitivity))")
-                .foregroundStyle(.secondary)
+            Picker("轻扫灵敏度", selection: Binding(get: { state.sensitivity }, set: onSensitivityChanged)) {
+                Text("稳健").tag(SwipeSensitivity.robust)
+                Text("标准").tag(SwipeSensitivity.standard)
+                Text("灵敏").tag(SwipeSensitivity.sensitive)
+            }
+            .pickerStyle(.segmented)
         }
     }
 }
 
-private func sensitivityName(_ value: SwipeSensitivity) -> String {
-    switch value { case .robust: "稳健"; case .standard: "标准"; case .sensitive: "灵敏" }
-}
 
 struct AdvancedPage: View {
     let onDiagnosticLoggingChanged: () -> Void
