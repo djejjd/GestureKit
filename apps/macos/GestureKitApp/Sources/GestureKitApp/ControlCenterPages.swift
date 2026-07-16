@@ -29,6 +29,7 @@ struct PrivacyPage: View {
 
 struct PresetPage: View {
     let state: PresetPageState
+    let onBindingChanged: (String, Bool) -> Void
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
@@ -40,8 +41,11 @@ struct PresetPage: View {
                         Text(binding.action).foregroundStyle(.secondary)
                     }
                     Spacer()
-                    Text(binding.enabled ? "已启用" : "已关闭")
-                        .foregroundStyle(binding.enabled ? .green : .secondary)
+                    Toggle("", isOn: Binding(
+                        get: { binding.enabled },
+                        set: { onBindingChanged(binding.id, $0) }
+                    ))
+                    .labelsHidden()
                 }
                 .padding(14)
                 .background(.background, in: RoundedRectangle(cornerRadius: 12))

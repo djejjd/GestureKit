@@ -87,7 +87,7 @@ struct ControlCenterView: View {
                 Text("这只会隐藏当前操作记录列表，不会删除本地诊断日志或已导出的证据包。")
             }
         case .presets:
-            PresetPage(state: dataSource.presetPage())
+            PresetPage(state: dataSource.presetPage(), onBindingChanged: updateBinding)
         case .providers:
             ProviderPage(state: dataSource.providerPage())
         case .privacy:
@@ -97,6 +97,16 @@ struct ControlCenterView: View {
                 control.refreshConfigurationSnapshot()
             })
         }
+    }
+
+    private func updateBinding(id: String, enabled: Bool) {
+        do {
+            try dataSource.updateBinding(id: id, enabled: enabled)
+            evidenceExportStatus = nil
+        } catch {
+            evidenceExportStatus = "手势设置更新失败，请稍后重试"
+        }
+        refreshToken += 1
     }
 
     private func exportEvidence(operationID: String) {

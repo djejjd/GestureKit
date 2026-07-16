@@ -46,7 +46,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         return RuntimeControlCenterDataSource(
             journal: journal,
             configurationStore: settingsStore,
-            health: { [weak self] in self?.runtime?.controlCenterHealth ?? .preparing }
+            health: { [weak self] in self?.runtime?.controlCenterHealth ?? .preparing },
+            updateBinding: { [weak self] id, enabled in try self?.runtime?.updateBinding(id: id, enabled: enabled) }
         )
     }
 

@@ -10,6 +10,7 @@ protocol ControlCenterDataSource {
     func providerPage() -> ProviderPageState
     func privacyPage() -> PrivacyPageState
     func presetPage() -> PresetPageState
+    func updateBinding(id: String, enabled: Bool) throws
     func exportEvidence(operationID: String, to url: URL) throws
 }
 
@@ -50,6 +51,7 @@ final class PreviewControlCenterDataSource: ControlCenterDataSource {
             ControlCenterStatusCard(title: "当前预设", detail: "正在准备配置数据", severity: .informational)
         ])
     }
+    func updateBinding(id: String, enabled: Bool) throws {}
 
     func exportEvidence(operationID: String, to url: URL) throws {}
 }
@@ -60,15 +62,18 @@ final class RuntimeControlCenterDataSource: ControlCenterDataSource {
     private let journal: any OperationJournaling
     private let configurationStore: any AppConfigurationStore
     private let health: () -> ControlCenterHealth
+    private let updateBindingHandler: (String, Bool) throws -> Void
 
     init(
         journal: any OperationJournaling,
         configurationStore: any AppConfigurationStore,
-        health: @escaping () -> ControlCenterHealth
+        health: @escaping () -> ControlCenterHealth,
+        updateBinding: @escaping (String, Bool) throws -> Void = { _, _ in }
     ) {
         self.journal = journal
         self.configurationStore = configurationStore
         self.health = health
+        self.updateBindingHandler = updateBinding
     }
 
     func overview() -> ControlCenterOverview {
@@ -144,6 +149,7 @@ final class RuntimeControlCenterDataSource: ControlCenterDataSource {
             sensitivity: configuration.recognition.swipeSensitivity
         )
     }
+    func updateBinding(id: String, enabled: Bool) throws { try updateBindingHandler(id, enabled) }
 
     func exportEvidence(operationID: String, to url: URL) throws {
         try journal.exportEvidence(operationId: operationID, to: url)
