@@ -19,7 +19,34 @@ struct OverviewPage: View {
 
 struct ProviderPage: View {
     let state: ProviderPageState
-    var body: some View { pageCards(state.cards) }
+
+    @State private var showingCapabilities = false
+
+    var body: some View {
+        let provider = state.cards.first
+        let capabilities = state.cards.filter { $0.title == "可用能力" }
+        let status = state.cards.filter { $0.title != "Chrome Provider" && $0.title != "可用能力" }
+        VStack(alignment: .leading, spacing: 14) {
+            if let provider { StatusCardView(card: provider) }
+            if !capabilities.isEmpty {
+                DisclosureGroup("查看能力（\(capabilities.count) 项）", isExpanded: $showingCapabilities) {
+                    LazyVGrid(columns: [GridItem(.flexible()), GridItem(.flexible())], spacing: 10) {
+                        ForEach(Array(capabilities.enumerated()), id: \.offset) { _, capability in
+                        Label(capability.detail, systemImage: capabilityIcon(capability.detail))
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .padding(12)
+                                .background(.background, in: RoundedRectangle(cornerRadius: 10))
+                        }
+                    }
+                    .padding(.top, 8)
+                }
+                .padding(16)
+                .background(.background, in: RoundedRectangle(cornerRadius: 14))
+                .overlay(RoundedRectangle(cornerRadius: 14).stroke(.quaternary))
+            }
+            pageCards(status)
+        }
+    }
 }
 
 struct PrivacyPage: View {
@@ -36,21 +63,30 @@ struct PresetPage: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             pageCards(state.cards)
-            ForEach(state.bindings) { binding in
+            if !state.bindings.isEmpty {
                 HStack {
-                    VStack(alignment: .leading) {
-                        Text(binding.gesture).font(.headline)
-                        Text(binding.action).foregroundStyle(.secondary)
-                    }
-                    Spacer()
-                    Toggle("", isOn: Binding(
-                        get: { binding.enabled },
-                        set: { onBindingChanged(binding.id, $0) }
-                    ))
-                    .labelsHidden()
+                    Text("手势").frame(maxWidth: .infinity, alignment: .leading)
+                    Text("关联操作").frame(maxWidth: .infinity, alignment: .leading)
+                    Text("状态").frame(width: 64, alignment: .center)
                 }
-                .padding(14)
-                .background(.background, in: RoundedRectangle(cornerRadius: 12))
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 14)
+                ForEach(state.bindings) { binding in
+                    HStack {
+                        Label(binding.gesture, systemImage: gestureIcon(binding.id)).frame(maxWidth: .infinity, alignment: .leading)
+                        Label(binding.action, systemImage: actionIcon(binding.id)).frame(maxWidth: .infinity, alignment: .leading).foregroundStyle(.secondary)
+                        Toggle("", isOn: Binding(
+                            get: { binding.enabled },
+                            set: { onBindingChanged(binding.id, $0) }
+                        ))
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .frame(width: 64, alignment: .center)
+                    }
+                    .padding(14)
+                    .background(.background, in: RoundedRectangle(cornerRadius: 10))
+                }
             }
             Picker("轻扫灵敏度", selection: Binding(get: { state.sensitivity }, set: onSensitivityChanged)) {
                 Text("稳健").tag(SwipeSensitivity.robust)
@@ -62,6 +98,33 @@ struct PresetPage: View {
                 .buttonStyle(.bordered)
         }
     }
+}
+
+private func gestureIcon(_ id: String) -> String {
+    switch id {
+    case "link-open-adjacent": "hand.tap"
+    case "swipe-left-next-tab": "arrow.left"
+    case "swipe-right-previous-tab": "arrow.right"
+    default: "hand.draw"
+    }
+}
+
+private func actionIcon(_ id: String) -> String {
+    switch id {
+    case "link-open-adjacent": "arrow.up.right.square"
+    case "swipe-left-next-tab", "swipe-right-previous-tab": "rectangle.on.rectangle"
+    default: "circle"
+    }
+}
+
+private func capabilityIcon(_ title: String) -> String {
+    if title.contains("打开链接") { return "arrow.up.right.square" }
+    if title.contains("切换") { return "rectangle.on.rectangle" }
+    if title.contains("关闭") { return "xmark.square" }
+    if title.contains("后退") { return "arrow.backward" }
+    if title.contains("前进") { return "arrow.forward" }
+    if title.contains("刷新") { return "arrow.clockwise" }
+    return "puzzlepiece"
 }
 
 
