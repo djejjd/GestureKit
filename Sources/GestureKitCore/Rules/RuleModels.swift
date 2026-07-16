@@ -8,6 +8,17 @@ public enum ComposedGesture: String, Codable, Equatable, Sendable, CaseIterable 
     case threeFingerDoubleTapCenter = "three_finger_double_tap_center"
     case threeFingerSwipeLeft = "three_finger_swipe_left"
     case threeFingerSwipeRight = "three_finger_swipe_right"
+
+    public var gestureDefinitionID: String {
+        switch self {
+        case .threeFingerTap: "three-finger-tap"
+        case .threeFingerTapLeftEdge: "three-finger-tap-left-edge"
+        case .threeFingerTapRightEdge: "three-finger-tap-right-edge"
+        case .threeFingerDoubleTapCenter: "three-finger-double-tap-center"
+        case .threeFingerSwipeLeft: "three-finger-swipe-left"
+        case .threeFingerSwipeRight: "three-finger-swipe-right"
+        }
+    }
 }
 
 /// Provider 传来的、规则求值所需的标准事实；不包含浏览器 API 或页面内容。

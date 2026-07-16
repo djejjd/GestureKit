@@ -1,16 +1,30 @@
 public struct RuleEngine: RuleResolving, Sendable {
     private let rules: [Rule]
+    private let bindings: [BindingRule]
 
     public init(rules: [Rule]) {
         self.rules = rules
+        self.bindings = []
     }
 
     public init() { self.init(rules: DefaultRules.v1) }
 
+    public init(configuration: AppConfiguration) {
+        self.rules = []
+        self.bindings = configuration.rules
+    }
+
     /// 唯一的 provider-neutral 动作决策入口。BindingResolver 是内部细节，
     /// 规则层只输出协议标准动作描述，不输出 Chrome ActionType。
     public func resolve(gesture: ComposedGesture, context: ProviderContextSnapshot) -> ActionDescriptor? {
-        BindingResolver.resolve(gesture: gesture, context: context)
+        if !bindings.isEmpty {
+            return BindingResolver.resolve(
+                bindings: bindings,
+                gesture: gesture,
+                context: context
+            )
+        }
+        return BindingResolver.resolve(gesture: gesture, context: context)
     }
 
     public func match(gesture: GestureType, context: RuleContext) -> RuleMatch? {
@@ -33,6 +47,38 @@ public struct RuleEngine: RuleResolving, Sendable {
 }
 
 private enum BindingResolver {
+    static func resolve(
+        bindings: [BindingRule],
+        gesture: ComposedGesture,
+        context: ProviderContextSnapshot
+    ) -> ActionDescriptor? {
+        let binding = bindings
+            .filter { $0.enabled && $0.gestureDefinitionId == gesture.gestureDefinitionID }
+            .filter { binding in
+                binding.contextConstraints.allSatisfy { key, value in
+                    switch key {
+                    case "targetKind": return value == context.targetKind.rawValue
+                    default: return false
+                    }
+                }
+            }
+            .sorted { lhs, rhs in
+                lhs.priority == rhs.priority ? lhs.id < rhs.id : lhs.priority > rhs.priority
+            }
+            .first
+
+        guard let binding else { return nil }
+        let targetRef = binding.actionId == .browserLinkOpenAdjacent ? context.targetRef : nil
+        guard binding.actionId != .browserLinkOpenAdjacent || targetRef != nil else { return nil }
+        return ActionDescriptor(
+            actionId: binding.actionId,
+            contextId: context.contextId,
+            targetRef: targetRef,
+            parameters: binding.actionParameters,
+            deadline: context.deadline
+        )
+    }
+
     static func resolve(gesture: ComposedGesture, context: ProviderContextSnapshot) -> ActionDescriptor? {
         let actionId: StandardActionID
         let targetRef: String?

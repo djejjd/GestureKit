@@ -17,6 +17,38 @@ final class RuleEngineTests: XCTestCase {
         )
     }
 
+    func testDisabledBindingDoesNotResolveAction() {
+        let rules = DefaultRules.v1Bindings.map { rule in
+            rule.id == "link-open-adjacent"
+                ? BindingRule(
+                    id: rule.id,
+                    gestureDefinitionId: rule.gestureDefinitionId,
+                    contextConstraints: rule.contextConstraints,
+                    actionId: rule.actionId,
+                    actionParameters: rule.actionParameters,
+                    priority: rule.priority,
+                    enabled: false
+                )
+                : rule
+        }
+        let configuration = AppConfiguration(
+            storeEpoch: "test",
+            schemaVersion: 3,
+            configurationVersion: 1,
+            rules: rules,
+            recognition: .standard
+        )
+        let engine = RuleEngine(configuration: configuration)
+        let context = ProviderContextSnapshot(
+            contextId: "context-link",
+            targetKind: .standardLink,
+            targetRef: "opaque-link",
+            deadline: 1_000
+        )
+
+        XCTAssertNil(engine.resolve(gesture: .threeFingerTap, context: context))
+    }
+
     func testTapOnChromeLinkMatchesOpenLinkRule() {
         let engine = RuleEngine(rules: DefaultRules.v1)
         let context = RuleContext(appBundleId: "com.google.Chrome", browserKind: .chrome, elementType: .link)
