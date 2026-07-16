@@ -9,7 +9,7 @@ private enum AppConfigurationUnavailable: Error {
 final class GestureKitRuntime {
     private let menuBarHandler: (AppMenuBarEvent) -> Void
     private var recognizer = GestureRecognizer()
-    private let ruleEngine: RuleEngine
+    private var ruleEngine: RuleEngine
     private let appContextResolver: AppContextResolver
     private let touchBackend: any TouchBackend
     private let settingsStore: any SettingsStore
@@ -249,6 +249,13 @@ final class GestureKitRuntime {
             appSessionId: appSessionId,
             recognitionSettings: payload.recognitionSettings
         )
+    }
+
+    func apply(configuration: AppConfiguration) {
+        recognizer.updateSettings(configuration.recognition)
+        ruleEngine = RuleEngine(configuration: configuration)
+        gestureCoordinator.updateRuleEngine(ruleEngine)
+        refreshConfigurationSnapshot()
     }
 
     /// 仅用于 v1 -> v2 的一次性切换；marker 已存在时旧设置写入必须失败关闭。

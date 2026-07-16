@@ -21,7 +21,7 @@ final class GestureSessionCoordinator {
         var composedGesture: ComposedGesture?
     }
 
-    private let ruleEngine: any RuleResolving
+    private var ruleEngine: any RuleResolving
     private let guardJournal: (String) -> Void
     private let guardRouter: (String, GestureCandidate) -> Void
     private let guardReleaseRouter: (String) -> Void
@@ -57,6 +57,8 @@ final class GestureSessionCoordinator {
         self.sessionID = sessionID
         self.logger = logger
     }
+
+    func updateRuleEngine(_ ruleEngine: any RuleResolving) { self.ruleEngine = ruleEngine }
 
     /// 候选一出现即先持久化/路由 guard；绝不等待分类或上下文。
     @discardableResult

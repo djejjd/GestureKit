@@ -61,6 +61,16 @@ final class RuntimeSettingsTests: XCTestCase {
         XCTAssertEqual(runtime.observeForTesting(.frame(time: 0.26, activeTouches: []))?.gesture, .threeFingerSwipeRight)
     }
 
+    func testApplyingConfigurationUpdatesRecognizerImmediately() {
+        let runtime = GestureKitRuntime(menuBarHandler: { _ in }, touchBackend: StubTouchBackend(), settingsStore: StubSettingsStore(), logger: GestureKitLogger(terminalWriter: { _ in }))
+        runtime.apply(configuration: .init(storeEpoch: "runtime-apply", schemaVersion: 3, configurationVersion: 2, rules: DefaultRules.v1Bindings, recognition: .sensitive))
+
+        _ = runtime.observeForTesting(.frame(time: 0, activeTouches: [.touch(1, 0.30, 0.40), .touch(2, 0.32, 0.40), .touch(3, 0.34, 0.40)]))
+        _ = runtime.observeForTesting(.frame(time: 0.16, activeTouches: [.touch(1, 0.38, 0.40), .touch(2, 0.40, 0.40), .touch(3, 0.42, 0.40)]))
+
+        XCTAssertEqual(runtime.observeForTesting(.frame(time: 0.26, activeTouches: []))?.gesture, .threeFingerSwipeRight)
+    }
+
     func testSettingsAckIncludesCurrentRuntimeSession() {
         let runtime = GestureKitRuntime(
             menuBarHandler: { _ in },
