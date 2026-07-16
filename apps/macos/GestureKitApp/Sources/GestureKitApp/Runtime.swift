@@ -30,6 +30,7 @@ final class GestureKitRuntime {
     private var pendingRequests: [String: (action: String, timestamp: Int64)] = [:]
     /// 组合器：把原始原语（3 种）组合为带区域和重复含义的手势（6 种）。
     private lazy var gestureCoordinator: GestureSessionCoordinator = GestureSessionCoordinator(
+        ruleEngine: ruleEngine,
         guardJournal: { [weak self] id in
             self?.logger.debug("candidate_started id=\(id)")
         },
