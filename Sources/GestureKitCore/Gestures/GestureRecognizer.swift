@@ -33,7 +33,7 @@ public struct GestureRecognizer: Sendable {
                 return []
             } else {
                 session = Session(startedAt: frame.time, startCentroid: centroid, latestCentroid: centroid)
-                return [.candidateStarted(GestureCandidate(startedAt: frame.time, centroidX: centroid.x, centroidY: centroid.y))]
+                return [.candidateStarted(GestureCandidate(startedAt: frame.time, centroidX: centroid.x, centroidY: centroid.y, fingerCount: fingerCount))]
             }
         }
 

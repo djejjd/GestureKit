@@ -299,4 +299,47 @@ describe("pointerTracker", () => {
       status: "non_anchor_navigation"
     });
   });
+
+  it("does not protect ordinary HTTP link clicks after content script initialization", async () => {
+    const module = await import("../src/content/pointerTracker");
+    module.setLinkClickProtectionEnabled(false);
+    const anchor = document.getElementById("target") as HTMLAnchorElement;
+    const click = new MouseEvent("click", { bubbles: true, cancelable: true });
+
+    expect(anchor.dispatchEvent(click)).toBe(true);
+    expect(click.defaultPrevented).toBe(false);
+  });
+
+  it("protects only a link click following a candidate link guard", async () => {
+    let runtimeListener: ((message: any, sender: unknown, sendResponse: (response: unknown) => void) => boolean) | null = null;
+    vi.stubGlobal("chrome", {
+      runtime: { onMessage: { addListener: vi.fn((listener) => { runtimeListener = listener; }) } }
+    });
+    const module = await import("../src/content/pointerTracker");
+    module.setLinkClickProtectionEnabled(false);
+    const armResponse: { status?: string } = {};
+    runtimeListener?.({ type: "gesturekit.linkGuardArm", gestureSessionId: "candidate-1", leaseMs: 500 }, {}, (response) => Object.assign(armResponse, response));
+
+    const anchor = document.getElementById("target") as HTMLAnchorElement;
+    const click = new MouseEvent("click", { bubbles: true, cancelable: true });
+
+    expect(armResponse.status).toBe("guard_armed");
+    expect(anchor.dispatchEvent(click)).toBe(false);
+    expect(click.defaultPrevented).toBe(true);
+  });
+
+  it("protects a guarded synthetic click when its event target is not the link", async () => {
+    let runtimeListener: ((message: any, sender: unknown, sendResponse: (response: unknown) => void) => boolean) | null = null;
+    vi.stubGlobal("chrome", {
+      runtime: { onMessage: { addListener: vi.fn((listener) => { runtimeListener = listener; }) } }
+    });
+    const module = await import("../src/content/pointerTracker");
+    module.setLinkClickProtectionEnabled(false);
+    window.dispatchEvent(new PointerEvent("pointermove", { clientX: 10, clientY: 20 }));
+    runtimeListener?.({ type: "gesturekit.linkGuardArm", gestureSessionId: "candidate-synthetic", leaseMs: 500 }, {}, () => {});
+
+    const click = new MouseEvent("click", { bubbles: true, cancelable: true });
+    expect(document.dispatchEvent(click)).toBe(false);
+    expect(click.defaultPrevented).toBe(true);
+  });
 });

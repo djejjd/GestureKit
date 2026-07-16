@@ -17,8 +17,9 @@ struct ConfigurationMigration {
         let existing = try store.loadAppConfiguration()
         let configuration = AppConfiguration(
             storeEpoch: existing?.storeEpoch ?? UUID().uuidString,
-            schemaVersion: 2,
+            schemaVersion: 3,
             configurationVersion: max(1, (existing?.configurationVersion ?? 0) + 1),
+            gestureDefinitions: existing?.gestureDefinitions ?? DefaultRules.v1GestureDefinitions,
             rules: existing?.rules ?? DefaultRules.v1Bindings,
             recognition: recognition
         )
@@ -32,7 +33,10 @@ struct ConfigurationMigration {
 
     func authoritativeConfiguration() throws -> AppConfiguration {
         if let configuration = try store.loadAppConfiguration() {
-            return configuration
+            guard configuration.schemaVersion < 3 else { return configuration }
+            let upgraded = AppConfiguration(storeEpoch: configuration.storeEpoch, schemaVersion: 3, configurationVersion: configuration.configurationVersion, gestureDefinitions: configuration.gestureDefinitions, rules: configuration.rules, recognition: configuration.recognition)
+            try store.saveAppConfiguration(upgraded)
+            return upgraded
         }
         let configuration = AppConfiguration.initial()
         try store.saveAppConfiguration(configuration)

@@ -398,6 +398,7 @@ private final class RuntimeRecordingJournal: OperationJournaling, @unchecked Sen
     func append(_ event: ProviderEvent) throws { events.append(event) }
     func recoverExpired(now: Int64) throws -> [RecoveredOperation] { [] }
     func query(_ filter: OperationFilter, limit: Int) throws -> [OperationTimeline] { [] }
+    func clearOperationListDisplay() throws {}
     func exportEvidence(operationId: String, to url: URL) throws {}
 }
 

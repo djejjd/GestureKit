@@ -1,4 +1,5 @@
 import Foundation
+import GestureKitCore
 
 /// 控制中心固定导航顺序，对应已确认的 V2 信息架构。
 enum ControlCenterPage: String, CaseIterable, Identifiable {
@@ -124,14 +125,17 @@ struct PresetPageState: Equatable {
 /// 运行时提供给控制中心的健康快照；不包含 session ID、凭据或协议错误。
 enum ControlCenterHealth: Equatable {
     case preparing
+    case stopped
     case disconnected
-    case connected(capabilityCount: Int, configurationApplied: Bool?)
+    case connected(capabilities: Set<StandardActionID>, configurationApplied: Bool?)
     case listeningUnavailable
 
     var runtimeCard: ControlCenterStatusCard {
         switch self {
         case .preparing:
             return .init(title: "运行状态", detail: "正在准备 GestureKit", severity: .informational)
+        case .stopped:
+            return .init(title: "运行状态", detail: "手势监听已停止", severity: .warning)
         case .disconnected:
             return .init(title: "运行状态", detail: "手势监听正在运行", severity: .informational)
         case .connected:

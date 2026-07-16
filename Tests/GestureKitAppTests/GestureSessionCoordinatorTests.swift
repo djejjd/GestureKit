@@ -9,7 +9,7 @@ final class GestureSessionCoordinatorTests: XCTestCase {
         var routed: [String] = []
         let coordinator = GestureSessionCoordinator(
             guardJournal: { journaled.append($0) },
-            guardRouter: { routed.append($0) }
+            guardRouter: { id, _ in routed.append(id) }
         )
 
         let sessionId = coordinator.handle(.candidateStarted(GestureCandidate(startedAt: 0, centroidX: 0.5, centroidY: 0.5)))

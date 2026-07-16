@@ -6,7 +6,7 @@ import GestureKitCore
 protocol ControlCenterDataSource {
     func overview() -> ControlCenterOverview
     func operationPage(limit: Int) -> OperationPageState
-    func loadMoreOperations()
+    func clearOperationListDisplay() throws
     func providerPage() -> ProviderPageState
     func privacyPage() -> PrivacyPageState
     func presetPage() -> PresetPageState
@@ -29,7 +29,7 @@ final class PreviewControlCenterDataSource: ControlCenterDataSource {
         OperationPageState.empty
     }
 
-    func loadMoreOperations() {}
+    func clearOperationListDisplay() throws {}
 
     func providerPage() -> ProviderPageState {
         ProviderPageState(cards: [
@@ -60,7 +60,6 @@ final class RuntimeControlCenterDataSource: ControlCenterDataSource {
     private let journal: any OperationJournaling
     private let configurationStore: any AppConfigurationStore
     private let health: () -> ControlCenterHealth
-    private var additionalLoadedCount = 0
 
     init(
         journal: any OperationJournaling,
@@ -91,8 +90,7 @@ final class RuntimeControlCenterDataSource: ControlCenterDataSource {
     }
 
     func operationPage(limit: Int) -> OperationPageState {
-        let requested = limit + additionalLoadedCount
-        guard let timelines = try? journal.query(OperationFilter(), limit: requested) else {
+        guard let timelines = try? journal.query(OperationFilter(), limit: limit) else {
             return OperationPageState(items: [], selectedOperationID: nil, message: "暂时无法读取操作记录", canLoadMore: false)
         }
         let items = timelines.map(presentOperation)
@@ -100,18 +98,24 @@ final class RuntimeControlCenterDataSource: ControlCenterDataSource {
             items: items,
             selectedOperationID: items.first?.id,
             message: items.isEmpty ? "暂无操作记录" : nil,
-            canLoadMore: timelines.count == requested
+            canLoadMore: false
         )
     }
 
-    func loadMoreOperations() { additionalLoadedCount += 20 }
+    func clearOperationListDisplay() throws { try journal.clearOperationListDisplay() }
 
     func providerPage() -> ProviderPageState {
         let currentHealth = health()
         var cards = [providerCard(currentHealth)]
         switch currentHealth {
-        case .connected(let capabilityCount, let configurationApplied):
-            cards.append(.init(title: "可用能力", detail: "已确认 \(capabilityCount) 项浏览器能力", severity: .informational))
+        case .connected(let capabilities, let configurationApplied):
+            if capabilities.isEmpty {
+                cards.append(.init(title: "可用能力", detail: "正在确认浏览器能力", severity: .informational))
+            } else {
+                for capability in capabilities.sorted(by: { $0.rawValue < $1.rawValue }) {
+                    cards.append(.init(title: "可用能力", detail: displayActionName(capability), severity: .informational))
+                }
+            }
             cards.append(.init(title: "配置应用状态", detail: configurationApplied == true ? "当前预设已应用" : "当前预设正在同步", severity: configurationApplied == true ? .informational : .warning))
         case .disconnected:
             cards.append(.init(title: "配置应用状态", detail: "恢复连接后会自动对账", severity: .warning))
@@ -164,12 +168,14 @@ final class RuntimeControlCenterDataSource: ControlCenterDataSource {
 
     private func providerCard(_ health: ControlCenterHealth) -> ControlCenterStatusCard {
         switch health {
-        case .connected:
-            return .init(title: "Chrome Provider", detail: "Chrome 已连接", severity: .informational)
+        case .connected(_, let applied):
+            return .init(title: "Chrome Provider", detail: applied == true ? "Chrome Provider 已连接" : "当前预设正在同步", severity: applied == true ? .informational : .warning)
         case .disconnected:
             return .init(title: "Chrome Provider", detail: "Chrome 连接已中断", severity: .warning)
         case .preparing:
             return .init(title: "Chrome Provider", detail: "正在检查 Chrome 连接", severity: .informational)
+        case .stopped:
+            return .init(title: "Chrome Provider", detail: "手势监听已停止", severity: .warning)
         case .listeningUnavailable:
             return .init(title: "Chrome Provider", detail: "等待手势监听恢复后检查连接", severity: .warning)
         }
