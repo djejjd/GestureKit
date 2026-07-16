@@ -1,27 +1,28 @@
-# GestureKit V1 排障说明
+# GestureKit 排障说明
 
-## 1. `smoke-check.sh` 直接失败
+## 1. 先执行健康检查
 
-先用 dry run 核对当前要执行的命令：
-
-```bash
-./scripts/dev/smoke-check.sh --extension-id <extension-id> --dry-run
-```
-
-重点确认：
-
-- 扩展 ID 是当前 `chrome://extensions` 里这次加载的 ID。
-- 默认 host 路径是否仍然是仓库根目录下的 `.build/debug/GestureKitHost`。
-- dry-run 里 Swift 命令是否显示为 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift ...`；如果你的 Xcode 不在这个路径，先导出正确的 `DEVELOPER_DIR` 再重跑。
-- 如果你在别的位置构建过 host，改用 `--host-path /absolute/path/to/GestureKitHost`。
-- dry-run 输出现在按 shell-safe 形式展示真实命令；如果路径里有空格，看到反斜杠转义是预期行为。
-- 如果 `smoke-check.sh` 已经把 `./scripts/dev/test-provider-protocol.sh` 调起来，但脚本没有输出 `provider_protocol_ok`，先单独跑：
+从仓库根目录运行：
 
 ```bash
-./scripts/dev/test-provider-protocol.sh
+./scripts/dev/health-check.sh
 ```
 
-如果这里失败，优先检查 `DEVELOPER_DIR`、SwiftPM 缓存权限和 `extensions/chrome` 里的协议测试；`--real` 路径是故意 fail-closed 的，不表示自动化失效。
+按输出的失败或等待阶段处理：
+
+- `FAIL 开发环境`：确认 Xcode、Swift、Node.js 和扩展依赖可用，再运行 `./scripts/dev/install-local.sh`。
+- `FAIL 构建产物`：运行 `./scripts/dev/install-local.sh` 重新构建 host。
+- `FAIL Native Messaging`：运行 `./scripts/dev/install-local.sh` 重新生成 manifest；不要手工编辑扩展 ID。
+- `WAITING Chrome 到 Host`：在 `chrome://extensions` 加载或刷新 `extensions/chrome`，再运行 `./scripts/dev/smoke-check.sh`。
+- `WAITING Host 到 App`：启动 `GestureKitApp` 后刷新 smoke 页面。
+
+`smoke-check.sh` 会构建协议检查所需产物并在 Google Chrome 打开 smoke 页面；如需只检查将执行的命令，可运行：
+
+```bash
+./scripts/dev/smoke-check.sh --dry-run
+```
+
+脚本默认由仓库公钥推导稳定扩展 ID，用户无需提供 `--extension-id`。
 
 ## 2. `swift run GestureKitHost --self-test` 失败
 
@@ -60,26 +61,24 @@ npm run build
    实际建议命令：`DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift run GestureKitHost --self-test`
 2. 打开 `~/Library/Application Support/Google/Chrome/NativeMessagingHosts/com.gesturekit.host.json`，确认：
    - `path` 是实际 `GestureKitHost` 绝对路径。
-   - `allowed_origins` 是当前扩展 ID。
-3. 重新打开：
+   - `allowed_origins` 是安装脚本推导出的稳定扩展 origin。
+3. 重新运行：
 
 ```bash
-open "chrome-extension://<extension-id>/smoke.html"
+./scripts/dev/smoke-check.sh
 ```
 
-如果扩展 ID 变了，重新执行：
+如果 manifest 缺失或来源不匹配，重新执行：
 
 ```bash
-./scripts/dev/install-native-host.sh \
-  --extension-id <extension-id> \
-  --host-path "$(pwd)/.build/debug/GestureKitHost"
+./scripts/dev/install-local.sh
 ```
 
 ## 5. smoke 页面显示 `app_unavailable`
 
 先区分你在哪个阶段：
 
-- 如果你刚跑完 `./scripts/dev/smoke-check.sh --extension-id <extension-id>`，但还没启动 `GestureKitApp`，首次看到 `app_unavailable` 是预期结果，说明阶段一只做到“页面已打开，等待 App”。
+- 如果你刚跑完 `./scripts/dev/smoke-check.sh`，但还没启动 `GestureKitApp`，首次看到 `app_unavailable` 是预期结果，说明阶段一只做到“页面已打开，等待 App”。
 - 如果你已经启动了 `GestureKitApp`，仍然看到 `app_unavailable`，这通常表示扩展能连到 native host，但 App 没起来或本机 IPC 不通。先确认：
 
 ```bash
@@ -100,7 +99,7 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer GESTUREKIT_DEBUG=1 swif
 
 ## 6. 手势识别不稳定或三指轻扫方向不符合预期
 
-先确认这不是安装链路问题，而是输入识别问题。V1 现有结论是 `passed_with_notes`，其中三指快速右轻扫按物理方向定义为“从触控板左侧向右侧移动”。如果观测结果和预期不一致：
+先确认这不是安装链路问题，而是输入识别问题。现有结论是 `passed_with_notes`，其中三指快速右轻扫按物理方向定义为“从触控板左侧向右侧移动”。如果观测结果和预期不一致：
 
 - 先确认是否触发了系统三指手势冲突。
 - 结合 `~/Library/Logs/GestureKit/GestureKitApp.log` 看 `gesture_unstable`、发布结果和连接数。
@@ -145,10 +144,8 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer GESTUREKIT_DEBUG=1 swif
 
 建议固定顺序，不要跳步：
 
-1. `./scripts/dev/smoke-check.sh --extension-id <extension-id> --dry-run`
-2. `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift build`
-3. `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift run GestureKitHost --self-test`
-4. `cd extensions/chrome && npm run build`
-5. `./scripts/dev/install-native-host.sh --extension-id <extension-id> --host-path "$(pwd)/.build/debug/GestureKitHost"`
-6. `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift run GestureKitApp`
-7. `open "chrome-extension://<extension-id>/smoke.html"`
+1. `./scripts/dev/health-check.sh`
+2. `./scripts/dev/install-local.sh`
+3. 在 `chrome://extensions` 刷新 `extensions/chrome` 扩展
+4. `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift run GestureKitApp`
+5. `./scripts/dev/smoke-check.sh`

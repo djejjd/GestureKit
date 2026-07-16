@@ -20,12 +20,12 @@ assert_output() {
   rg -Fq "env DEVELOPER_DIR=$quoted_developer_dir swift build --package-path $quoted_repo_root" <(print -r -- "$output") || return 1
   rg -Fq "env DEVELOPER_DIR=$quoted_developer_dir swift run --package-path $quoted_repo_root GestureKitHost --self-test" <(print -r -- "$output") || return 1
   rg -Fq "cd $quoted_chrome_dir && npm run build" <(print -r -- "$output") || return 1
-  rg -Fq "$quoted_repo_root/scripts/dev/install-native-host.sh --extension-id $extension_id --host-path $quoted_host_path" <(print -r -- "$output") || return 1
+  rg -Fq "$quoted_repo_root/scripts/dev/install-native-host.sh --host-path $quoted_host_path" <(print -r -- "$output") || return 1
   rg -Fq "$quoted_repo_root/scripts/dev/test-provider-protocol.sh" <(print -r -- "$output") || {
     echo "expected smoke check to invoke the Provider protocol contract check" >&2
     return 1
   }
-  rg -Fq "open chrome-extension://$extension_id/smoke.html" <(print -r -- "$output") || return 1
+  rg -Fq "open -a Google\\ Chrome chrome-extension://$extension_id/smoke.html" <(print -r -- "$output") || return 1
 }
 
 output=$("$script" --extension-id "$extension_id" --dry-run)

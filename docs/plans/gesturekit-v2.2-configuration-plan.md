@@ -127,8 +127,8 @@
 
 **文件：**
 - 修改：`docs/architecture/config-derived-interaction-guards.md`
-- 修改：`docs/operations/gesturekit-v1-e2e-checklist.md`
-- 修改：`docs/operations/gesturekit-v1-local-install.md`
+- 修改：`docs/operations/e2e-checklist.md`
+- 修改：`docs/operations/local-install.md`
 - 修改：`docs/product/gesturekit-v2.2-configuration-contract.md`
 - 视实际结果修改：`README.md`
 

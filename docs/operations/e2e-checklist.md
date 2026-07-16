@@ -1,4 +1,4 @@
-# GestureKit V1 端到端验收清单
+# GestureKit 端到端验收清单
 
 ## 环境
 
@@ -9,16 +9,16 @@
 
 ## 阶段一：预检查
 
-- [ ] 已按 `docs/operations/gesturekit-v1-local-install.md` 加载 unpacked extension，并记录实际扩展 ID。
-- [ ] 已运行 `./scripts/dev/smoke-check.sh --extension-id <extension-id>`，确认脚本实际使用的 Swift 入口、host 自检、manifest 安装和 `smoke.html` 打开链路都成功。
+- [ ] 已按 `docs/operations/local-install.md` 运行 `./scripts/dev/install-local.sh` 并加载 unpacked extension，无需记录或复制扩展 ID。
+- [ ] 已运行 `./scripts/dev/health-check.sh`，确认开发环境、构建产物、Native Messaging 均为 `PASS`。
 - [ ] 已运行 `./scripts/dev/test-provider-protocol.sh`，确认输出 `provider_protocol_ok`。
-- [ ] 如需复查链路但不实际执行，可运行 `./scripts/dev/smoke-check.sh --extension-id <extension-id> --dry-run`。
+- [ ] 如需复查链路但不实际执行，可运行 `./scripts/dev/smoke-check.sh --dry-run`。
 - [ ] 如果此时 `smoke.html` 显示 `app_unavailable`，已按“预检查阶段 App 未启动”的预期处理，而不是误判为脚本失败。
 
 ## 阶段二：连通性探针
 
 - [ ] 已单独启动 `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift run GestureKitApp`。
-- [ ] 重新打开或刷新 `chrome-extension://<extension-id>/smoke.html` 后，不再出现 `app_unavailable`。
+- [ ] 运行 `./scripts/dev/smoke-check.sh` 并确认 smoke 页面显示 `status: "connected"`，不再出现 `app_unavailable`。
 - [ ] App 常驻正常后，再进行以下人工手势验收。
 
 ## 必测功能
@@ -33,7 +33,6 @@
 - [ ] 鼠标停在非链接区域，触控板左侧边缘三指点按切到左侧 tab。
 - [ ] 鼠标停在非链接区域，触控板右侧边缘三指点按切到右侧 tab。
 - [ ] 鼠标停在非链接区域，触控板中间区域三指单点不切 tab、不关闭 tab。
-- [ ] 鼠标停在非链接区域，合法间隔内连续两次三指点按触控板中间区域关闭当前 tab，且第一下不先切 tab。
 - [ ] 关闭 GestureKit 三指点按链接打开的新 tab 后，Chrome 回到打开它的来源 tab。
 - [ ] 关闭普通中间 tab 后，Chrome 优先切到左侧 tab。
 - [ ] 关闭最左侧 tab 后，如果没有来源 tab，Chrome 切到右侧 tab。
@@ -77,8 +76,8 @@
 - [ ] 打开菜单栏，确认存在”监听：运行中/已停止”、”连接：未连接/已连接(N)”、”最近手势”、”最近错误”信息项。
 - [ ] 点击”刷新状态”，确认菜单中的连接文案刷新。
 - [ ] 点击”打开日志目录”，确认能打开 `~/Library/Logs/GestureKit/`。
-- [ ] 点击”打开安装说明”，确认能打开仓库 `docs/operations/gesturekit-v1-local-install.md`（需设置 `GESTUREKIT_REPO_ROOT` 环境变量或从仓库目录启动）。
-- [ ] 点击”打开排障文档”，确认能打开仓库 `docs/operations/gesturekit-v1-troubleshooting.md`。
+- [ ] 点击”打开安装说明”，确认能打开仓库 `docs/operations/local-install.md`（需设置 `GESTUREKIT_REPO_ROOT` 环境变量或从仓库目录启动）。
+- [ ] 点击”打开排障文档”，确认能打开仓库 `docs/operations/troubleshooting.md`。
 - [ ] 在非 Chrome 前台执行三指手势，确认菜单栏”最近错误”显示 `unsupported_app`。
 - [ ] 点击”停止监听”，确认菜单栏显示”监听：已停止”，菜单栏标题不变。
 - [ ] 点击”启动监听”，确认菜单栏恢复”监听：运行中”。
@@ -120,4 +119,4 @@ tail -n 200 ~/Library/Logs/GestureKit/GestureKitApp.log
 grep -E "warn|error|gesture_unstable|connections=0|gesture_published" ~/Library/Logs/GestureKit/GestureKitApp.log
 ```
 
-如果 smoke 页面或 native host 链路异常，先看 `docs/operations/gesturekit-v1-troubleshooting.md`。
+如果 smoke 页面或 native host 链路异常，先看 `docs/operations/troubleshooting.md`。

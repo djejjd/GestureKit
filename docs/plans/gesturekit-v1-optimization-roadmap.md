@@ -2,14 +2,16 @@
 
 日期：2026-07-08
 
+> **进度更新（2026-07-16）：** V2.2.0 已发布，完成三项已验证手势的独立开关、三档轻扫灵敏度和 App 权威配置链路。本路线图中的 P3 基础设施（manifest 渲染与安装、smoke 页面、连通探针）已完成；其遗留的“扩展 ID 手工传入”和安装状态归因问题由 `docs/product/gesturekit-v2.3-installation-contract.md` 与 `docs/plans/gesturekit-v2.3-installation-connectivity-plan.md` 接管。V2.3 已进入开发，后续 P4-P7 仍需在 V2.3 验收后重新评估优先级。
+
 相关文档：
 
 - `docs/product/gesturekit-v1-contract.md`
 - `docs/product/gesturekit-v1-requirements.md`
 - `docs/architecture/gesturekit-v1-technical-design.md`
 - `docs/plans/gesturekit-v1-product-implementation-plan.md`
-- `docs/operations/gesturekit-v1-local-install.md`
-- `docs/operations/gesturekit-v1-e2e-checklist.md`
+- `docs/operations/local-install.md`
+- `docs/operations/e2e-checklist.md`
 
 ## 1. 目标
 

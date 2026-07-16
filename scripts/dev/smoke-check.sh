@@ -7,6 +7,7 @@ host_path="$repo_root/.build/debug/GestureKitHost"
 dry_run=false
 default_developer_dir=/Applications/Xcode.app/Contents/Developer
 developer_dir="${DEVELOPER_DIR:-}"
+chrome_app="${GESTUREKIT_CHROME_APP:-Google Chrome}"
 
 if [[ -z "$developer_dir" && -d "$default_developer_dir" ]]; then
   developer_dir="$default_developer_dir"
@@ -14,7 +15,7 @@ fi
 
 usage() {
   cat <<'EOF' >&2
-usage: smoke-check.sh --extension-id <id> [--host-path <path>] [--dry-run]
+usage: smoke-check.sh [--host-path <path>] [--dry-run]
 EOF
 }
 
@@ -51,9 +52,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "$extension_id" ]]; then
-  echo "missing required argument: --extension-id" >&2
-  usage
-  exit 1
+  extension_id=$(node "$repo_root/extensions/chrome/scripts/extension-id.mjs")
 fi
 
 print_argv() {
@@ -94,9 +93,8 @@ else
 fi
 
 run_or_print "$repo_root/scripts/dev/install-native-host.sh" \
-  --extension-id "$extension_id" \
   --host-path "$host_path"
 
 run_or_print "$repo_root/scripts/dev/test-provider-protocol.sh"
 
-run_or_print open "chrome-extension://$extension_id/smoke.html"
+run_or_print open -a "$chrome_app" "chrome-extension://$extension_id/smoke.html"

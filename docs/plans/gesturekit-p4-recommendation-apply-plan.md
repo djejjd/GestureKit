@@ -58,9 +58,9 @@
   - 增加推荐卡片与状态标签样式。
 - `extensions/chrome/tests/popup.test.ts`
   - 覆盖推荐按钮显隐、确认、状态文案和失败表现。
-- `docs/operations/gesturekit-v1-e2e-checklist.md`
+- `docs/operations/e2e-checklist.md`
   - 增加推荐应用闭环验收步骤。
-- `docs/operations/gesturekit-v1-troubleshooting.md`
+- `docs/operations/troubleshooting.md`
   - 增加 `saved_only` / `pending` / `stale` / `failed` 的排查入口。
 - `docs/plans/gesturekit-v1-progress-archive.md`
   - 实现完成后补记 P4 完成状态。
@@ -705,8 +705,8 @@ git commit -m "feat: add recommendation apply flow in popup"
 ### Task 5: 文档、全量验证与收口
 
 **Files:**
-- Modify: `docs/operations/gesturekit-v1-e2e-checklist.md`
-- Modify: `docs/operations/gesturekit-v1-troubleshooting.md`
+- Modify: `docs/operations/e2e-checklist.md`
+- Modify: `docs/operations/troubleshooting.md`
 - Modify: `docs/plans/gesturekit-v1-progress-archive.md`
 
 **Interfaces:**
@@ -773,8 +773,8 @@ Expected: 无输出
 - [ ] **Step 7: 归档并提交**
 
 ```bash
-git add docs/operations/gesturekit-v1-e2e-checklist.md \
-  docs/operations/gesturekit-v1-troubleshooting.md \
+git add docs/operations/e2e-checklist.md \
+  docs/operations/troubleshooting.md \
   docs/plans/gesturekit-v1-progress-archive.md
 git commit -m "docs: document recommendation apply workflow"
 ```

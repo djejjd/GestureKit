@@ -41,6 +41,10 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+if [[ -z "$extension_id" ]]; then
+  extension_id=$(node "$repo_root/extensions/chrome/scripts/extension-id.mjs")
+fi
+
 mkdir -p "$manifest_dir"
 target="$manifest_dir/com.gesturekit.host.json"
 temp_target=$(mktemp "$manifest_dir/.com.gesturekit.host.json.XXXXXX")

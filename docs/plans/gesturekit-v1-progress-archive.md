@@ -11,9 +11,9 @@
 - `docs/architecture/gesturekit-v1-technical-design.md`
 - `docs/plans/gesturekit-v1-optimization-roadmap.md`
 - `docs/plans/gesturekit-p3-installation-connectivity-plan.md`
-- `docs/operations/gesturekit-v1-local-install.md`
-- `docs/operations/gesturekit-v1-e2e-checklist.md`
-- `docs/operations/gesturekit-v1-troubleshooting.md`
+- `docs/operations/local-install.md`
+- `docs/operations/e2e-checklist.md`
+- `docs/operations/troubleshooting.md`
 
 ## 1. 当前状态
 
@@ -77,9 +77,9 @@ P5 菜单栏状态与生命周期加固已完成；准备进入 P6 开源最小�
 - `scripts/dev/smoke-check.sh`
 - `extensions/chrome/smoke.html`
 - `extensions/chrome/src/background/connectionProbe.ts`
-- `docs/operations/gesturekit-v1-local-install.md`
-- `docs/operations/gesturekit-v1-e2e-checklist.md`
-- `docs/operations/gesturekit-v1-troubleshooting.md`
+- `docs/operations/local-install.md`
+- `docs/operations/e2e-checklist.md`
+- `docs/operations/troubleshooting.md`
 
 ### 3.3 P3 关键提交记录
 
@@ -181,8 +181,8 @@ npm run build
 - `extensions/chrome/src/popup/popup.css`
 - `extensions/chrome/src/diagnostics/diagnostics.ts`
 - `extensions/chrome/popup.html`
-- `docs/operations/gesturekit-v1-e2e-checklist.md`
-- `docs/operations/gesturekit-v1-troubleshooting.md`
+- `docs/operations/e2e-checklist.md`
+- `docs/operations/troubleshooting.md`
 
 ### 4.3 P4 关键提交记录
 
@@ -248,8 +248,8 @@ npm run build  # Build complete
 - `apps/macos/GestureKitApp/Sources/GestureKitApp/LocalEventServer.swift` (修改)
 - `Tests/GestureKitAppTests/RuntimeLifecycleTests.swift` (新增)
 - `Tests/GestureKitAppTests/MenuBarControllerTests.swift` (新增)
-- `docs/operations/gesturekit-v1-e2e-checklist.md` (修改)
-- `docs/operations/gesturekit-v1-troubleshooting.md` (修改)
+- `docs/operations/e2e-checklist.md` (修改)
+- `docs/operations/troubleshooting.md` (修改)
 
 ### 5.3 P5 关键提交记录
 
