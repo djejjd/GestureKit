@@ -36,6 +36,32 @@ public struct AppConfiguration: Codable, Equatable, Sendable {
         )
     }
 
+    public func updatingBinding(id: String, enabled: Bool) throws -> AppConfiguration {
+        guard rules.contains(where: { $0.id == id }) else {
+            throw AppConfigurationEditError.unknownBinding(id)
+        }
+        let updatedRules = rules.map { rule in
+            guard rule.id == id else { return rule }
+            return BindingRule(
+                id: rule.id,
+                gestureDefinitionId: rule.gestureDefinitionId,
+                contextConstraints: rule.contextConstraints,
+                actionId: rule.actionId,
+                actionParameters: rule.actionParameters,
+                priority: rule.priority,
+                enabled: enabled
+            )
+        }
+        return AppConfiguration(
+            storeEpoch: storeEpoch,
+            schemaVersion: schemaVersion,
+            configurationVersion: configurationVersion + 1,
+            gestureDefinitions: gestureDefinitions,
+            rules: updatedRules,
+            recognition: recognition
+        )
+    }
+
     private enum CodingKeys: String, CodingKey { case storeEpoch, schemaVersion, configurationVersion, gestureDefinitions, rules, recognition }
 
     public init(from decoder: Decoder) throws {
@@ -47,4 +73,8 @@ public struct AppConfiguration: Codable, Equatable, Sendable {
         rules = try values.decode([BindingRule].self, forKey: .rules)
         recognition = try values.decode(GestureRecognitionSettings.self, forKey: .recognition)
     }
+}
+
+public enum AppConfigurationEditError: Error, Equatable {
+    case unknownBinding(String)
 }
