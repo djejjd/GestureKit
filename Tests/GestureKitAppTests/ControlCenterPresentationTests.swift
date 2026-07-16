@@ -39,6 +39,28 @@ final class ControlCenterPresentationTests: XCTestCase {
         XCTAssertEqual(page.selectedItem, item)
     }
 
+    func testOperationPageFindsExplicitlySelectedOlderItem() {
+        let newest = OperationListItem(
+            id: "newest",
+            title: "最新操作",
+            presentation: .resultUnknown,
+            eventCount: 1,
+            lastEventAt: Date(timeIntervalSince1970: 2),
+            evidenceTimeline: ["最新证据"]
+        )
+        let older = OperationListItem(
+            id: "older",
+            title: "较早操作",
+            presentation: .resultUnknown,
+            eventCount: 1,
+            lastEventAt: Date(timeIntervalSince1970: 1),
+            evidenceTimeline: ["较早证据"]
+        )
+        let page = OperationPageState(items: [newest, older], selectedOperationID: newest.id, message: nil, canLoadMore: false)
+
+        XCTAssertEqual(page.item(id: older.id), older)
+    }
+
     func testRuntimeDataSourcePaginatesJournalAndUsesChineseTerminalPresentation() {
         let request = ProviderEvent(
             eventId: "request-1",
