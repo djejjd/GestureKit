@@ -41,6 +41,11 @@ const providerLedger = createOperationLedgerStore();
 const producerSessionId = crypto.randomUUID();
 let authenticatedProviderSessionId: string | null = null;
 let controlCenterRequestForwarder: ReturnType<typeof createControlCenterRequestForwarder> | null = null;
+const MAX_GUARD_STAGES_PER_OPERATION = 15;
+const GUARD_DIAGNOSTIC_LIMIT = 50;
+type GuardTrace = { timestamp: number; stage: string; detail: string };
+const guardTraces = new Map<string, GuardTrace[]>();
+let diagnosticLoggingEnabled = false;
 // v2 boundary keeps resolved page URLs and target references inside Chrome.
 const chromeProvider = new ChromeProvider(chromeApi, async (tabId, message) => {
   try { return await chrome.tabs.sendMessage(tabId, message); }
@@ -295,16 +300,56 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 
 function recordGuardTrace(gestureSessionId: unknown, stage: unknown, detail: unknown) {
   if (typeof gestureSessionId !== "string" || typeof stage !== "string" || typeof detail !== "string") return;
-  const message = `interaction_guard session=${gestureSessionId} stage=${stage} detail=${detail}`;
-  console.info(message);
+  const trace: GuardTrace = { timestamp: Date.now(), stage, detail };
+  const traces = [...(guardTraces.get(gestureSessionId) ?? []), trace].slice(-MAX_GUARD_STAGES_PER_OPERATION);
+  guardTraces.set(gestureSessionId, traces);
+
+  if (diagnosticLoggingEnabled) {
+    console.debug(`interaction_guard session=${gestureSessionId} stage=${stage} detail=${detail}`);
+    void appendGuardTrace(gestureSessionId, trace, traces.length - 1);
+  }
+
+  if (!isGuardTerminalStage(stage)) return;
+  const failed = isGuardFailureStage(stage);
+  const summary = traces.map((entry) => `${entry.stage}:${entry.detail}`).join(">");
+  // Keep one normal-path summary; preserve the bounded pre-failure capsule only on failure.
   void appendDiagnostic(chrome.storage.local, {
-    id: `interaction-guard-${gestureSessionId}-${stage}-${Date.now()}`,
-    timestamp: Date.now(),
+    id: `interaction-guard-summary-${gestureSessionId}-${trace.timestamp}`,
+    timestamp: trace.timestamp,
+    source: "extension",
+    kind: "action",
+    reason: failed ? "chrome_action_failed" : "success",
+    message: `guard_summary terminal=${stage}:${detail} stages=${summary}`
+  }, GUARD_DIAGNOSTIC_LIMIT);
+  if (failed && !diagnosticLoggingEnabled) {
+    void persistGuardTraces(gestureSessionId, traces);
+  }
+  guardTraces.delete(gestureSessionId);
+}
+
+async function persistGuardTraces(gestureSessionId: string, traces: GuardTrace[]) {
+  for (const [index, trace] of traces.entries()) {
+    await appendGuardTrace(gestureSessionId, trace, index);
+  }
+}
+
+function appendGuardTrace(gestureSessionId: string, trace: GuardTrace, index: number) {
+  return appendDiagnostic(chrome.storage.local, {
+    id: `interaction-guard-stage-${gestureSessionId}-${trace.timestamp}-${index}`,
+    timestamp: trace.timestamp,
     source: "extension",
     kind: "action",
     reason: "unknown",
-    message
-  });
+    message: `guard_stage session=${gestureSessionId} stage=${trace.stage} detail=${trace.detail}`
+  }, GUARD_DIAGNOSTIC_LIMIT);
+}
+
+function isGuardTerminalStage(stage: string) {
+  return stage === "consume_acknowledged" || stage === "consume_rejected" || stage === "forward_failed" || stage === "lease_expired";
+}
+
+function isGuardFailureStage(stage: string) {
+  return stage !== "consume_acknowledged";
 }
 
 async function handleConfigurationSnapshot(
@@ -322,6 +367,7 @@ async function handleConfigurationSnapshot(
   } satisfies ProviderEnvelope);
   try {
     const applied = await cacheAppConfigurationSnapshot(chrome.storage.local, snapshot);
+    diagnosticLoggingEnabled = diagnosticLoggingEnabledFromSnapshot(applied);
     void appendDiagnostic(chrome.storage.local, {
       id: `settings-${envelope.messageId}`,
       timestamp: envelope.timestamp,

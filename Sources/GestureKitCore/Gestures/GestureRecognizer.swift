@@ -9,11 +9,15 @@ public struct GestureRecognizer: Sendable {
     private struct Session {
         let startedAt: TimeInterval
         let startCentroid: Centroid
+        let fingerCount: Int
         var latestCentroid: Centroid
     }
 
     private var session: Session?
     private var settings: GestureRecognitionSettings
+    /// A higher touch count belongs to another gesture. After a terminal count
+    /// drop, do not reenter until the remaining touches lift.
+    private var requiresAllTouchesLift = false
 
     public init(settings: GestureRecognitionSettings = .standard) {
         self.settings = settings
@@ -22,17 +26,38 @@ public struct GestureRecognizer: Sendable {
     public mutating func updateSettings(_ settings: GestureRecognitionSettings) {
         self.settings = settings
         session = nil
+        requiresAllTouchesLift = false
     }
 
     public mutating func observe(_ frame: TouchFrame) -> [GestureSessionEvent] {
         let fingerCount = frame.activeTouches.count
+        if requiresAllTouchesLift {
+            if fingerCount == 0 {
+                requiresAllTouchesLift = false
+            }
+            return []
+        }
+        if let activeSession = session, fingerCount > activeSession.fingerCount {
+            session = nil
+            requiresAllTouchesLift = true
+            // 通知协调器结束已启动的候选，避免后续手势复用陈旧 session。
+            return [.primitiveRejected(rejected(activeSession, endedAt: frame.time))]
+        }
+        if let activeSession = session,
+           fingerCount > 0,
+           fingerCount < activeSession.fingerCount {
+            session = nil
+            requiresAllTouchesLift = true
+            let gesture = classify(activeSession, endedAt: frame.time)
+            return gesture.gesture == nil ? [.primitiveRejected(gesture)] : [.primitiveClassified(gesture)]
+        }
         if fingerCount == 3, let centroid = Self.centroid(of: frame.activeTouches) {
             if var existing = session {
                 existing.latestCentroid = centroid
                 session = existing
                 return []
             } else {
-                session = Session(startedAt: frame.time, startCentroid: centroid, latestCentroid: centroid)
+                session = Session(startedAt: frame.time, startCentroid: centroid, fingerCount: fingerCount, latestCentroid: centroid)
                 return [.candidateStarted(GestureCandidate(startedAt: frame.time, centroidX: centroid.x, centroidY: centroid.y, fingerCount: fingerCount))]
             }
         }
@@ -86,6 +111,23 @@ public struct GestureRecognizer: Sendable {
             status: .gestureUnstable,
             reason: failureReason(duration: duration, dx: dx, dy: dy),
             durationMs: durationMs,
+            dx: dx,
+            dy: dy,
+            thresholds: settings,
+            centroidX: session.startCentroid.x,
+            centroidY: session.startCentroid.y
+        )
+    }
+
+    private func rejected(_ session: Session, endedAt: TimeInterval) -> RecognizedGesture {
+        let duration = endedAt - session.startedAt
+        let dx = session.latestCentroid.x - session.startCentroid.x
+        let dy = session.latestCentroid.y - session.startCentroid.y
+        return RecognizedGesture(
+            gesture: nil,
+            status: .gestureUnstable,
+            reason: .unknown,
+            durationMs: Int((duration * 1000).rounded()),
             dx: dx,
             dy: dy,
             thresholds: settings,

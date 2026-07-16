@@ -489,6 +489,13 @@ final class GestureKitRuntime {
             )
             if case (.actionResult, .actionResult(let resultPayload)) = (envelope.type, envelope.payload) {
                 logger.info("action_result_outcome operationId=\(operationId) outcome=\(resultPayload.outcome.rawValue) reason=\(resultPayload.reason?.rawValue ?? "nil")")
+                if resultPayload.reason == .guardUnavailable || resultPayload.reason == .guardExpired {
+                    logger.warn(
+                        "link_operation_summary operationId=\(operationId) sessionId=\(gestureSessionId) outcome=\(resultPayload.outcome.rawValue) guard=\(resultPayload.reason?.rawValue ?? "unknown") action=not_dispatched",
+                        rateLimitKey: "link_operation_guard_failure_\(operationId)",
+                        interval: 0
+                    )
+                }
             }
             appendOperationLifecycleEvent(envelope)
         case (.telemetryBatch, .telemetryBatch(let batch)):

@@ -35,6 +35,25 @@ final class GestureSessionCoordinatorTests: XCTestCase {
         XCTAssertNil(coordinator.handle(.primitiveClassified(swipeLeft)))
     }
 
+    func testInterruptedCandidateReleasesItsGuardBeforeNextCandidateClassifies() {
+        var ids = ["interrupted", "next"]
+        var released: [String] = []
+        var requested: [String] = []
+        let coordinator = GestureSessionCoordinator(
+            guardReleaseRouter: { released.append($0) },
+            contextRouter: { id, _ in requested.append(id) },
+            sessionID: { ids.removeFirst() }
+        )
+
+        XCTAssertEqual(coordinator.handle(.candidateStarted(candidate)), "interrupted")
+        XCTAssertEqual(coordinator.handle(.primitiveRejected(rejected)), "interrupted")
+        XCTAssertEqual(coordinator.handle(.candidateStarted(candidate)), "next")
+        XCTAssertEqual(coordinator.handle(.primitiveClassified(swipeLeft)), "next")
+
+        XCTAssertEqual(released, ["interrupted"])
+        XCTAssertEqual(requested, ["next"])
+    }
+
     func testContextAfterClassificationUsesSessionCompositionWithoutCallerSupplyingGesture() {
         var actions: [(String, StandardActionID)] = []
         let coordinator = GestureSessionCoordinator(
