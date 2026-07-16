@@ -38,11 +38,32 @@ final class ProviderSessionRegistryTests: XCTestCase {
         XCTAssertNotEqual(first.providerSessionID, second.providerSessionID)
     }
 
-    private func register(_ id: String, registry: ProviderSessionRegistry, store: ProviderCredentialStore, sink: @escaping ProviderSessionSink) throws -> AuthenticatedProviderSession {
+    func testAuthenticatedSessionOnlyUsesCapabilitiesReportedByItsConnection() throws {
+        let store = ProviderCredentialStore(directory: directory)
+        let registry = ProviderSessionRegistry(credentialStore: store)
+        let connectionID = UUID()
+        let session = try register("chrome", registry: registry, store: store, connectionID: connectionID) { _ in }
+
+        XCTAssertTrue(session.capabilities.isEmpty)
+        XCTAssertTrue(registry.updateCapabilities(
+            CapabilitySnapshotPayload(capabilities: [.browserPageReload], capabilityVersion: 1),
+            for: session.providerSessionID,
+            connectionID: connectionID
+        ))
+        XCTAssertEqual(registry.activeSession()?.capabilities, [.browserPageReload])
+        XCTAssertFalse(registry.updateCapabilities(
+            CapabilitySnapshotPayload(capabilities: StandardActionID.allCases, capabilityVersion: 1),
+            for: session.providerSessionID,
+            connectionID: UUID()
+        ))
+        XCTAssertEqual(registry.activeSession()?.capabilities, [.browserPageReload])
+    }
+
+    private func register(_ id: String, registry: ProviderSessionRegistry, store: ProviderCredentialStore, connectionID: UUID = UUID(), sink: @escaping ProviderSessionSink) throws -> AuthenticatedProviderSession {
         let hello = ProviderHelloPayload(installId: id, protocolVersions: [2], environment: "test")
         let nonce = try registry.beginAuthentication(hello)
         let response = ProviderAuthenticator(secret: try store.secret(for: id)).response(for: id, nonce: nonce)
-        return try registry.authenticate(installId: id, nonce: nonce, response: response, sink: sink)
+        return try registry.authenticate(installId: id, nonce: nonce, response: response, connectionID: connectionID, sink: sink)
     }
 }
 

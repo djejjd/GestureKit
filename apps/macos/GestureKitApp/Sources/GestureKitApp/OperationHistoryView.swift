@@ -5,6 +5,7 @@ struct OperationHistoryView: View {
     let state: OperationPageState
     let onLoadMore: () -> Void
     let onExport: (String) -> Void
+    let onClearListDisplay: () -> Void
 
     var body: some View {
         if state.items.isEmpty {
@@ -19,9 +20,7 @@ struct OperationHistoryView: View {
                     ForEach(state.items) { item in
                         operationRow(item)
                     }
-                    if state.canLoadMore {
-                        Button("加载更多", action: onLoadMore).buttonStyle(.bordered)
-                    }
+                    Button("清空列表显示", action: onClearListDisplay).buttonStyle(.bordered)
                 }
                 .frame(minWidth: 260, maxWidth: 320, alignment: .leading)
 

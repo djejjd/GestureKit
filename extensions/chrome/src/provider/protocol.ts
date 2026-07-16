@@ -43,6 +43,8 @@ export type ProviderMessageType =
   | "capability_snapshot"
   | "context_request"
   | "context_snapshot"
+  | "interaction_guard_arm"
+  | "interaction_guard_release"
   | "configuration_snapshot"
   | "configuration_ack"
   | "action_request"
@@ -124,6 +126,12 @@ export interface ContextSnapshotPayload {
   expiresAt: number;
   targetKind: ContextTargetKind;
   targetRef: string | null;
+}
+
+export interface InteractionGuardPayload {
+  gestureSessionId: string;
+  features: string[];
+  deadline: number;
 }
 
 // ---------- 配置 ----------
@@ -214,6 +222,7 @@ export type ProviderPayload =
   | CapabilitySnapshotPayload
   | ContextRequestPayload
   | ContextSnapshotPayload
+  | InteractionGuardPayload
   | ConfigurationSnapshotPayload
   | ConfigurationAckPayload
   | ActionDescriptor
@@ -249,6 +258,8 @@ const PAYLOAD_TYPE_MAP: Record<ProviderMessageType, PayloadShape> = {
   capability_snapshot: { required: { capabilities: "stringArray", capabilityVersion: "integer" } },
   context_request: { required: { gestureSessionId: "string", requiresTargetRef: "boolean", deadline: "integer" } },
   context_snapshot: { required: { contextId: "string", pageIdentity: "string", expiresAt: "integer", targetKind: "targetKind" }, optional: { targetRef: "string" } },
+  interaction_guard_arm: { required: { gestureSessionId: "string", features: "stringArray", deadline: "integer" } },
+  interaction_guard_release: { required: { gestureSessionId: "string", features: "stringArray", deadline: "integer" } },
   configuration_snapshot: { required: { storeEpoch: "string", schemaVersion: "integer", configurationVersion: "integer", configJSON: "string" }, optional: { diagnosticLoggingEnabled: "boolean" } },
   configuration_ack: { required: { appliedVersion: "integer", applied: "boolean" } },
   action_request: { required: { actionId: "actionId", contextId: "string", parameters: "stringMap", deadline: "integer" }, optional: { targetRef: "string" } },
@@ -314,6 +325,8 @@ const VALID_MESSAGE_TYPES: readonly ProviderMessageType[] = [
   "capability_snapshot",
   "context_request",
   "context_snapshot",
+  "interaction_guard_arm",
+  "interaction_guard_release",
   "configuration_snapshot",
   "configuration_ack",
   "action_request",

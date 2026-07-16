@@ -93,9 +93,7 @@ final class ControlCenterPresentationTests: XCTestCase {
         XCTAssertFalse(page.items.first?.presentation.title.contains("result_unknown") ?? true)
         XCTAssertEqual(page.items.first?.evidenceTimeline.first, "1. 已识别三指左滑，准备切换右侧标签页")
         XCTAssertEqual(page.items.first?.evidenceTimeline.last, "2. 浏览器返回结果：成功")
-        XCTAssertTrue(page.canLoadMore)
-        source.loadMoreOperations()
-        XCTAssertEqual(source.operationPage(limit: 1).items.count, 2)
+        XCTAssertFalse(page.canLoadMore)
     }
 
     func testRuntimeDataSourceShowsAuthoritativePresetAndProviderHealth() {
@@ -103,7 +101,7 @@ final class ControlCenterPresentationTests: XCTestCase {
         let source = RuntimeControlCenterDataSource(
             journal: StubJournal(timelines: []),
             configurationStore: StubConfigurationStore(configuration: configuration),
-            health: { .connected(capabilityCount: 3, configurationApplied: false) }
+            health: { .connected(capabilities: [.browserPageReload], configurationApplied: false) }
         )
 
         XCTAssertEqual(source.presetPage().cards.first?.detail, "标准浏览预设")
@@ -136,6 +134,7 @@ private final class StubJournal: OperationJournaling, @unchecked Sendable {
     func append(_ event: ProviderEvent) throws {}
     func recoverExpired(now: Int64) throws -> [RecoveredOperation] { [] }
     func query(_ filter: OperationFilter, limit: Int) throws -> [OperationTimeline] { Array(timelines.prefix(limit)) }
+    func clearOperationListDisplay() throws {}
     func exportEvidence(operationId: String, to url: URL) throws {}
 }
 
@@ -155,6 +154,7 @@ private final class ExportRecordingJournal: OperationJournaling, @unchecked Send
     func append(_ event: ProviderEvent) throws {}
     func recoverExpired(now: Int64) throws -> [RecoveredOperation] { [] }
     func query(_ filter: OperationFilter, limit: Int) throws -> [OperationTimeline] { [] }
+    func clearOperationListDisplay() throws {}
     func exportEvidence(operationId: String, to url: URL) throws {
         exportedOperationID = operationId
         exportedURL = url

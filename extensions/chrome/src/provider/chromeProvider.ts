@@ -69,16 +69,13 @@ export class ChromeProvider {
     if (!request.requiresTargetRef) {
       return { contextId, expiresAt, targetKind: "no_target", pageIdentity };
     }
-    let armed: { status?: string } | undefined;
     let resolved: PointerResolution;
     try {
-      armed = await this.content(tab.id, { type: "gesturekit.guardArm", gestureSessionId: request.gestureSessionId, issuedAtMonotonicMs: performance.now(), leaseMs: request.deadline - now }) as { status?: string };
       resolved = await this.content(tab.id, { type: "gesturekit.resolveLastPointer" }) as PointerResolution;
     } catch {
-      if (armed?.status === "guard_armed") await this.releaseGuard(tab.id, request.gestureSessionId);
+      await this.releaseGuard(tab.id, request.gestureSessionId);
       return { contextId, expiresAt, targetKind: "page_unavailable", pageIdentity };
     }
-    if (armed.status !== "guard_armed") return { contextId, expiresAt, targetKind: "page_unavailable", pageIdentity };
     if (resolved.status !== "success") {
       await this.releaseGuard(tab.id, request.gestureSessionId);
       return { contextId, expiresAt, targetKind: resolved.status === "no_target" ? "no_target" : "page_unavailable", pageIdentity };
@@ -91,7 +88,10 @@ export class ChromeProvider {
   async execute(request: ActionRequest): Promise<ActionResult> {
     const preflight = await this.preflight(request);
     if (preflight.status !== "ready") return { status: preflight.status };
-    if (this.accept && !(await this.accept(request))) return { status: "chrome_api_error" };
+    if (this.accept && !(await this.accept(request))) {
+      await this.releaseCurrentGuard(request.gestureSessionId);
+      return { status: "chrome_api_error" };
+    }
     return this.executeAccepted(request, preflight.url);
   }
 
@@ -138,7 +138,7 @@ export class ChromeProvider {
         return { status: "context_expired" };
       }
       let guard: { status?: string };
-      try { guard = await this.content(active.id, { type: "gesturekit.guardConsume", gestureSessionId: request.gestureSessionId }) as { status?: string }; } catch {
+      try { guard = await this.content(active.id, { type: "gesturekit.guardConsume", gestureSessionId: request.gestureSessionId, url: target.url }) as { status?: string }; } catch {
         await this.releaseGuard(active.id, request.gestureSessionId);
         return { status: "guard_unavailable" };
       }
@@ -154,9 +154,11 @@ export class ChromeProvider {
       const result = await executeStandardAction(this.api, request.actionId, url);
       const status = result.status === "success" ? "success" : result.status;
       this.statuses.set(request.operationId, { operationId: request.operationId, status: status === "success" ? "success" : "failed" });
+      if (status !== "success") await this.releaseCurrentGuard(request.gestureSessionId);
       return { status };
     } catch {
       this.statuses.set(request.operationId, { operationId: request.operationId, status: "failed" });
+      await this.releaseCurrentGuard(request.gestureSessionId);
       return { status: "chrome_api_error" };
     }
   }

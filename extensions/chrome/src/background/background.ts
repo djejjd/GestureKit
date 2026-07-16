@@ -14,6 +14,7 @@ import { ChromeProvider } from "../provider/chromeProvider";
 import { V2Dispatcher } from "../provider/v2Dispatcher";
 import { createOperationLedgerStore } from "../provider/operationLedger";
 import { TelemetryConnection } from "../provider/telemetryConnection";
+import { ChromeProviderCapabilities } from "../provider/chromeCapabilities";
 import { createControlCenterRequestForwarder } from "./controlCenterRequest";
 import { loadGestureSettings } from "../settings/gestureSettings";
 import {
@@ -190,6 +191,10 @@ const reconnectablePort = createReconnectableNativePort({
           );
           return;
         }
+        if (envelope.type === "interaction_guard_arm" || envelope.type === "interaction_guard_release") {
+          void routeInteractionGuard(envelope);
+          return;
+        }
         void telemetryConnection.then((connection) => connection.handle(envelope));
         void v2Dispatcher.then((dispatcher) => dispatcher.handle(envelope));
         return;
@@ -206,7 +211,40 @@ const reconnectablePort = createReconnectableNativePort({
   onDisconnect: handlePortDisconnect
 });
 
+async function routeInteractionGuard(envelope: ProviderEnvelope): Promise<void> {
+  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
+  if (!tab?.id) {
+    recordGuardTrace(envelope.gestureSessionId, "forward_failed", "active_tab_unavailable");
+    return;
+  }
+  if (envelope.type === "interaction_guard_arm") {
+    const payload = envelope.payload;
+    if (!("features" in payload) || !payload.features.includes("link_click")) {
+      recordGuardTrace(envelope.gestureSessionId, "forward_skipped", "link_click_not_requested");
+      return;
+    }
+    recordGuardTrace(payload.gestureSessionId, "forwarding", "content_script");
+    const response = await chrome.tabs.sendMessage(tab.id, {
+      type: "gesturekit.linkGuardArm",
+      gestureSessionId: payload.gestureSessionId,
+      leaseMs: Math.max(0, payload.deadline - Date.now())
+    }).catch(() => null) as { status?: string } | null;
+    recordGuardTrace(payload.gestureSessionId, response?.status === "guard_armed" ? "forwarded" : "forward_failed", response?.status ?? "content_script_unavailable");
+    return;
+  }
+  const payload = envelope.payload;
+  if (!("gestureSessionId" in payload)) return;
+  await chrome.tabs.sendMessage(tab.id, {
+    type: "gesturekit.linkGuardRelease",
+    gestureSessionId: payload.gestureSessionId
+  }).catch(() => {});
+}
+
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  if (message?.type === "gesturekit.guardTrace") {
+    recordGuardTrace(message.gestureSessionId, message.stage, message.detail);
+    return false;
+  }
   if (message?.type === "gesturekit.openControlCenter") {
     (controlCenterRequestForwarder?.open() ?? Promise.resolve({ status: "unavailable" }))
       .then(sendResponse)
@@ -255,11 +293,33 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   return true;
 });
 
+function recordGuardTrace(gestureSessionId: unknown, stage: unknown, detail: unknown) {
+  if (typeof gestureSessionId !== "string" || typeof stage !== "string" || typeof detail !== "string") return;
+  const message = `interaction_guard session=${gestureSessionId} stage=${stage} detail=${detail}`;
+  console.info(message);
+  void appendDiagnostic(chrome.storage.local, {
+    id: `interaction-guard-${gestureSessionId}-${stage}-${Date.now()}`,
+    timestamp: Date.now(),
+    source: "extension",
+    kind: "action",
+    reason: "unknown",
+    message
+  });
+}
+
 async function handleConfigurationSnapshot(
   port: PortLike,
   envelope: ProviderEnvelope,
   snapshot: ConfigurationSnapshotPayload
 ): Promise<void> {
+  port.postMessage({
+    ...envelope,
+    messageId: crypto.randomUUID(),
+    type: "capability_snapshot",
+    timestamp: Date.now(),
+    payload: { capabilities: [...ChromeProviderCapabilities.standard], capabilityVersion: 1 },
+    error: null
+  } satisfies ProviderEnvelope);
   try {
     const applied = await cacheAppConfigurationSnapshot(chrome.storage.local, snapshot);
     void appendDiagnostic(chrome.storage.local, {

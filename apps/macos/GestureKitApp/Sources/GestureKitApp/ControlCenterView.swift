@@ -8,6 +8,7 @@ struct ControlCenterView: View {
     @State private var selection: ControlCenterPage = .overview
     @State private var refreshToken = 0
     @State private var evidenceExportStatus: String?
+    @State private var showingClearConfirmation = false
 
     init(control: any RuntimeControlling, dataSource: any ControlCenterDataSource) {
         self.control = control
@@ -56,6 +57,13 @@ struct ControlCenterView: View {
             .background(Color(nsColor: .controlBackgroundColor))
         }
         .frame(minWidth: 760, minHeight: 500)
+        .task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(1))
+                guard !Task.isCancelled else { return }
+                refreshToken += 1
+            }
+        }
     }
 
     @ViewBuilder
@@ -68,11 +76,16 @@ struct ControlCenterView: View {
             OperationHistoryView(
                 state: dataSource.operationPage(limit: 20),
                 onLoadMore: {
-                    dataSource.loadMoreOperations()
                     refreshToken += 1
                 },
-                onExport: exportEvidence
+                onExport: exportEvidence,
+                onClearListDisplay: { showingClearConfirmation = true }
             )
+            .confirmationDialog("清空列表显示？", isPresented: $showingClearConfirmation, titleVisibility: .visible) {
+                Button("清空列表显示", role: .destructive, action: clearOperationListDisplay)
+            } message: {
+                Text("这只会隐藏当前操作记录列表，不会删除本地诊断日志或已导出的证据包。")
+            }
         case .presets:
             PresetPage(state: dataSource.presetPage())
         case .providers:
@@ -98,6 +111,16 @@ struct ControlCenterView: View {
             evidenceExportStatus = "证据包已导出"
         } catch {
             evidenceExportStatus = evidenceExportStatusMessage(for: error)
+        }
+        refreshToken += 1
+    }
+
+    private func clearOperationListDisplay() {
+        do {
+            try dataSource.clearOperationListDisplay()
+            evidenceExportStatus = nil
+        } catch {
+            evidenceExportStatus = "操作记录列表清空失败，请稍后重试"
         }
         refreshToken += 1
     }

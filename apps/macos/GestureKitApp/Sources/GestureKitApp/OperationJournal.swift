@@ -166,6 +166,9 @@ public protocol OperationJournaling: Sendable {
     /// - Throws: JournalError 数据库操作错误
     func query(_ filter: OperationFilter, limit: Int) throws -> [OperationTimeline]
 
+    /// 隐藏当前所有操作的控制中心列表项，不删除诊断证据。
+    func clearOperationListDisplay() throws
+
     /// 导出操作证据包到指定 URL。
     /// - Parameters:
     ///   - operationId: 操作 ID
@@ -177,7 +180,7 @@ public protocol OperationJournaling: Sendable {
 // MARK: - SQLite 常量与辅助
 
 /// 当前数据库 schema 版本号。
-private let CURRENT_SCHEMA_VERSION: Int32 = 1
+private let CURRENT_SCHEMA_VERSION: Int32 = 2
 
 /// App Journal 默认最大容量（45 MB）。
 public let DEFAULT_APP_JOURNAL_SIZE: Int64 = 45 * 1024 * 1024
@@ -273,6 +276,19 @@ public final class OperationJournal: OperationJournaling, @unchecked Sendable {
     public func query(_ filter: OperationFilter, limit: Int) throws -> [OperationTimeline] {
         try queue.sync {
             try self.queryInternal(filter, limit: limit)
+        }
+    }
+
+    public func clearOperationListDisplay() throws {
+        try queue.sync {
+            try checkSQLite(sqlite3_exec(db, "BEGIN IMMEDIATE", nil, nil, nil), context: "BEGIN clear display")
+            do {
+                try checkSQLite(sqlite3_exec(db, "INSERT OR IGNORE INTO operation_display_hidden(operation_id) SELECT operation_id FROM operations", nil, nil, nil), context: "hide operations")
+                try checkSQLite(sqlite3_exec(db, "COMMIT", nil, nil, nil), context: "COMMIT clear display")
+            } catch {
+                sqlite3_exec(db, "ROLLBACK", nil, nil, nil)
+                throw error
+            }
         }
     }
 
@@ -401,7 +417,18 @@ public final class OperationJournal: OperationJournaling, @unchecked Sendable {
             currentUserVersion = 1
         }
 
-        // 未来的版本升级在此处添加：if currentUserVersion < 2 { ... }
+        if currentUserVersion < 2 {
+            try checkSQLite(sqlite3_exec(db, "BEGIN IMMEDIATE", nil, nil, nil), context: "BEGIN migration v2")
+            do {
+                try checkSQLite(sqlite3_exec(db, "CREATE TABLE IF NOT EXISTS operation_display_hidden (operation_id TEXT PRIMARY KEY)", nil, nil, nil), context: "CREATE display hidden")
+                try checkSQLite(sqlite3_exec(db, "PRAGMA user_version = 2", nil, nil, nil), context: "SET user_version=2")
+                try checkSQLite(sqlite3_exec(db, "COMMIT", nil, nil, nil), context: "COMMIT migration v2")
+                currentUserVersion = 2
+            } catch {
+                sqlite3_exec(db, "ROLLBACK", nil, nil, nil)
+                throw error
+            }
+        }
     }
 
     /// 内部追加事件（在串行队列上调用）。
@@ -612,6 +639,8 @@ public final class OperationJournal: OperationJournaling, @unchecked Sendable {
         case .operationStatusResponse(let value): return try encoder.encode(value)
         case .controlCenterOpenRequest(let value): return try encoder.encode(value)
         case .controlCenterOpenResponse(let value): return try encoder.encode(value)
+        case .interactionGuardArm(let value): return try encoder.encode(value)
+        case .interactionGuardRelease(let value): return try encoder.encode(value)
         }
     }
 
@@ -727,7 +756,7 @@ public final class OperationJournal: OperationJournaling, @unchecked Sendable {
     }
 
     /// 内部查询操作时间线。
-    private func queryInternal(_ filter: OperationFilter, limit: Int) throws -> [OperationTimeline] {
+    private func queryInternal(_ filter: OperationFilter, limit: Int, includeHidden: Bool = false) throws -> [OperationTimeline] {
         // 先查询匹配的 operation_id 列表
         var conditions: [String] = []
         var bindValues: [Any] = []
@@ -750,6 +779,9 @@ public final class OperationJournal: OperationJournaling, @unchecked Sendable {
             bindValues.append(contentsOf: states.map { $0.rawValue })
         }
 
+        if !includeHidden {
+            conditions.append("NOT EXISTS (SELECT 1 FROM operation_display_hidden h WHERE h.operation_id = o.operation_id)")
+        }
         let whereClause = conditions.isEmpty ? "" : "WHERE \(conditions.joined(separator: " AND "))"
 
         let queryOpsSQL = """
@@ -859,7 +891,7 @@ public final class OperationJournal: OperationJournaling, @unchecked Sendable {
 
     /// 内部导出证据包 — 委托给 EvidenceBundleExporter 实现。
     private func exportEvidenceInternal(operationId: String, to url: URL) throws {
-        let timelines = try queryInternal(.operation(operationId), limit: 1)
+        let timelines = try queryInternal(.operation(operationId), limit: 1, includeHidden: true)
         guard let timeline = timelines.first else {
             throw JournalError.invalidArgument("操作 \(operationId) 不存在")
         }

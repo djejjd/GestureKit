@@ -38,6 +38,8 @@ public enum ProviderMessageType: String, Codable, Sendable, CaseIterable, Equata
     case capabilitySnapshot = "capability_snapshot"
     case contextRequest = "context_request"
     case contextSnapshot = "context_snapshot"
+    case interactionGuardArm = "interaction_guard_arm"
+    case interactionGuardRelease = "interaction_guard_release"
     // 配置
     case configurationSnapshot = "configuration_snapshot"
     case configurationAck = "configuration_ack"
@@ -238,6 +240,15 @@ public struct ContextSnapshotPayload: Codable, Sendable, Equatable {
     }
 }
 
+public struct InteractionGuardPayload: Codable, Sendable, Equatable {
+    public let gestureSessionId: String
+    public let features: [String]
+    public let deadline: Int64
+    public init(gestureSessionId: String, features: [String], deadline: Int64) {
+        self.gestureSessionId = gestureSessionId; self.features = features; self.deadline = deadline
+    }
+}
+
 // ---------- 配置 ----------
 
 /// configuration_snapshot 的 payload：App 下发权威配置快照。
@@ -432,7 +443,7 @@ public struct ControlCenterOpenResponsePayload: Codable, Sendable, Equatable {
 
 // MARK: - Payload 联合类型
 
-/// ProviderEnvelope 的 payload 联合类型，共 19 种。
+/// ProviderEnvelope 的 payload 联合类型，共 21 种。
 ///
 /// 解码通过 dispatchPayload 函数按 type → payload 映射表严格分发，
 /// 不使用 try-catch 猜测策略。type-payload 不匹配直接拒绝。
@@ -445,6 +456,8 @@ public enum ProviderPayload: Codable, Sendable, Equatable {
     case capabilitySnapshot(CapabilitySnapshotPayload)
     case contextRequest(ContextRequestPayload)
     case contextSnapshot(ContextSnapshotPayload)
+    case interactionGuardArm(InteractionGuardPayload)
+    case interactionGuardRelease(InteractionGuardPayload)
     // 配置
     case configurationSnapshot(ConfigurationSnapshotPayload)
     case configurationAck(ConfigurationAckPayload)
@@ -511,6 +524,7 @@ public enum ProviderPayload: Codable, Sendable, Equatable {
         case .capabilitySnapshot(let v):      data = (try? encoder.encode(v)) ?? Data()
         case .contextRequest(let v):          data = (try? encoder.encode(v)) ?? Data()
         case .contextSnapshot(let v):         data = (try? encoder.encode(v)) ?? Data()
+        case .interactionGuardArm(let v), .interactionGuardRelease(let v): data = (try? encoder.encode(v)) ?? Data()
         case .configurationSnapshot(let v):   data = (try? encoder.encode(v)) ?? Data()
         case .configurationAck(let v):        data = (try? encoder.encode(v)) ?? Data()
         case .actionRequest(let v):           data = (try? encoder.encode(v)) ?? Data()
@@ -591,7 +605,7 @@ internal struct AnyJSONBox: Codable, Equatable {
 }
 
 /// 将类型映射到对应的 payload Codable 类型，供编码/解码使用。
-/// 所有 19 种消息类型必须有对应条目。
+/// 所有 21 种消息类型必须有对应条目。
 public let payloadTypeMap: [ProviderMessageType: Codable.Type] = [
     .providerHello: ProviderHelloPayload.self,
     .providerChallenge: ProviderChallengePayload.self,
@@ -599,6 +613,8 @@ public let payloadTypeMap: [ProviderMessageType: Codable.Type] = [
     .capabilitySnapshot: CapabilitySnapshotPayload.self,
     .contextRequest: ContextRequestPayload.self,
     .contextSnapshot: ContextSnapshotPayload.self,
+    .interactionGuardArm: InteractionGuardPayload.self,
+    .interactionGuardRelease: InteractionGuardPayload.self,
     .configurationSnapshot: ConfigurationSnapshotPayload.self,
     .configurationAck: ConfigurationAckPayload.self,
     .actionRequest: ActionDescriptor.self,
@@ -787,6 +803,9 @@ public struct ProviderEnvelope: Codable, Sendable, Equatable {
             case is ContextSnapshotPayload.Type:
                 let v = try decoder.decode(ContextSnapshotPayload.self, from: payloadData)
                 return .contextSnapshot(v)
+            case is InteractionGuardPayload.Type:
+                let v = try decoder.decode(InteractionGuardPayload.self, from: payloadData)
+                return type == .interactionGuardArm ? .interactionGuardArm(v) : .interactionGuardRelease(v)
             case is ConfigurationSnapshotPayload.Type:
                 let v = try decoder.decode(ConfigurationSnapshotPayload.self, from: payloadData)
                 return .configurationSnapshot(v)
@@ -847,6 +866,7 @@ public struct ProviderEnvelope: Codable, Sendable, Equatable {
         case .capabilitySnapshot: allowedFields = ["capabilities", "capabilityVersion"]
         case .contextRequest: allowedFields = ["gestureSessionId", "requiresTargetRef", "deadline"]
         case .contextSnapshot: allowedFields = ["contextId", "pageIdentity", "expiresAt", "targetKind", "targetRef"]
+        case .interactionGuardArm, .interactionGuardRelease: allowedFields = ["gestureSessionId", "features", "deadline"]
         case .configurationSnapshot: allowedFields = ["storeEpoch", "schemaVersion", "configurationVersion", "diagnosticLoggingEnabled", "configJSON"]
         case .configurationAck: allowedFields = ["appliedVersion", "applied"]
         case .actionRequest: allowedFields = ["actionId", "contextId", "targetRef", "parameters", "deadline"]
@@ -880,6 +900,7 @@ public struct ProviderEnvelope: Codable, Sendable, Equatable {
         case .capabilitySnapshot(let v): encodable = v
         case .contextRequest(let v): encodable = v
         case .contextSnapshot(let v): encodable = v
+        case .interactionGuardArm(let v), .interactionGuardRelease(let v): encodable = v
         case .configurationSnapshot(let v): encodable = v
         case .configurationAck(let v): encodable = v
         case .actionRequest(let v): encodable = v
@@ -1033,6 +1054,7 @@ extension ProviderEvent {
         case .capabilitySnapshot(let v): try container.encode(v, forKey: .payload)
         case .contextRequest(let v): try container.encode(v, forKey: .payload)
         case .contextSnapshot(let v): try container.encode(v, forKey: .payload)
+        case .interactionGuardArm(let v), .interactionGuardRelease(let v): try container.encode(v, forKey: .payload)
         case .configurationSnapshot(let v): try container.encode(v, forKey: .payload)
         case .configurationAck(let v): try container.encode(v, forKey: .payload)
         case .actionRequest(let v): try container.encode(v, forKey: .payload)

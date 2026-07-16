@@ -33,7 +33,12 @@ final class GestureKitRuntime {
         guardJournal: { [weak self] id in
             self?.logger.debug("candidate_started id=\(id)")
         },
-        guardRouter: { [weak self] _ in },
+        guardRouter: { [weak self] id, candidate in
+            self?.handleCandidateGuardArm(sessionID: id, fingerCount: candidate.fingerCount)
+        },
+        guardReleaseRouter: { [weak self] id in
+            self?.handleCandidateGuardRelease(sessionID: id)
+        },
         contextRouter: { [weak self] sessionID, deadline in
             self?.handleCoordinatorContextRequest(sessionID: sessionID, deadline: deadline)
         },
@@ -303,11 +308,13 @@ final class GestureKitRuntime {
         switch state {
         case .inputError, .ipcError:
             return .listeningUnavailable
-        case .idle, .stopped:
+        case .idle:
             return .preparing
+        case .stopped:
+            return .stopped
         case .running:
             guard let session else { return .disconnected }
-            return .connected(capabilityCount: session.capabilities.count, configurationApplied: configurationAppliedByProvider)
+            return .connected(capabilities: session.capabilities, configurationApplied: configurationAppliedByProvider)
         }
     }
 
@@ -396,6 +403,10 @@ final class GestureKitRuntime {
                 rateLimitKey: "provider_configuration_ack"
             )
             configurationAppliedByProvider = acknowledgement.applied
+        case (.capabilitySnapshot, .capabilitySnapshot(let snapshot)):
+            guard let session = providerSessions.activeSession(),
+                  envelope.providerSessionId == session.providerSessionID else { return }
+            _ = providerSessions.updateCapabilities(snapshot, for: session.providerSessionID, connectionID: connectionID)
         case (.contextSnapshot, .contextSnapshot(let snapshot)):
             let gsid = envelope.gestureSessionId
             let pend = gsid.flatMap { pendingCoordinatorSessions[$0] }
@@ -542,6 +553,44 @@ final class GestureKitRuntime {
             pendingCoordinatorSessions.removeValue(forKey: sessionID)
             logger.warn("provider_context_send_failed gesture=\(gestureType)", rateLimitKey: "provider_context_send_failed")
         }
+    }
+
+    /// 候选刚出现便把由绑定配置导出的 guard 特征交给 Provider。这里不传手势名，
+    /// 避免 Chrome 端依赖手指数或任何本地识别规则。
+    private func handleCandidateGuardArm(sessionID: String, fingerCount: Int) {
+        guard let session = providerSessions.activeSession(),
+              let configuration = try? configurationMigration?.authoritativeConfiguration(),
+              let plan = try? RecognitionPlan(configuration: configuration) else { return }
+        let features = plan.candidateFeatures(fingerCount: fingerCount).map(\.rawValue).sorted()
+        guard !features.isEmpty else { return }
+        let deadline = currentTimestampMs() + 750
+        let message = ProviderEnvelope(
+            protocolVersion: 2, messageId: UUID().uuidString,
+            providerSessionId: session.providerSessionID, gestureSessionId: sessionID,
+            operationId: nil, type: .interactionGuardArm, timestamp: currentTimestampMs(),
+            payload: .interactionGuardArm(InteractionGuardPayload(
+                gestureSessionId: sessionID, features: features, deadline: deadline
+            )), error: nil
+        )
+        do {
+            try providerSessions.send(message, to: session.providerSessionID)
+            logger.debug("candidate_guard_arm features=\(features.joined(separator: ",")) sessionId=\(sessionID)")
+        } catch {
+            logger.warn("candidate_guard_arm_send_failed", rateLimitKey: "candidate_guard_arm_send_failed")
+        }
+    }
+
+    private func handleCandidateGuardRelease(sessionID: String) {
+        guard let session = providerSessions.activeSession() else { return }
+        let message = ProviderEnvelope(
+            protocolVersion: 2, messageId: UUID().uuidString,
+            providerSessionId: session.providerSessionID, gestureSessionId: sessionID,
+            operationId: nil, type: .interactionGuardRelease, timestamp: currentTimestampMs(),
+            payload: .interactionGuardRelease(InteractionGuardPayload(
+                gestureSessionId: sessionID, features: [], deadline: currentTimestampMs()
+            )), error: nil
+        )
+        try? providerSessions.send(message, to: session.providerSessionID)
     }
 
     /// coordinator 已解析出一个动作：发 action_request + 记入操作账本。

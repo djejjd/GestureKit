@@ -38,7 +38,7 @@ final class ProviderSessionRegistry: @unchecked Sendable {
         lock.lock(); defer { lock.unlock() }
         guard pending[installId] == nonce, ProviderAuthenticator(secret: secret).verify(response, providerInstallID: installId, nonce: nonce) else { throw ProviderSessionError.authenticationFailed }
         pending.removeValue(forKey: installId)
-        let session = AuthenticatedProviderSession(providerInstallID: installId, providerID: installId, providerSessionID: UUID().uuidString, capabilities: Set(StandardActionID.allCases), connectionID: connectionID)
+        let session = AuthenticatedProviderSession(providerInstallID: installId, providerID: installId, providerSessionID: UUID().uuidString, capabilities: [], connectionID: connectionID)
         sessions[session.providerSessionID] = (session, sink)
         activeSessionID = session.providerSessionID
         return session
@@ -67,5 +67,22 @@ final class ProviderSessionRegistry: @unchecked Sendable {
     func session(_ providerSessionID: String, belongsTo connectionID: UUID) -> Bool {
         lock.lock(); defer { lock.unlock() }
         return sessions[providerSessionID]?.0.connectionID == connectionID
+    }
+
+    /// 只有已认证连接自身可以声明其实际可执行的标准动作。
+    func updateCapabilities(_ snapshot: CapabilitySnapshotPayload, for providerSessionID: String, connectionID: UUID) -> Bool {
+        lock.lock(); defer { lock.unlock() }
+        guard let (session, sink) = sessions[providerSessionID], session.connectionID == connectionID else { return false }
+        sessions[providerSessionID] = (
+            AuthenticatedProviderSession(
+                providerInstallID: session.providerInstallID,
+                providerID: session.providerID,
+                providerSessionID: session.providerSessionID,
+                capabilities: Set(snapshot.capabilities),
+                connectionID: session.connectionID
+            ),
+            sink
+        )
+        return true
     }
 }

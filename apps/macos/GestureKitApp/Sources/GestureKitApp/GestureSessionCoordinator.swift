@@ -23,7 +23,8 @@ final class GestureSessionCoordinator {
 
     private let ruleEngine: any RuleResolving
     private let guardJournal: (String) -> Void
-    private let guardRouter: (String) -> Void
+    private let guardRouter: (String, GestureCandidate) -> Void
+    private let guardReleaseRouter: (String) -> Void
     private let contextRouter: (String, Int64) -> Void
     private let actionRouter: (String, ActionDescriptor) -> Void
     private let monotonicClockMs: () -> Int64
@@ -38,7 +39,8 @@ final class GestureSessionCoordinator {
     init(
         ruleEngine: any RuleResolving = RuleEngine(),
         guardJournal: @escaping (String) -> Void = { _ in },
-        guardRouter: @escaping (String) -> Void = { _ in },
+        guardRouter: @escaping (String, GestureCandidate) -> Void = { _, _ in },
+        guardReleaseRouter: @escaping (String) -> Void = { _ in },
         contextRouter: @escaping (String, Int64) -> Void = { _, _ in },
         actionRouter: @escaping (String, ActionDescriptor) -> Void = { _, _ in },
         monotonicClockMs: @escaping () -> Int64 = { Int64(DispatchTime.now().uptimeNanoseconds / 1_000_000) },
@@ -48,6 +50,7 @@ final class GestureSessionCoordinator {
         self.ruleEngine = ruleEngine
         self.guardJournal = guardJournal
         self.guardRouter = guardRouter
+        self.guardReleaseRouter = guardReleaseRouter
         self.contextRouter = contextRouter
         self.actionRouter = actionRouter
         self.monotonicClockMs = monotonicClockMs
@@ -59,12 +62,12 @@ final class GestureSessionCoordinator {
     @discardableResult
     func handle(_ event: GestureSessionEvent) -> String? {
         switch event {
-        case .candidateStarted:
+        case .candidateStarted(let candidate):
             let id = sessionID()
             activeSessions[id] = SessionState(startedAtMs: monotonicClockMs(), classifiedAtMs: nil, composedGesture: nil)
             candidateOrder.append(id)
             guardJournal(id)
-            guardRouter(id)
+            guardRouter(id, candidate)
             return id
         case .primitiveClassified(let recognized):
             guard let id = takeNextCandidate() else { return nil }
@@ -74,6 +77,7 @@ final class GestureSessionCoordinator {
             guard let id = takeNextCandidate() else { return nil }
             activeSessions.removeValue(forKey: id)
             if pendingCenterTap?.sessionID == id { pendingCenterTap = nil }
+            guardReleaseRouter(id)
             return id
         }
     }

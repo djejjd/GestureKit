@@ -85,6 +85,15 @@ export function createInteractionGuard() {
     return { status: "guard_released" };
   }
 
+  function active(nowMonotonicMs: number): ActiveGuard | null {
+    if (!activeGuard) return null;
+    if (nowMonotonicMs > activeGuard.armedAtMonotonicMs + activeGuard.leaseMs) {
+      activeGuard = null;
+      return null;
+    }
+    return activeGuard;
+  }
+
   /** 在 lease 到期或 session 不匹配时主动清理页面级状态。 */
   function matchingActiveGuard(gestureSessionId: string, nowMonotonicMs: number): ActiveGuard | null {
     if (!activeGuard) return null;
@@ -95,5 +104,5 @@ export function createInteractionGuard() {
     return activeGuard.gestureSessionId === gestureSessionId ? activeGuard : null;
   }
 
-  return { arm, consume, release, observeDOMEvent };
+  return { arm, consume, release, observeDOMEvent, active };
 }

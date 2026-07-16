@@ -1,4 +1,12 @@
 public enum DefaultRules {
+    public static let v1GestureDefinitions: [GestureDefinition] = [
+        .init(id: "three-finger-tap", primitive: .tap, fingers: 3, repetitions: 1, maxIntervalMs: nil, direction: nil, region: .any, maxDurationMs: 180),
+        .init(id: "three-finger-tap-left-edge", primitive: .tap, fingers: 3, repetitions: 1, maxIntervalMs: nil, direction: nil, region: .leftEdge, maxDurationMs: 180),
+        .init(id: "three-finger-tap-right-edge", primitive: .tap, fingers: 3, repetitions: 1, maxIntervalMs: nil, direction: nil, region: .rightEdge, maxDurationMs: 180),
+        .init(id: "three-finger-double-tap-center", primitive: .tap, fingers: 3, repetitions: 2, maxIntervalMs: 300, direction: nil, region: .center, maxDurationMs: 180),
+        .init(id: "three-finger-swipe-left", primitive: .swipe, fingers: 3, repetitions: 1, maxIntervalMs: nil, direction: .left, region: .any, maxDurationMs: 300),
+        .init(id: "three-finger-swipe-right", primitive: .swipe, fingers: 3, repetitions: 1, maxIntervalMs: nil, direction: .right, region: .any, maxDurationMs: 300)
+    ]
     /// V1 的 provider-neutral 预设绑定。旧 `v1` 仅为存量设置迁移保留；
     /// 新路径一律经 `RuleEngine.resolve` 输出标准 ActionDescriptor。
     public static let v1Bindings: [BindingRule] = [

@@ -138,6 +138,30 @@ final class ProviderProtocolV2Tests: XCTestCase {
         XCTAssertEqual(decodedAction.deadline, 1782200002000)
     }
 
+    func testRoundTripInteractionGuardArm() throws {
+        let original = ProviderEnvelope(
+            protocolVersion: 2,
+            messageId: "guard-001",
+            providerSessionId: "session-test",
+            gestureSessionId: "gesture-001",
+            operationId: nil,
+            type: .interactionGuardArm,
+            timestamp: 1782200001000,
+            payload: .interactionGuardArm(InteractionGuardPayload(
+                gestureSessionId: "gesture-001", features: ["link_click"], deadline: 1782200001500
+            )),
+            error: nil
+        )
+
+        let decoded = try roundTrip(original)
+        XCTAssertEqual(decoded.type, .interactionGuardArm)
+        guard case .interactionGuardArm(let payload) = decoded.payload else {
+            return XCTFail("Round-trip 后 payload 必须为 interactionGuardArm")
+        }
+        XCTAssertEqual(payload.gestureSessionId, "gesture-001")
+        XCTAssertEqual(payload.features, ["link_click"])
+    }
+
     // MARK: - Legacy v1 拒绝
 
     /// Provider v2 边界必须拒绝 legacy v1 envelope。
@@ -408,6 +432,9 @@ final class ProviderProtocolV2Tests: XCTestCase {
         XCTAssertTrue(all.contains(.healthResponse))
         XCTAssertTrue(all.contains(.operationStatusRequest))
         XCTAssertTrue(all.contains(.operationStatusResponse))
+        // 候选期交互守卫
+        XCTAssertTrue(all.contains(.interactionGuardArm))
+        XCTAssertTrue(all.contains(.interactionGuardRelease))
     }
 
     // MARK: - ProviderMessageType raw values
@@ -418,6 +445,7 @@ final class ProviderProtocolV2Tests: XCTestCase {
         XCTAssertEqual(ProviderMessageType.actionRequest.rawValue, "action_request")
         XCTAssertEqual(ProviderMessageType.contextSnapshot.rawValue, "context_snapshot")
         XCTAssertEqual(ProviderMessageType.actionResult.rawValue, "action_result")
+        XCTAssertEqual(ProviderMessageType.interactionGuardArm.rawValue, "interaction_guard_arm")
         XCTAssertEqual(ProviderMessageType.telemetryBatch.rawValue, "telemetry_batch")
     }
 }
