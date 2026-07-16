@@ -8,6 +8,7 @@ struct ControlCenterView: View {
     let dataSource: any ControlCenterDataSource
     @State private var selection: ControlCenterPage = .overview
     @State private var refreshToken = 0
+    @State private var selectedOperationID: String?
     @State private var evidenceExportStatus: String?
     @State private var showingClearConfirmation = false
     @State private var showingRestoreDefaultsConfirmation = false
@@ -77,6 +78,7 @@ struct ControlCenterView: View {
         case .operations:
             OperationHistoryView(
                 state: dataSource.operationPage(limit: 20),
+                selectedOperationID: $selectedOperationID,
                 onLoadMore: {
                     refreshToken += 1
                 },

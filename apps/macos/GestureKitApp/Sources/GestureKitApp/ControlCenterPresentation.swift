@@ -103,7 +103,13 @@ struct OperationPageState: Equatable {
 
     /// 当前详情只使用列表中的脱敏摘要，不在视图层重新读取底层事件。
     var selectedItem: OperationListItem? {
-        items.first { $0.id == selectedOperationID }
+        item(id: selectedOperationID)
+    }
+
+    /// 用户选择优先于数据源的默认选择；记录被清理后返回空，由视图展示空态。
+    func item(id: String?) -> OperationListItem? {
+        guard let id else { return nil }
+        return items.first { $0.id == id }
     }
 }
 
