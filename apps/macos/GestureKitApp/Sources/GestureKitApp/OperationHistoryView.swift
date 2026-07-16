@@ -3,6 +3,7 @@ import SwiftUI
 /// 操作记录的双栏页面；Task 10B 只替换数据源和导出动作，不改变布局边界。
 struct OperationHistoryView: View {
     let state: OperationPageState
+    @Binding var selectedOperationID: String?
     let onLoadMore: () -> Void
     let onExport: (String) -> Void
     let onClearListDisplay: () -> Void
@@ -24,7 +25,7 @@ struct OperationHistoryView: View {
                 }
                 .frame(minWidth: 260, maxWidth: 320, alignment: .leading)
 
-                if let selected = state.selectedItem {
+                if let selected = state.item(id: selectedOperationID) ?? state.selectedItem {
                     operationDetail(selected)
                 } else {
                     ContentUnavailableView("选择一条操作记录", systemImage: "list.bullet.rectangle")
@@ -34,18 +35,28 @@ struct OperationHistoryView: View {
     }
 
     private func operationRow(_ item: OperationListItem) -> some View {
-        HStack(spacing: 10) {
-            Circle().fill(color(for: item.presentation)).frame(width: 9, height: 9)
-            VStack(alignment: .leading, spacing: 3) {
-                Text(item.title).font(.headline)
-                Text(item.presentation.title).font(.caption).foregroundStyle(.secondary)
+        Button {
+            selectedOperationID = item.id
+        } label: {
+            HStack(spacing: 10) {
+                Circle().fill(color(for: item.presentation)).frame(width: 9, height: 9)
+                VStack(alignment: .leading, spacing: 3) {
+                    Text(item.title).font(.headline)
+                    Text(item.presentation.title).font(.caption).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Text(item.lastEventAt, style: .relative).font(.caption).foregroundStyle(.secondary)
             }
-            Spacer()
-            Text(item.lastEventAt, style: .relative).font(.caption).foregroundStyle(.secondary)
         }
+        .buttonStyle(.plain)
         .padding(12)
         .background(.background, in: RoundedRectangle(cornerRadius: 12))
         .overlay(RoundedRectangle(cornerRadius: 12).stroke(.quaternary))
+        .overlay {
+            if selectedOperationID == item.id {
+                RoundedRectangle(cornerRadius: 12).stroke(Color.accentColor.opacity(0.7))
+            }
+        }
     }
 
     private func operationDetail(_ item: OperationListItem) -> some View {
