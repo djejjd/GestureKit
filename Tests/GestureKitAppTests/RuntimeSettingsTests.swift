@@ -37,6 +37,30 @@ final class RuntimeSettingsTests: XCTestCase {
         XCTAssertEqual(event?.gesture, .threeFingerSwipeRight)
     }
 
+    func testStartupLoadsPersistedRecognitionSettings() throws {
+        let defaults = UserDefaults(suiteName: "GestureKitTests.runtimeStartupRecognition")!
+        defaults.removePersistentDomain(forName: "GestureKitTests.runtimeStartupRecognition")
+        let store = UserDefaultsSettingsStore(defaults: defaults)
+        try store.saveAppConfiguration(.init(
+            storeEpoch: "runtime-startup",
+            schemaVersion: 3,
+            configurationVersion: 1,
+            rules: DefaultRules.v1Bindings,
+            recognition: .sensitive
+        ))
+        let runtime = GestureKitRuntime(
+            menuBarHandler: { _ in },
+            touchBackend: StubTouchBackend(),
+            settingsStore: store,
+            logger: GestureKitLogger(terminalWriter: { _ in })
+        )
+
+        _ = runtime.observeForTesting(.frame(time: 0.00, activeTouches: [.touch(1, 0.30, 0.40), .touch(2, 0.32, 0.40), .touch(3, 0.34, 0.40)]))
+        _ = runtime.observeForTesting(.frame(time: 0.16, activeTouches: [.touch(1, 0.38, 0.40), .touch(2, 0.40, 0.40), .touch(3, 0.42, 0.40)]))
+
+        XCTAssertEqual(runtime.observeForTesting(.frame(time: 0.26, activeTouches: []))?.gesture, .threeFingerSwipeRight)
+    }
+
     func testSettingsAckIncludesCurrentRuntimeSession() {
         let runtime = GestureKitRuntime(
             menuBarHandler: { _ in },

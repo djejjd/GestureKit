@@ -72,8 +72,11 @@ final class GestureKitRuntime {
         self.menuBarHandler = menuBarHandler
         self.touchBackend = touchBackend
         self.settingsStore = settingsStore
-        self.configurationMigration = (settingsStore as? any AppConfigurationStore)
+        let migration = (settingsStore as? any AppConfigurationStore)
             .map(ConfigurationMigration.init(store:))
+        self.configurationMigration = migration
+        let configuration = try? migration?.authoritativeConfiguration()
+        self.recognizer = GestureRecognizer(settings: configuration?.recognition ?? .standard)
         self.logger = logger
         self.operationJournal = operationJournal
         self.providerSessions = providerSessions
@@ -81,7 +84,8 @@ final class GestureKitRuntime {
         self.providerOutboundSink = providerOutboundSink
         self.controlCenterOpenHandler = controlCenterOpenHandler
         self.diagnosticSink = diagnosticSink
-        self.ruleEngine = RuleEngine(rules: (try? settingsStore.loadRules()) ?? DefaultRules.v1)
+        self.ruleEngine = configuration.map(RuleEngine.init(configuration:))
+            ?? RuleEngine(rules: (try? settingsStore.loadRules()) ?? DefaultRules.v1)
         self.appSessionId = UUID().uuidString
     }
 
