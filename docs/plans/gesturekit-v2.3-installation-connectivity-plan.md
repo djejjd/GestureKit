@@ -99,20 +99,20 @@
 - `./scripts/dev/health-check.sh [--real] [--host-path <absolute-path>]` 默认只检查本机可读状态；`--real` 执行 host 自检和扩展 smoke URL。
 - 输出每个阶段的 `PASS`、`WAITING` 或 `FAIL`，并附一个下一步命令或用户操作。
 
-- [ ] **Step 1：写失败测试**
+- [x] **Step 1：写失败测试**
   - 覆盖：缺少 host、manifest origin 不匹配、App 未运行、probe 成功四种结果。
   - 断言每种状态有稳定阶段名和中文下一步，不输出 manifest 全路径或凭据内容。
-- [ ] **Step 2：运行失败测试**
+- [x] **Step 2：运行失败测试**
   - 运行：`zsh scripts/dev/test-health-check.sh && cd extensions/chrome && npm test -- connectionProbe`
   - 预期：失败，提示 health check 不存在或没有状态映射。
-- [ ] **Step 3：实现检查与 smoke 状态映射**
+- [x] **Step 3：实现检查与 smoke 状态映射**
   - 检查 Xcode/Node、host 文件、manifest JSON 和 stable origin；不自动启动 App。
   - 对已打开 smoke 页面复用现有 `probe_request/probe_response`，区分 host 不可用与 App 不可用。
   - `--real` 失败必须返回非零；`WAITING` 仅在 App 未启动的预期场景返回可继续状态。
-- [ ] **Step 4：运行针对性测试**
+- [x] **Step 4：运行针对性测试**
   - 运行：`zsh scripts/dev/test-health-check.sh && cd extensions/chrome && npm test -- connectionProbe && npm run build`
   - 预期：全部通过。
-- [ ] **Step 5：提交**
+- [x] **Step 5：提交**
   - `git commit -m "feat(diagnostics): add staged installation health check"`
 
 ### Task 4：文档、端到端验收与发布准备
