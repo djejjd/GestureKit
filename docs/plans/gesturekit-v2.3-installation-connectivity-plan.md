@@ -43,19 +43,19 @@
 - `node extensions/chrome/scripts/extension-id.mjs [--manifest <path>]` 输出唯一一行 32 位 extension ID。
 - 脚本读取 manifest 的 `key`，对 DER public key 的 SHA-256 前 16 字节按 Chrome `a-p` nibble 映射生成 ID。
 
-- [ ] **Step 1：写失败测试**
+- [x] **Step 1：写失败测试**
   - 在 `extensionIdentity.test.ts` 构造有效 base64 公钥，断言同一输入两次得到相同的 `/^[a-p]{32}$/` 输出；断言空值和非 base64 值抛出 `invalid extension public key`。
-- [ ] **Step 2：运行失败测试**
+- [x] **Step 2：运行失败测试**
   - 运行：`cd extensions/chrome && npm test -- extensionIdentity`
   - 预期：失败，提示 ID 推导模块不存在。
-- [ ] **Step 3：实现推导器并写入公开公钥**
+- [x] **Step 3：实现推导器并写入公开公钥**
   - 使用 Node `crypto.createHash("sha256")`；将十六进制 nibble `0-f` 映射为字符 `a-p`。
   - 在 `manifest.json` 加入公开 `key`，不得加入私钥文件或个人 ID。
   - CLI 仅输出 ID，错误写入 stderr 并以非零状态退出。
-- [ ] **Step 4：运行测试与真实 manifest 校验**
+- [x] **Step 4：运行测试与真实 manifest 校验**
   - 运行：`cd extensions/chrome && npm test -- extensionIdentity && node scripts/extension-id.mjs`
   - 预期：测试通过，CLI 输出一个 32 位 `a-p` ID。
-- [ ] **Step 5：提交**
+- [x] **Step 5：提交**
   - `git commit -m "feat(extension): derive stable development extension id"`
 
 ### Task 2：统一本地安装入口

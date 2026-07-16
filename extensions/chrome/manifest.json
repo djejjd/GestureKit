@@ -2,6 +2,7 @@
   "manifest_version": 3,
   "name": "GestureKit",
   "version": "0.1.0",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEAtFxF999vnvOq1k+NNDvlLjm56U9av3oR6sVqxboxa7i4jY+TevSioMY7PoHSTVA8MmitlbnZx/raQDVk58BcjcYM9u+oeHuwfevmANbB5xfnuUGaeFDVJOm0aNb1auUhZXHCbUN/p9uYTgSRVTrCLGBy/qT9HlVMr9ugQw04CdvixppeJGbVIA+7KES1vz4lXJPoHWoW7ET9YOI2NFOrs/3nO8HboxkpTvEyZBvt3/nQW/TNqg4w8bmFgTu/Lvxr3TWtlJy6+OY7x+Fg8UIqVHJTpt3wMZVUUtQHoroan20NSCS3GUBbjTYSsy0XMjRcIQLvjP6FgzCS4rNFwe9vtQIDAQAB",
   "permissions": ["nativeMessaging", "storage", "tabs"],
   "host_permissions": ["<all_urls>"],
   "background": {
