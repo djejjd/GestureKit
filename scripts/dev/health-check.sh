@@ -56,7 +56,7 @@ else
   fail "构建产物" "未找到 GestureKitHost，请运行 ./scripts/dev/install-local.sh"
 fi
 
-if [[ -f "$manifest_path" ]] && /usr/bin/python3 - "$manifest_path" "$extension_id" <<'PY'
+if [[ -f "$manifest_path" ]] && /usr/bin/python3 - "$manifest_path" "$extension_id" 2>/dev/null <<'PY'
 import json
 import pathlib
 import sys
