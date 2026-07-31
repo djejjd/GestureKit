@@ -4,7 +4,7 @@
 
 **目标：** 为三指点按链接建立真实 Chrome 质量门，验证 guard、相邻新标签、lease 释放、不可用与结果未知路径，同时将不依赖图形会话的检查接入 CI。
 
-**架构：** 只在 E2E 临时 extension 副本和显式 `--e2e-control-token` 的 App 进程中启用测试控制平面。Node runner 创建 loopback fixture、临时 Chrome profile 和临时 extension 副本，以 Chrome DevTools Protocol 观察 tab 状态；手势测试命令仍进入 App 的 `GestureSessionCoordinator` 和既有 Provider v2 链路，不能直接调用 `chrome.tabs`。
+**架构：** 只在 E2E 临时 extension 副本和显式 `--e2e-control-token` 的 App 进程中启用测试控制平面。App 开放仅限 loopback 的随机 TCP port，并在标准输出发布端口；Node runner 使用 token、一次性 operation ID 和该 port 发出命令。runner 同时创建 loopback fixture、临时 Chrome profile 和临时 extension 副本，以 Chrome DevTools Protocol 观察 tab 状态；手势测试命令仍进入 App 的 `GestureSessionCoordinator` 和既有 Provider v2 链路，不能直接调用 `chrome.tabs`。
 
 **技术栈：** Swift 6.2、AppKit、Chrome MV3、TypeScript、Vitest、Node 23 内置 `WebSocket`、Chrome DevTools Protocol、GitHub Actions macOS runner。
 
@@ -22,7 +22,7 @@
 
 ## 文件结构
 
-- `apps/macos/GestureKitApp/Sources/GestureKitApp/E2EControlServer.swift`：只在显式 token 下监听 loopback 控制请求，验证 token/一次性 ID，转发测试命令。
+- `apps/macos/GestureKitApp/Sources/GestureKitApp/E2EControlServer.swift`：只在显式 token 下监听随机 loopback TCP port，验证 token/一次性 ID，向 runner 发布端口并转发测试命令。
 - `apps/macos/GestureKitApp/Sources/GestureKitApp/Runtime.swift`：创建 E2E server，并用既有 `GestureSessionCoordinator` 发起测试候选；进程退出时关闭 server 与待处理资源。
 - `apps/macos/GestureKitApp/Sources/GestureKitApp/main.swift`：解析 `--e2e-control-token`，不带参数时保持当前启动行为。
 - `Tests/GestureKitAppTests/E2EControlServerTests.swift`：验证授权、一次性 ID、关闭和 fail-closed 语义。
@@ -106,6 +106,8 @@ actor E2EControlServer {
     }
 }
 ```
+
+`E2EControlServer.start()` 使用 `NWListener` 绑定 `127.0.0.1` 的系统分配 port；ready 后只输出 `gesturekit_e2e_control_port=<decimal>`。每个连接只能提交一行 UTF-8 JSON 的 `E2ELinkOperationCommand`，返回一行 JSON `E2EControlResult` 后关闭。非 loopback 对端、超过 16 KB 的输入、JSON 解码失败、token 不匹配或重复 operation ID 都返回结构化拒绝且不进入 runtime。
 
 `GestureKitRuntime` 仅在启动参数包含非空 token 时创建该服务；将 `.success` 转为现有 candidate/classification/context/action 路径，`.leaseExpiry` 不发 action，`.providerUnavailable` 在 provider 路由前生成现有不可用终态，`.resultUnknown` 在 `action_accepted` 后丢弃最终回执并由既有 deadline recovery 收敛。所有退出路径调用既有 guard release 与 Journal 终态写入。
 

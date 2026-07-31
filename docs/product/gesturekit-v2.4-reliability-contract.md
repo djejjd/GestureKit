@@ -55,6 +55,8 @@ Chrome extension -> connectNative() -> GestureKitHost -> App IPC
 测试触发能力必须同时满足以下限制：
 
 - 由显式测试模式开启，默认关闭。
+- App 仅在传入 `--e2e-control-token` 时额外启动测试专用 loopback TCP listener，并仅在标准输出输出随机端口；runner 使用该端口发送一次性测试命令。
+- listener 同时校验 loopback 对端、随机 token 与未使用的 `operationId`；任一校验失败时拒绝请求且不创建 guard/session。App 退出时必须关闭 listener。
 - 仅接受受控测试页的固定 origin 或不可伪造测试令牌。
 - session 与 operation ID 均由 App 测试适配层生成并只使用一次。
 - 任一校验失败时 fail-closed，返回结构化拒绝原因并释放已创建的 guard/session 资源。
