@@ -28,6 +28,8 @@ final class GestureKitRuntime {
     private var internalState = AppInternalStatus()
     private var isPaused = false
     private var pendingRequests: [String: (action: String, timestamp: Int64)] = [:]
+    /// E2E 测试控制服务；仅当启动参数包含非空 token 时创建。
+    private var e2eServer: E2EControlServer?
     /// 组合器：把原始原语（3 种）组合为带区域和重复含义的手势（6 种）。
     private lazy var gestureCoordinator: GestureSessionCoordinator = GestureSessionCoordinator(
         ruleEngine: ruleEngine,
@@ -68,7 +70,8 @@ final class GestureKitRuntime {
         appContextResolver: AppContextResolver = AppContextResolver(),
         providerOutboundSink: ProviderSessionSink? = nil,
         controlCenterOpenHandler: @escaping () -> Void = {},
-        diagnosticSink: @escaping (LocalIPCEnvelope) -> Void = { _ in }
+        diagnosticSink: @escaping (LocalIPCEnvelope) -> Void = { _ in },
+        e2eControlToken: String? = nil
     ) {
         self.menuBarHandler = menuBarHandler
         self.touchBackend = touchBackend
@@ -88,6 +91,18 @@ final class GestureKitRuntime {
         self.ruleEngine = configuration.map(RuleEngine.init(configuration:))
             ?? RuleEngine(rules: (try? settingsStore.loadRules()) ?? DefaultRules.v1)
         self.appSessionId = UUID().uuidString
+
+        // E2E 测试控制边界：仅当启动参数包含非空 token 时暴露。
+        if let token = e2eControlToken, !token.isEmpty {
+            let server = E2EControlServer(token: token) { [weak self] command in
+                guard let self else {
+                    return .rejected(reason: "e2e_runtime_unavailable")
+                }
+                return await self.dispatchE2EOperation(command)
+            }
+            self.e2eServer = server
+            Task { try? await server.start() }
+        }
     }
 
     func start() {
@@ -583,6 +598,141 @@ final class GestureKitRuntime {
             diagnosticLoggingEnabled: UserDefaults.standard.bool(forKey: GestureKitLogger.diagnosticLoggingDefaultsKey),
             configJSON: String(decoding: data, as: UTF8.self)
         )
+    }
+
+    // MARK: - E2E control dispatch
+
+    /// 仅测试用：暴露当前 E2E server 端口；无 token 时返回 nil。
+    var e2eControlPort: UInt16? {
+        get async { await e2eServer?.port }
+    }
+
+    /// 测试入口：将 E2E 命令直接交给 dispatch，不走网络层。
+    func dispatchE2EOperationForTesting(_ command: E2ELinkOperationCommand) -> E2EControlResult {
+        dispatchE2EOperationSync(command)
+    }
+
+    /// 同步版 dispatch（测试入口使用），不等待异步管线完成。
+    private func dispatchE2EOperationSync(_ command: E2ELinkOperationCommand) -> E2EControlResult {
+        let now = Date().timeIntervalSince1970
+
+        switch command.scenario {
+        case .success:
+            let candidate = GestureCandidate(
+                startedAt: now, centroidX: 0.5, centroidY: 0.5, fingerCount: 3
+            )
+            if let sessionID = gestureCoordinator.handle(.candidateStarted(candidate)) {
+                lastCandidateSessionID = sessionID
+                pendingCoordinatorGestureInfo[sessionID] = .threeFingerTap
+                let recognized = RecognizedGesture(
+                    gesture: .threeFingerTap,
+                    status: .success,
+                    reason: .success,
+                    durationMs: 100,
+                    dx: 0, dy: 0,
+                    centroidX: 0.5, centroidY: 0.5
+                )
+                gestureCoordinator.handle(.primitiveClassified(recognized))
+            }
+            return .accepted(gestureSessionId: command.gestureSessionId, operationId: command.operationId)
+
+        case .leaseExpiry:
+            // 只 arm guard，不分类不派发 action；用 primitiveRejected 释放 guard。
+            let candidate = GestureCandidate(
+                startedAt: now, centroidX: 0.5, centroidY: 0.5, fingerCount: 3
+            )
+            if let sessionID = gestureCoordinator.handle(.candidateStarted(candidate)) {
+                lastCandidateSessionID = sessionID
+                let rejected = RecognizedGesture(
+                    gesture: nil,
+                    status: .error,
+                    reason: .unknown,
+                    durationMs: 100,
+                    dx: 0, dy: 0
+                )
+                gestureCoordinator.handle(.primitiveRejected(rejected))
+                lastCandidateSessionID = nil
+            }
+            return .accepted(gestureSessionId: command.gestureSessionId, operationId: command.operationId)
+
+        case .providerUnavailable:
+            // 无 provider 上下文：走 classificaton 但 context 请求会失败。
+            // 写入不可用终态到 Journal。
+            let candidate = GestureCandidate(
+                startedAt: now, centroidX: 0.5, centroidY: 0.5, fingerCount: 3
+            )
+            if let sessionID = gestureCoordinator.handle(.candidateStarted(candidate)) {
+                lastCandidateSessionID = sessionID
+                pendingCoordinatorGestureInfo[sessionID] = .threeFingerTap
+                let recognized = RecognizedGesture(
+                    gesture: .threeFingerTap,
+                    status: .success,
+                    reason: .success,
+                    durationMs: 100,
+                    dx: 0, dy: 0,
+                    centroidX: 0.5, centroidY: 0.5
+                )
+                gestureCoordinator.handle(.primitiveClassified(recognized))
+                // context 请求将因无 provider 而失败，写入终态。
+            }
+            writeProviderUnavailableTerminalState(
+                gestureSessionId: command.gestureSessionId, operationId: command.operationId
+            )
+            return .accepted(gestureSessionId: command.gestureSessionId, operationId: command.operationId)
+
+        case .resultUnknown:
+            // 走完整链路派发 action，但最终回执由 deadline recovery 收敛。
+            let candidate = GestureCandidate(
+                startedAt: now, centroidX: 0.5, centroidY: 0.5, fingerCount: 3
+            )
+            if let sessionID = gestureCoordinator.handle(.candidateStarted(candidate)) {
+                lastCandidateSessionID = sessionID
+                pendingCoordinatorGestureInfo[sessionID] = .threeFingerTap
+                let recognized = RecognizedGesture(
+                    gesture: .threeFingerTap,
+                    status: .success,
+                    reason: .success,
+                    durationMs: 100,
+                    dx: 0, dy: 0,
+                    centroidX: 0.5, centroidY: 0.5
+                )
+                gestureCoordinator.handle(.primitiveClassified(recognized))
+            }
+            return .accepted(gestureSessionId: command.gestureSessionId, operationId: command.operationId)
+        }
+    }
+
+    /// actor 上下文的异步版 dispatch，供 E2EControlServer 回调使用。
+    private func dispatchE2EOperation(_ command: E2ELinkOperationCommand) async -> E2EControlResult {
+        dispatchE2EOperationSync(command)
+    }
+
+    /// provider 不可用终态写入 Journal。
+    private func writeProviderUnavailableTerminalState(gestureSessionId: String, operationId: String) {
+        guard let operationJournal else { return }
+        operationJournalSequence += 1
+        let event = ProviderEvent(
+            eventId: UUID().uuidString,
+            producerSessionId: appSessionId,
+            producerSequence: operationJournalSequence,
+            causedByEventId: nil,
+            monotonicClockMs: currentTimestampMs(),
+            wallClockMs: currentTimestampMs(),
+            gestureSessionId: gestureSessionId,
+            operationId: operationId,
+            type: .actionResult,
+            payload: .actionResult(ProviderActionResultPayload(
+                operationId: operationId,
+                outcome: .resultUnknown,
+                reason: .guardExpired,
+                completedAt: currentTimestampMs()
+            ))
+        )
+        do {
+            try operationJournal.append(event)
+        } catch {
+            logger.error("operation_journal_append_failed error=\"\(error)\"")
+        }
     }
 
     /// coordinator 请求上下文：查活跃 Provider → 发 context_request。
