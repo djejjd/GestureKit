@@ -123,3 +123,53 @@ zsh scripts/dev/test-link-reliability.sh --dry-run  →  exit 0
 - `rejects when more than two page tabs exist` — 匹配新错误消息 `/恰好.*两个/`
 - `rejects when source tab is active (新 tab 应获得焦点)` — 匹配 `/source.*active|active.*source|不应.*active/`
 - `rejects when source tab not found` — 新增，覆盖 sourceId 不存在的分支
+
+---
+
+## Re-review Fix: CDP sessionId 路由缺失
+
+**时间**: 2026-08-01 | **审查轮次**: Task 3 re-review | **严重度**: Important
+
+### 问题描述
+
+`runAll()` 里 `Target.attachToTarget` 返回了 `sessionId`，但只保存了 `this.#pageTargetId`，未保存 sessionId。后续 6 处页面级 CDP 命令（`Runtime.enable`、`Page.navigate`、`Runtime.evaluate`）均未带 sessionId，导致命令路由到 browser target（不支持 Page domain、无 DOM），真实 Chrome 下场景执行失败。
+
+### 受影响位置（6 处）
+
+| # | 方法 | CDP 命令 | 作用 |
+|---|------|----------|------|
+| 1 | `runAll()` | `Runtime.enable` | 启用 page Runtime domain |
+| 2 | `runAll()` | `Page.navigate` | 场景 1 后重置 fixture 页 |
+| 3 | `runAll()` | `Page.navigate` | 场景 2 后重置 fixture 页 |
+| 4 | `#runSuccess()` | `Runtime.evaluate` | 模拟点击 `#e2e-link` |
+| 5 | `#runLeaseExpiry()` | `Page.navigate` | 导航离开触发 guard release |
+| 6 | `#runProviderUnavailable()` | `Runtime.evaluate` | Provider 不可用后点击链接 |
+
+### 修复内容
+
+1. **新增导出纯函数** `pageEvaluate(cdp, expression, sessionId)` 和 `pageNavigate(cdp, url, sessionId)` — 封装 CDP 页面级命令，通过 sessionId 路由到 page target，可独立单测
+2. **新增实例字段** `#pageSessionId` — 保存 `Target.attachToTarget` 返回的 sessionId
+3. **6 处调用点全部使用新 helper + sessionId**：
+   - `Runtime.enable` → `this.#cdp.send("Runtime.enable", {}, this.#pageSessionId)`
+   - `Page.navigate` → `pageNavigate(this.#cdp, url, this.#pageSessionId)`（3 处）
+   - `Runtime.evaluate` → `pageEvaluate(this.#cdp, expr, this.#pageSessionId)`（2 处）
+4. **更新实例方法** `#pageEvaluate` 和 `#sendPageCommand` 接受可选 sessionId 参数（向前兼容）
+5. **`#getTabs()` 保持不动** — 它每次调用独立 attach 各 tab，语义独立且正确
+
+### 测试覆盖
+
+```
+node --test scripts/e2e/test-link-reliability.mjs  →  11/11 pass
+zsh scripts/dev/test-link-reliability.sh --dry-run  →  exit 0
+```
+
+新增 4 个单测 — mock cdp 对象验证 sessionId 透传：
+- `pageEvaluate` calls cdp.send with Runtime.evaluate, expression, returnByValue, and sessionId
+- `pageEvaluate` passes null sessionId when not provided
+- `pageNavigate` calls cdp.send with Page.navigate, url, and sessionId
+- `pageNavigate` passes null sessionId when not provided
+
+### 改动文件
+
+- `scripts/e2e/run-link-reliability.mjs` — 新增 2 个导出函数 + `#pageSessionId` + 6 处调用点修复
+- `scripts/e2e/test-link-reliability.mjs` — 新增 4 个 mock cdp 单测

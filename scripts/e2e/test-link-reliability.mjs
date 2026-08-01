@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { assertAdjacentActivatedTab, redactSummary } from "./run-link-reliability.mjs";
+import { assertAdjacentActivatedTab, redactSummary, pageEvaluate, pageNavigate } from "./run-link-reliability.mjs";
 
 // Step 1: runner 失败测试 — 测试 helper 函数在校验和脱敏时拒绝非法输入。
 // 在 runner 实现前这些 import 会抛 MODULE_NOT_FOUND，满足 Step 2 的 FAIL 预期。
@@ -108,5 +108,70 @@ describe("redactSummary", () => {
     assert.equal(result.terminalStatus, "succeeded");
     assert.equal(result.failureStage, null);
     assert.equal(result.durationMs, 500);
+  });
+});
+
+describe("pageEvaluate", () => {
+  it("calls cdp.send with Runtime.evaluate, expression, returnByValue, and sessionId", async () => {
+    const calls = [];
+    const mockCdp = {
+      send: (method, params, sessionId) => {
+        calls.push({ method, params, sessionId });
+        return Promise.resolve({});
+      }
+    };
+    await pageEvaluate(mockCdp, "1 + 1", "session-123");
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].method, "Runtime.evaluate");
+    assert.equal(calls[0].params.expression, "1 + 1");
+    assert.equal(calls[0].params.returnByValue, true);
+    assert.equal(calls[0].sessionId, "session-123");
+  });
+
+  it("passes null sessionId when not provided", async () => {
+    const calls = [];
+    const mockCdp = {
+      send: (method, params, sessionId) => {
+        calls.push({ method, params, sessionId });
+        return Promise.resolve({});
+      }
+    };
+    await pageEvaluate(mockCdp, "document.title", null);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].method, "Runtime.evaluate");
+    assert.equal(calls[0].params.expression, "document.title");
+    assert.equal(calls[0].sessionId, null);
+  });
+});
+
+describe("pageNavigate", () => {
+  it("calls cdp.send with Page.navigate, url, and sessionId", async () => {
+    const calls = [];
+    const mockCdp = {
+      send: (method, params, sessionId) => {
+        calls.push({ method, params, sessionId });
+        return Promise.resolve({});
+      }
+    };
+    await pageNavigate(mockCdp, "http://example.com", "session-456");
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].method, "Page.navigate");
+    assert.equal(calls[0].params.url, "http://example.com");
+    assert.equal(calls[0].sessionId, "session-456");
+  });
+
+  it("passes null sessionId when not provided", async () => {
+    const calls = [];
+    const mockCdp = {
+      send: (method, params, sessionId) => {
+        calls.push({ method, params, sessionId });
+        return Promise.resolve({});
+      }
+    };
+    await pageNavigate(mockCdp, "about:blank", null);
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].method, "Page.navigate");
+    assert.equal(calls[0].params.url, "about:blank");
+    assert.equal(calls[0].sessionId, null);
   });
 });

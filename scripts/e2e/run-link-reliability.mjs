@@ -90,6 +90,32 @@ export function redactSummary(summary) {
   return JSON.parse(redacted);
 }
 
+/**
+ * 页面级 CDP 命令封装：通过 sessionId 将 Runtime.evaluate 路由到 page target。
+ * 纯函数，可单测。
+ *
+ * @param {{ send: (method: string, params: object, sessionId: string|null) => Promise<any> }} cdp
+ * @param {string} expression
+ * @param {string} sessionId
+ * @returns {Promise<any>}
+ */
+export function pageEvaluate(cdp, expression, sessionId) {
+  return cdp.send("Runtime.evaluate", { expression, returnByValue: true }, sessionId);
+}
+
+/**
+ * 页面级 CDP 命令封装：通过 sessionId 将 Page.navigate 路由到 page target。
+ * 纯函数，可单测。
+ *
+ * @param {{ send: (method: string, params: object, sessionId: string|null) => Promise<any> }} cdp
+ * @param {string} url
+ * @param {string} sessionId
+ * @returns {Promise<any>}
+ */
+export function pageNavigate(cdp, url, sessionId) {
+  return cdp.send("Page.navigate", { url }, sessionId);
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // 辅助
 // ═══════════════════════════════════════════════════════════════════
@@ -279,6 +305,7 @@ class ScenarioRunner {
   #chromeProcess;
   #tempDirs;
   #pageTargetId = null;
+  #pageSessionId = null;
   #scenarioResults = [];
   // C2 修复：需保存 processes 数组引用和 app 启动参数用于重启
   #processes;
@@ -307,16 +334,16 @@ class ScenarioRunner {
     });
   }
 
-  async #pageEvaluate(expression) {
+  async #pageEvaluate(expression, sessionId = null) {
     return this.#cdp.send("Runtime.evaluate", {
       expression,
       returnByValue: true
-    });
+    }, sessionId);
   }
 
-  async #sendPageCommand(scenario, gestureSessionId, operationId) {
+  async #sendPageCommand(scenario, gestureSessionId, operationId, sessionId = null) {
     const expr = `window.__gesturekitE2E && window.__gesturekitE2E.sendCommand(${JSON.stringify({ token: this.#token, gestureSessionId, operationId, scenario })})`;
-    return this.#pageEvaluate(expr);
+    return this.#pageEvaluate(expr, sessionId);
   }
 
   async #getTabs() {
@@ -372,10 +399,7 @@ class ScenarioRunner {
     await sleep(600);
 
     // 3. 模拟点击链接
-    await this.#cdp.send("Runtime.evaluate", {
-      expression: `document.querySelector('#e2e-link')?.click()`,
-      returnByValue: true
-    });
+    await pageEvaluate(this.#cdp, `document.querySelector('#e2e-link')?.click()`, this.#pageSessionId);
 
     // 4. 等待操作完成
     await sleep(1500);
@@ -425,7 +449,7 @@ class ScenarioRunner {
     await sleep(300);
 
     // 3. 导航 source tab 到另一页面，触发 guard release
-    await this.#cdp.send("Page.navigate", { url: `${FIXTURE_ORIGIN}/link-reliability-target.html` });
+    await pageNavigate(this.#cdp, `${FIXTURE_ORIGIN}/link-reliability-target.html`, this.#pageSessionId);
     await sleep(1000);
 
     // 4. 等待 lease 完全过期（总 lease 500ms + network margin）
@@ -474,10 +498,7 @@ class ScenarioRunner {
     }
 
     // 3. 页面 click 未被持久阻止（点击链接应正常导航，无 guard 拦截）
-    await this.#cdp.send("Runtime.evaluate", {
-      expression: `document.querySelector('#e2e-link')?.click()`,
-      returnByValue: true
-    });
+    await pageEvaluate(this.#cdp, `document.querySelector('#e2e-link')?.click()`, this.#pageSessionId);
     await sleep(1000);
 
     return {
@@ -582,9 +603,10 @@ class ScenarioRunner {
       flatten: true
     });
     this.#pageTargetId = page.targetId;
+    this.#pageSessionId = attached.sessionId;
 
-    // 启用 Runtime domain
-    await this.#cdp.send("Runtime.enable", {});
+    // 启用 Runtime domain（通过 page session 路由）
+    await this.#cdp.send("Runtime.enable", {}, this.#pageSessionId);
 
     const results = [];
 
@@ -592,13 +614,13 @@ class ScenarioRunner {
     results.push(await this.#runSuccess());
 
     // 重新导航到 fixture 页面（前面的场景可能已导航走）
-    await this.#cdp.send("Page.navigate", { url: `${FIXTURE_ORIGIN}/link-reliability.html` });
+    await pageNavigate(this.#cdp, `${FIXTURE_ORIGIN}/link-reliability.html`, this.#pageSessionId);
     await sleep(1000);
 
     console.error("[runner] 场景 2/4: leaseExpiry");
     results.push(await this.#runLeaseExpiry());
 
-    await this.#cdp.send("Page.navigate", { url: `${FIXTURE_ORIGIN}/link-reliability.html` });
+    await pageNavigate(this.#cdp, `${FIXTURE_ORIGIN}/link-reliability.html`, this.#pageSessionId);
     await sleep(1000);
 
     console.error("[runner] 场景 3/4: providerUnavailable");
