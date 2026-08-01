@@ -176,7 +176,7 @@ describe("pointerTracker", () => {
     window.dispatchEvent(new PointerEvent("pointermove", { clientX: 10, clientY: 20 }));
 
     anchor.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
-    await vi.advanceTimersByTimeAsync(501);
+    await vi.advanceTimersByTimeAsync(751);
     const result = module.resolveLinkAtLastPointer(Date.now(), { consumeNextClick: true });
 
     // 保护超时后 timedOutAndNavigated 置为 true，跳过指针解析避免重复导航
@@ -260,7 +260,7 @@ describe("pointerTracker", () => {
     window.dispatchEvent(new PointerEvent("pointermove", { clientX: 10, clientY: 20 }));
 
     anchor.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
-    await vi.advanceTimersByTimeAsync(501);
+    await vi.advanceTimersByTimeAsync(751);
 
     const result = module.resolveLinkAtLastPointer(Date.now(), { consumeNextClick: true });
     // 保护超时，timedOutAndNavigated 阻止手势再次打开链接
@@ -276,7 +276,7 @@ describe("pointerTracker", () => {
     const anchor = document.getElementById("target") as HTMLAnchorElement;
 
     anchor.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
-    await vi.advanceTimersByTimeAsync(501);
+    await vi.advanceTimersByTimeAsync(751);
 
     // jsdom 中设置 window.location.href 会以 console.error 报告导航
     expect(consoleError).toHaveBeenCalledWith("Not implemented: navigation to another Document");
@@ -341,5 +341,31 @@ describe("pointerTracker", () => {
     const click = new MouseEvent("click", { bubbles: true, cancelable: true });
     expect(document.dispatchEvent(click)).toBe(false);
     expect(click.defaultPrevented).toBe(true);
+  });
+
+  it("keeps the link protected until the guard deadline (750ms) so a slower gesture still wins", async () => {
+    // 保护窗口必须覆盖 guard deadline（750ms）。若窗口短于 deadline，手势在
+    // 500~750ms 之间到达时会被 content script 抢先原地导航，导致"原地打开"。
+    vi.useFakeTimers();
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      let runtimeListener: ((message: any, sender: unknown, sendResponse: (response: unknown) => void) => boolean) | null = null;
+      vi.stubGlobal("chrome", {
+        runtime: { onMessage: { addListener: vi.fn((listener) => { runtimeListener = listener; }) } }
+      });
+      const module = await import("../src/content/pointerTracker");
+      module.setLinkClickProtectionEnabled(true);
+      const anchor = document.getElementById("target") as HTMLAnchorElement;
+      runtimeListener?.({ type: "gesturekit.linkGuardArm", gestureSessionId: "candidate-1", leaseMs: 750 }, {}, () => {});
+
+      anchor.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+      await vi.advanceTimersByTimeAsync(500);
+
+      // 500ms 时 guard 尚未到期，不应原地导航
+      expect(consoleError).not.toHaveBeenCalledWith("Not implemented: navigation to another Document");
+    } finally {
+      consoleError.mockRestore();
+      vi.useRealTimers();
+    }
   });
 });
