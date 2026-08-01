@@ -200,11 +200,20 @@ Chrome profile。
   `https://example.test/e2e-target`；leaseExpiry 只断言 lease 过期后普通点击不被 guard
   拦截（不打开新 tab）；providerUnavailable/resultUnknown 无真实断言。这些都是完整断言
   列表的子集，不是原计划全部六个断言。
+- I3（2026-08 真实 Chrome 首次试跑发现）：**扩展→Host→App 的 provider 连通性在
+  `--load-extension` 加载方式下无法建立**。Chrome 对未打包扩展分配路径推导的扩展 ID，
+  与 runner 按 manifest `key` 写入 native messaging manifest 的 `allowed_origins` 不匹配，
+  `connectNative` 被 Chrome 拒绝，Host 不拉起，测试 App 收不到 provider 连接
+  （`authenticated_provider_unavailable`）。因此 `success`/`leaseExpiry` 两个场景失败；
+  只有不依赖链路的 `providerUnavailable`/`resultUnknown` 通过。修复方向：按实际加载的
+  扩展 ID（路径推导）写 `allowed_origins`，并把 manifest 写到 Chrome 实际读取的位置。
+  属后续修复任务，本分支不阻塞合并。
 
-**尚未验证**：真实 Chrome runner（`zsh scripts/dev/test-link-reliability.sh`）尚未在任何机器上
-端到端执行过；它只在人工关口（Task 3 Step 5）于开发者本机运行时才算验证通过。通用 CI 的
-`swift`/`extension`/`scripts` job 只跑自动化测试与 `--dry-run`，不运行真实 Chrome，不能作为
-验证证据。
+**尚未验证 / 已知失败**：真实 Chrome runner（`zsh scripts/dev/test-link-reliability.sh`）在
+2026-08-01 首次本机试跑时环境预检通过、四场景均执行并输出摘要；`providerUnavailable`/
+`resultUnknown` 通过，`success`/`leaseExpiry` 因缺口 I3 失败。真实硬件、权限与系统手势冲突
+仍须手动触控板验收。通用 CI 的 `swift`/`extension`/`scripts` job 只跑自动化测试与
+`--dry-run`，不运行真实 Chrome，不能作为验证证据。
 
 因此真实 Chrome runner 不是完整替代手动触控板验收；通用 CI（quality-gate）只跑自动化
 与干跑，同样不验证真实手势链路。手动验收清单见 `docs/operations/e2e-checklist.md`。

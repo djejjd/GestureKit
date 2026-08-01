@@ -161,11 +161,23 @@ runner 会在系统临时目录创建一次性目录：`gesturekit-e2e-chrome-*`
   `https://example.test/e2e-target`；leaseExpiry 只断言 lease 过期后普通点击不被 guard 拦截
   （不打开新 tab）；providerUnavailable/resultUnknown 无真实断言。这些都是完整断言列表的子集，
   不是原计划的全部六条。
+- 缺口 I3（2026-08 真实 Chrome 首次试跑发现）：**扩展→Host→App 的 provider 连通性在
+  `--load-extension` 加载方式下无法建立**。Chrome 对未打包扩展分配路径推导的扩展 ID
+  （实测如 `fignfifoniblkonapihmkfakmlgkbkcf`），与 manifest `key` 推导的
+  `allowed_origins`（`pdegbjhgibenmgaaplhnpbnhaaipndoh`）不匹配，`connectNative` 被
+  Chrome 以 allowed_origins 校验拒绝，Host 进程不拉起，测试 App 收不到 provider 连接
+  （日志 `authenticated_provider_unavailable`）。因此依赖该链路的 `success`/`leaseExpiry`
+  两个场景**未能通过**；只有不依赖链路的 `providerUnavailable`/`resultUnknown` 通过。
+  修复方向：让 runner 使用与 Chrome 实际分配的扩展 ID 一致的 `allowed_origins`
+  （按加载路径计算，而非 manifest key），并把 native messaging manifest 写到 Chrome 实际
+  读取的位置。此项为后续修复任务，本分支不阻塞合并。
 
-**尚未验证**：真实 Chrome runner（`zsh scripts/dev/test-link-reliability.sh`）尚未在任何机器上
-端到端执行过。它只在人工关口（Task 3 Step 5）于开发者本机运行时才算验证通过；通用 CI 的
-`swift`/`extension`/`scripts` job 只跑自动化测试与 `--dry-run`，不运行真实 Chrome，不能作为
-验证证据。
+**尚未验证 / 已知失败**：真实 Chrome runner（`zsh scripts/dev/test-link-reliability.sh`）在
+2026-08-01 首次本机试跑时，环境预检（Chrome/App/扩展构建、控制端口、CDP、fixture 页面）
+已通过，四个场景均执行并输出摘要；其中 `providerUnavailable`/`resultUnknown` 通过，
+`success`/`leaseExpiry` 因缺口 I3 失败。真实硬件、权限与系统手势冲突仍须手动触控板验收。
+通用 CI 的 `swift`/`extension`/`scripts` job 只跑自动化测试与 `--dry-run`，不运行真实 Chrome，
+不能作为验证证据。
 
 这些缺口意味着真实 Chrome runner 是**部分回归门**，不是完整替代手动触控板验收。通用 CI
 （quality-gate）甚至不运行真实 Chrome；两个自动化层的边界和复用手动清单，见
