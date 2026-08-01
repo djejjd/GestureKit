@@ -38,6 +38,53 @@ final class ProviderSessionRegistryTests: XCTestCase {
         XCTAssertNotEqual(first.providerSessionID, second.providerSessionID)
     }
 
+    func testInvalidateSessionClearsActiveSessionWhenConnectionDrops() throws {
+        let store = ProviderCredentialStore(directory: directory)
+        let registry = ProviderSessionRegistry(credentialStore: store)
+        let connectionID = UUID()
+        let session = try register("chrome", registry: registry, store: store, connectionID: connectionID) { _ in }
+
+        XCTAssertNotNil(registry.activeSession())
+        XCTAssertEqual(registry.activeSession()?.providerSessionID, session.providerSessionID)
+
+        registry.invalidateSession(for: connectionID)
+
+        XCTAssertNil(registry.activeSession())
+    }
+
+    func testInvalidateSessionDoesNotAffectOtherConnection() throws {
+        let store = ProviderCredentialStore(directory: directory)
+        let registry = ProviderSessionRegistry(credentialStore: store)
+        let connA = UUID()
+        let connB = UUID()
+        _ = try register("chrome-a", registry: registry, store: store, connectionID: connA) { _ in }
+        // register second session (replaces active)
+        let sessionB = try register("chrome-b", registry: registry, store: store, connectionID: connB) { _ in }
+
+        XCTAssertEqual(registry.activeSession()?.providerSessionID, sessionB.providerSessionID)
+
+        // 断开非活跃连接不应影响活跃 session
+        registry.invalidateSession(for: connA)
+        XCTAssertNotNil(registry.activeSession())
+        XCTAssertEqual(registry.activeSession()?.providerSessionID, sessionB.providerSessionID)
+
+        // 断开活跃连接应清除
+        registry.invalidateSession(for: connB)
+        XCTAssertNil(registry.activeSession())
+    }
+
+    func testSendToInvalidatedSessionThrows() throws {
+        let store = ProviderCredentialStore(directory: directory)
+        let registry = ProviderSessionRegistry(credentialStore: store)
+        let connectionID = UUID()
+        let session = try register("chrome", registry: registry, store: store, connectionID: connectionID) { _ in }
+        let envelope = ProviderEnvelope(protocolVersion: 2, messageId: "m", providerSessionId: session.providerSessionID, gestureSessionId: nil, operationId: nil, type: .healthProbe, timestamp: 1, payload: .healthProbe(HealthProbePayload(probeSequence: 1, sentAt: 1)), error: nil)
+
+        registry.invalidateSession(for: connectionID)
+
+        XCTAssertThrowsError(try registry.send(envelope, to: session.providerSessionID))
+    }
+
     func testAuthenticatedSessionOnlyUsesCapabilitiesReportedByItsConnection() throws {
         let store = ProviderCredentialStore(directory: directory)
         let registry = ProviderSessionRegistry(credentialStore: store)

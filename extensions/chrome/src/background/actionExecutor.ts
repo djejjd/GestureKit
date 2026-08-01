@@ -69,7 +69,7 @@ async function openLinkBackground(api: ChromeApi, urlValue: string): Promise<Act
 
   const created = await api.tabs.create({
     url: url.toString(),
-    active: true,
+    active: false,
     index: activeTab.index + 1,
     windowId: activeTab.windowId
   });

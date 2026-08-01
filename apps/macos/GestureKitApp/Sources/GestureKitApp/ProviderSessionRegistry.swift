@@ -69,6 +69,17 @@ final class ProviderSessionRegistry: @unchecked Sendable {
         return sessions[providerSessionID]?.0.connectionID == connectionID
     }
 
+    /// 连接断开时清理对应 session，避免 stale session 被继续当作"活跃"返回。
+    func invalidateSession(for connectionID: UUID) {
+        lock.lock()
+        defer { lock.unlock() }
+        for (id, (session, _)) in sessions where session.connectionID == connectionID {
+            sessions.removeValue(forKey: id)
+            if activeSessionID == id { activeSessionID = nil }
+            break
+        }
+    }
+
     /// 只有已认证连接自身可以声明其实际可执行的标准动作。
     func updateCapabilities(_ snapshot: CapabilitySnapshotPayload, for providerSessionID: String, connectionID: UUID) -> Bool {
         lock.lock(); defer { lock.unlock() }
