@@ -65,7 +65,7 @@ describe("executeGestureAction", () => {
     expect(result.status).toBe("success");
     expect(api.tabs.create).toHaveBeenCalledWith({
       url: "https://example.com/docs",
-      active: true,
+      active: false,
       index: 3,
       windowId: 7
     });

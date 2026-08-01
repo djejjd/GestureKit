@@ -12,6 +12,7 @@ final class LocalEventServer: @unchecked Sendable {
     /// v2 迁移入口：在旧 envelope 解码失败时保留原始 JSON 供认证层处理。
     var onRawMessage: (@Sendable (UUID, Data) -> Void)?
     var onConnectionCountChanged: ((Int) -> Void)?
+    var onConnectionRemoved: ((UUID) -> Void)?
 
     init(
         port: NWEndpoint.Port = 17653,
@@ -139,6 +140,7 @@ final class LocalEventServer: @unchecked Sendable {
         let count = connections.count
         lock.unlock()
         onConnectionCountChanged?(count)
+        onConnectionRemoved?(id)
     }
 
     private func notifyConnectionCountChanged() {

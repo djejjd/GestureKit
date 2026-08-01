@@ -104,6 +104,17 @@ final class GestureKitRuntime {
                     self?.handleProviderEnvelope(data, connectionID: connectionID, server: server)
                 }
             }
+            server.onConnectionRemoved = { [weak self] connectionID in
+                Task { @MainActor [weak self] in
+                    guard let self else { return }
+                    self.providerSessions.invalidateSession(for: connectionID)
+                    let dropped = self.pendingCoordinatorSessions.count
+                    self.pendingCoordinatorSessions.removeAll()
+                    if dropped > 0 {
+                        self.logger.warn("provider_session_invalidated connection_lost dropped_pending_contexts=\(dropped)")
+                    }
+                }
+            }
             server.start()
             eventServer = server
         } catch {
