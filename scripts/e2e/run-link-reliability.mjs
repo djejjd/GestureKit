@@ -14,7 +14,7 @@ import { tmpdir } from "node:os";
 import { basename, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { createInterface } from "node:readline";
-import { connect } from "node:net";
+import { createServer as createNetServer, connect } from "node:net";
 
 // ═══════════════════════════════════════════════════════════════════
 // 类型定义
@@ -124,6 +124,20 @@ export function pageNavigate(cdp, url, sessionId) {
   return cdp.send("Page.navigate", { url }, sessionId);
 }
 
+/**
+ * 在 CDP `Target.getTargets` 响应中查找 URL 包含给定子串的 page target。
+ * `send` 返回完整消息（`{ id, result }`），targetInfos 位于 `result` 字段下，
+ * 不能读顶层 `targetInfos`。纯函数，可单测。
+ *
+ * @param {{ result?: { targetInfos?: Array<{ type: string, targetId: string, url: string }> } }} targets
+ * @param {string} urlIncludes
+ * @returns {{ targetId: string, url: string } | null}
+ */
+export function findPageTarget(targets, urlIncludes) {
+  const infos = targets?.result?.targetInfos || [];
+  return infos.find((t) => t.type === "page" && t.url.includes(urlIncludes)) || null;
+}
+
 // ═══════════════════════════════════════════════════════════════════
 // 辅助
 // ═══════════════════════════════════════════════════════════════════
@@ -144,6 +158,23 @@ function nowMs() {
 
 function sleep(ms) {
   return new Promise((r) => setTimeout(r, ms));
+}
+
+/**
+ * 在 127.0.0.1 上找一个空闲端口，用作本次 E2E 的 IPC 端口（GESTUREKIT_IPC_PORT）。
+ * 测试 App 与真实 App 共享默认端口 17653，必须隔离到独立端口，
+ * Host 才能连到正确的测试 App。返回后立即关闭探测 socket（轻微竞态可接受）。
+ * @returns {Promise<number>}
+ */
+function findFreePort() {
+  return new Promise((resolve, reject) => {
+    const probe = createNetServer();
+    probe.on("error", reject);
+    probe.listen(0, "127.0.0.1", () => {
+      const { port } = probe.address();
+      probe.close(() => resolve(port));
+    });
+  });
 }
 
 function generateToken() {
@@ -385,7 +416,7 @@ class ScenarioRunner {
   async #getTabs() {
     // 使用 CDP Target.getTargets 获取所有 page 类型 target
     const targets = await this.#cdp.send("Target.getTargets", {});
-    const pageTargets = (targets.targetInfos || []).filter((t) => t.type === "page");
+    const pageTargets = (targets.result?.targetInfos || []).filter((t) => t.type === "page");
 
     // 附着每个 page target，通过 document.hasFocus() 获取真实 active 状态
     // （TargetInfo 无 active 字段；#pageTargetId 在 target="_blank" 后不变，会误判）
@@ -395,7 +426,7 @@ class ScenarioRunner {
           targetId: t.targetId,
           flatten: true
         });
-        const sessionId = attached.sessionId;
+        const sessionId = attached.result?.sessionId;
         // 先启用 Runtime domain（新附着 target 默认未启用）
         await this.#cdp.send("Runtime.enable", {}, sessionId);
         const result = await this.#cdp.send("Runtime.evaluate", {
@@ -635,14 +666,27 @@ class ScenarioRunner {
     });
   }
 
+  /**
+   * 轮询 Target.getTargets 直到 fixture 页面出现。Chrome 启动时以 fixture URL 打开，
+   * 但 CDP 连接时页面可能仍在导航（target URL 尚未变为 fixture URL），
+   * 单次查询会竞态失败，因此轮询等待。
+   */
+  async #findFixturePage(timeoutMs = 10000) {
+    const deadline = nowMs() + timeoutMs;
+    while (nowMs() < deadline) {
+      const targets = await this.#cdp.send("Target.getTargets", {});
+      const page = findPageTarget(targets, "link-reliability");
+      if (page) return page;
+      await sleep(250);
+    }
+    return null;
+  }
+
   async runAll() {
     // 先获取当前页面 target ID
-    const targets = await this.#cdp.send("Target.getTargets", {});
-    const page = (targets.targetInfos || []).find(
-      (t) => t.type === "page" && t.url.includes("link-reliability")
-    );
+    const page = await this.#findFixturePage();
     if (!page) {
-      throw new Error("未找到 link-reliability fixture 页面");
+      throw new Error("未找到 link-reliability fixture 页面（Chrome 未打开 fixture URL，或 fixture server 不可达）");
     }
     // 通过 Target.attachToTarget 获得 page session
     const attached = await this.#cdp.send("Target.attachToTarget", {
@@ -650,7 +694,7 @@ class ScenarioRunner {
       flatten: true
     });
     this.#pageTargetId = page.targetId;
-    this.#pageSessionId = attached.sessionId;
+    this.#pageSessionId = attached.result?.sessionId;
 
     // 启用 Runtime domain（通过 page session 路由）
     await this.#cdp.send("Runtime.enable", {}, this.#pageSessionId);
@@ -746,7 +790,11 @@ export async function runLinkReliabilityScenarios(config = {}) {
     const developerDir = process.env.DEVELOPER_DIR || (() => {
       try { return DEFAULT_DEVELOPER_DIR; } catch { return ""; }
     })();
-    const buildEnv = developerDir ? { ...process.env, DEVELOPER_DIR: developerDir } : process.env;
+    const buildEnv = {
+      ...(developerDir ? { ...process.env, DEVELOPER_DIR: developerDir } : process.env),
+      // IPC 端口隔离：测试 App 与真实 App 共享默认 17653，Host 必须连到测试 App 的独立端口。
+      GESTUREKIT_IPC_PORT: String(await findFreePort())
+    };
     try {
       execSync("swift build --package-path .", {
         cwd: repoRoot,
@@ -810,14 +858,15 @@ export async function runLinkReliabilityScenarios(config = {}) {
 
     // 8. 启动 Chrome
     console.error("[runner] 启动 Chrome...");
+    // 注意：不用 --disable-extensions-except。该 flag 期望扩展 ID 而非路径，传路径
+    // 会禁用所有扩展（包括 --load-extension 加载的 E2E 扩展），且空格形式会被 Chrome
+    // 当作 URL 打开 `file://<ext>` 污染 tab 断言。临时 profile 本就只有 E2E 扩展。
     const chromeArgs = [
       `--user-data-dir=${chromeProfile}`,
       `--load-extension=${extensionOut}`,
       "--remote-debugging-port=0",
       "--no-first-run",
       "--no-default-browser-check",
-      "--disable-extensions-except",
-      extensionOut,
       "--disable-background-networking", // 减少噪声
       `${FIXTURE_ORIGIN}/link-reliability.html`
     ];
@@ -825,7 +874,9 @@ export async function runLinkReliabilityScenarios(config = {}) {
     const chromePromise = new Promise((resolve, reject) => {
       const child = spawn(chromePath, chromeArgs, {
         stdio: "ignore",
-        env: process.env
+        // GESTUREKIT_IPC_PORT 经 Chrome 环境传给 Native Messaging Host，
+        // 使 Host 连到测试 App 的独立 IPC 端口。
+        env: { ...process.env, GESTUREKIT_IPC_PORT: buildEnv.GESTUREKIT_IPC_PORT }
       });
       processes.push(child);
 
@@ -914,7 +965,7 @@ export async function runLinkReliabilityScenarios(config = {}) {
 // 干跑模式：打印配置和命令，不启动任何 GUI 或写入用户 profile
 // ═══════════════════════════════════════════════════════════════════
 
-function dryRunOutput({ chromePath, repoRoot, fixturePort }) {
+function dryRunOutput({ chromePath, repoRoot, fixturePort, ipcPort }) {
   const lines = [];
   const extensionId = (() => {
     try {
@@ -972,6 +1023,7 @@ function dryRunOutput({ chromePath, repoRoot, fixturePort }) {
   lines.push("--- GestureKitApp ---");
   lines.push(`${join(repoRoot, ".build/debug/GestureKitApp")} --e2e-control-token "${token}"`);
   lines.push("  预期 stdout: gesturekit_e2e_control_port=<port>");
+  lines.push(`  env: GESTUREKIT_IPC_PORT=${ipcPort}（与真实实例 17653 隔离）`);
   lines.push("");
   lines.push("--- Chrome ---");
   lines.push(`${chromePath} \\`);
@@ -1009,10 +1061,12 @@ if (IS_MAIN) {
   const dryRun = args.includes("--dry-run");
 
   if (dryRun) {
+    const ipcPort = await findFreePort();
     console.log(dryRunOutput({
       chromePath: process.env.CHROME_PATH || CHROME_PATH,
       repoRoot: REPO_ROOT,
-      fixturePort: FIXTURE_PORT
+      fixturePort: FIXTURE_PORT,
+      ipcPort
     }));
     process.exit(0);
   }

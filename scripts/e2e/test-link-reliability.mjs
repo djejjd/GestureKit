@@ -1,6 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
-import { assertAdjacentActivatedTab, redactSummary, pageEvaluate, pageNavigate } from "./run-link-reliability.mjs";
+import { assertAdjacentActivatedTab, redactSummary, pageEvaluate, pageNavigate, findPageTarget } from "./run-link-reliability.mjs";
 
 // Step 1: runner 失败测试 — 测试 helper 函数在校验和脱敏时拒绝非法输入。
 // 在 runner 实现前这些 import 会抛 MODULE_NOT_FOUND，满足 Step 2 的 FAIL 预期。
@@ -201,5 +201,49 @@ describe("pageNavigate", () => {
     assert.equal(calls[0].method, "Page.navigate");
     assert.equal(calls[0].params.url, "about:blank");
     assert.equal(calls[0].sessionId, null);
+  });
+});
+
+describe("findPageTarget", () => {
+  // CDP 命令响应形如 { id, result: { targetInfos: [...] } }；runner 必须读取
+  // result 下的 targetInfos 而非顶层字段（send 返回完整消息）。
+  it("returns the page target whose url includes the substring (reads result.targetInfos)", () => {
+    const targets = {
+      id: 1,
+      result: {
+        targetInfos: [
+          { type: "page", targetId: "A", url: "http://127.0.0.1:4567/link-reliability.html" },
+          { type: "page", targetId: "B", url: "https://example.test/other" }
+        ]
+      }
+    };
+    const page = findPageTarget(targets, "link-reliability");
+    assert.equal(page.targetId, "A");
+  });
+
+  it("returns null when no page target matches", () => {
+    const targets = {
+      id: 1,
+      result: { targetInfos: [{ type: "page", targetId: "B", url: "https://example.test/other" }] }
+    };
+    assert.equal(findPageTarget(targets, "link-reliability"), null);
+  });
+
+  it("returns null when response lacks result.targetInfos", () => {
+    assert.equal(findPageTarget({ id: 1 }, "link-reliability"), null);
+    assert.equal(findPageTarget({ id: 1, result: {} }, "link-reliability"), null);
+  });
+
+  it("ignores non-page targets", () => {
+    const targets = {
+      id: 1,
+      result: {
+        targetInfos: [
+          { type: "service_worker", targetId: "SW", url: "http://127.0.0.1:4567/link-reliability" },
+          { type: "page", targetId: "P", url: "http://127.0.0.1:4567/link-reliability.html" }
+        ]
+      }
+    };
+    assert.equal(findPageTarget(targets, "link-reliability").targetId, "P");
   });
 });
