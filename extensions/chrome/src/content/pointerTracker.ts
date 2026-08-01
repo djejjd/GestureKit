@@ -9,7 +9,10 @@ export type PointerSnapshot = {
 
 const MAX_POINTER_AGE_MS = 1500;
 const CONSUME_CLICK_WINDOW_MS = 2000;
-const LINK_CLICK_PROTECTION_WINDOW_MS = 500;
+// 保护窗口必须覆盖 guard deadline（App 侧 candidate guard 为 750ms）。
+// 若窗口短于 deadline，手势在 500~750ms 之间到达时会被 content script 抢先
+// 原地导航（window.location.href），导致"原地打开"。取值与 guard deadline 对齐。
+const LINK_CLICK_PROTECTION_WINDOW_MS = 750;
 
 type PointerTrackerState = {
   lastPointer: PointerSnapshot | null;
