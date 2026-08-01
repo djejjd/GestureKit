@@ -129,10 +129,10 @@ zsh scripts/dev/test-link-reliability.sh             # 真实 Chrome 验收（�
 
 | 场景 | E2E 命令 | 终态 terminalStatus | 说明 |
 |---|---|---|---|
-| success | e2e success | `succeeded` | guard 就绪 → 点击 → 相邻新 tab 激活 |
-| leaseExpiry | e2e leaseExpiry | `lease_released` | guard 租约 500ms 释放，不复用 |
-| providerUnavailable | e2e providerUnavailable | `provider_unavailable_guard_released` | 关闭 App → 点击不被阻止 |
-| resultUnknown | e2e resultUnknown | `result_unknown` | 无回执 → 下次 success 可执行 |
+| success | e2e success | `succeeded` | guard + action 打开相邻新 tab；断言 source tab URL 不变 + 恰好一个相邻 tab 激活且 URL 为固定目标 `https://example.test/e2e-target` |
+| leaseExpiry | e2e leaseExpiry | `lease_released` | lease 过期后普通点击不被 guard 拦截（不打开新 tab，source tab 原地导航离开 fixture） |
+| providerUnavailable | e2e providerUnavailable | `provider_unavailable_guard_released` | 关闭 App 走终态路径；绕过真实手势链路（已知缺口，无真实断言） |
+| resultUnknown | e2e resultUnknown | `result_unknown` | 无回执走恢复路径；仅断言下一次 success 未被拒绝 |
 
 runner 把每个场景输出为一条脱敏 `LinkReliabilitySummary` JSON 行（stdout），字段：
 `scenario`、`gestureSessionId`、`operationId`、`terminalStatus`、`failureStage`、
@@ -140,8 +140,8 @@ runner 把每个场景输出为一条脱敏 `LinkReliabilitySummary` JSON 行（
 
 ### 预检失败下一步（退出码 2）
 
-- `preflight_failed: Chrome 未安装在 /Applications/Google Chrome.app` → 安装 Google Chrome，或设置 `CHROME_PATH` 指向 Chrome 可执行文件后重跑。
-- `preflight_failed: Xcode 未安装在 /Applications/Xcode.app` → 安装 Xcode，或设置 `DEVELOPER_DIR` 指向正确的 Developer 目录。
+- `preflight_failed: Chrome 未安装在 <chrome_path>` → 安装 Google Chrome，或设置 `CHROME_PATH` 指向 Chrome 可执行文件后重跑。
+- `preflight_failed: Developer 目录不存在: <developer_dir>` → 安装 Xcode，或设置 `DEVELOPER_DIR` 指向正确的 Developer 目录。
 - `preflight_failed: Node.js 未找到` → 安装 Node.js 23+。
 
 ### 临时 profile 清理语义
@@ -156,8 +156,16 @@ runner 会在系统临时目录创建一次性目录：`gesturekit-e2e-chrome-*`
 
 - 缺口 I1：`providerUnavailable` 与 `resultUnknown` 两个场景走 dispatch 与终态路径，但绕过真实
   三指手势→链接链路（通过杀掉并重启 App 模拟 provider 不可用，而不是合成真实手势）。
-- 缺口 I2：runner 断言 guard-armed-before-click、source tab 不变、target tab 激活，是完整断言
-  列表的子集，不是原计划的全部六个断言。
+- 缺口 I2：runner **不**断言 guard trace（guard-armed-before-click 时序）。success 只断言
+  source tab URL 不变 + 恰好一个相邻 tab 打开、激活且 URL 等于固定目标
+  `https://example.test/e2e-target`；leaseExpiry 只断言 lease 过期后普通点击不被 guard 拦截
+  （不打开新 tab）；providerUnavailable/resultUnknown 无真实断言。这些都是完整断言列表的子集，
+  不是原计划的全部六条。
+
+**尚未验证**：真实 Chrome runner（`zsh scripts/dev/test-link-reliability.sh`）尚未在任何机器上
+端到端执行过。它只在人工关口（Task 3 Step 5）于开发者本机运行时才算验证通过；通用 CI 的
+`swift`/`extension`/`scripts` job 只跑自动化测试与 `--dry-run`，不运行真实 Chrome，不能作为
+验证证据。
 
 这些缺口意味着真实 Chrome runner 是**部分回归门**，不是完整替代手动触控板验收。通用 CI
 （quality-gate）甚至不运行真实 Chrome；两个自动化层的边界和复用手动清单，见

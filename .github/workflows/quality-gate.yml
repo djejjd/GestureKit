@@ -70,8 +70,8 @@ jobs:
         run: zsh scripts/dev/test-smoke-check.sh
       - name: provider protocol
         run: zsh scripts/dev/test-provider-protocol.sh
-      - name: link reliability runner unit tests
-        run: node --test scripts/e2e/test-link-reliability.mjs
+      # 注意：link-reliability 单元测试由下面的 --dry-run wrapper 内部执行
+      # （test-link-reliability.sh 先跑 node --test 再 dry-run），不再单独跑一遍。
       - name: link reliability dry-run
         run: zsh scripts/dev/test-link-reliability.sh --dry-run
 
@@ -94,16 +94,33 @@ jobs:
         working-directory: extensions/chrome
         run: npm ci
       - name: run real Chrome link reliability acceptance
-        shell: bash {0}
+        shell: bash
         run: |
-          set -o pipefail
-          # 只保留脱敏 JSON 摘要行（stdout 中以 { 开头的行）写入 artifact；
-          # stderr 进度保留在 Actions 控制台，不上传日志原文。
-          zsh scripts/dev/test-link-reliability.sh | rg '^\{' > link-reliability-summaries.jsonl
+          set -eo pipefail
+          # 先捕获 runner 真实退出码（不经管道，避免被 rg 的退出码掩盖），
+          # 再过滤 stdout 中的脱敏 JSON 摘要行写入 artifact；stderr 进度保留在
+          # Actions 控制台，不上传日志原文。
+          set +e
+          zsh scripts/dev/test-link-reliability.sh > link-reliability-raw.jsonl
+          runner_status=$?
+          set -e
+          # 只保留脱敏 JSON 摘要行（stdout 中以 { 开头的行）；rg 无匹配退出 1，
+          # 用 || true 容忍，由下方 test -s 做真正校验。
+          rg '^\{' link-reliability-raw.jsonl > link-reliability-summaries.jsonl || true
+          rm -f link-reliability-raw.jsonl
+          # runner 真实非零退出原样传导为步骤失败。
+          if [[ $runner_status -ne 0 ]]; then
+            exit $runner_status
+          fi
+          # 显式非空校验：runner 退出 0 却未产生任何 JSON 摘要行时失败。
+          # （此前 if-no-files-found 因 > 重定向先建文件而永不触发，已移除。）
+          if [[ ! -s link-reliability-summaries.jsonl ]]; then
+            echo "runner exited 0 but produced no JSON summary lines" >&2
+            exit 1
+          fi
       - name: upload redacted summaries
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: link-reliability-summaries
           path: link-reliability-summaries.jsonl
-          if-no-files-found: error

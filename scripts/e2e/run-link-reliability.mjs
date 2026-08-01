@@ -38,15 +38,17 @@ export const LinkReliabilitySummary = null; // 仅文档标记；JS 使用 JSDoc
 // ═══════════════════════════════════════════════════════════════════
 
 /**
- * 断言：在 fixture 临时 profile 场景下，点击 target="_blank" 后新 tab 为唯一的另一个
- * page target 且获得焦点（active）。校验依赖 CDP `document.hasFocus()` 的真实 active 状态，
- * 而非 `Target.getTargets` 数组顺序或僵死的 `#pageTargetId`。
+ * 断言：在 fixture 临时 profile 场景下，点击同窗口固定链接后，新 tab 为唯一的另一个
+ * page target、获得焦点（active）且 URL 等于固定目标（若传入 `expectedTargetUrl`）。
+ * 校验依赖 CDP `document.hasFocus()` 的真实 active 状态，而非 `Target.getTargets`
+ * 数组顺序或僵死的 `#pageTargetId`。
  *
  * @param {Array<{id: string, url: string, active: boolean}>} tabs
  * @param {string} sourceTabId
+ * @param {string|null} [expectedTargetUrl] 固定目标 URL；传入时校验新 tab 的 URL 完全相等。
  * @throws {Error} 断言失败
  */
-export function assertAdjacentActivatedTab(tabs, sourceTabId) {
+export function assertAdjacentActivatedTab(tabs, sourceTabId, expectedTargetUrl = null) {
   if (!Array.isArray(tabs) || tabs.length !== 2) {
     throw new Error("assertAdjacentActivatedTab: 期望恰好两个 page tab（fixture + target）");
   }
@@ -63,6 +65,12 @@ export function assertAdjacentActivatedTab(tabs, sourceTabId) {
   const otherTab = tabs.find((t) => t.id !== sourceTabId);
   if (!otherTab || !otherTab.active) {
     throw new Error("assertAdjacentActivatedTab: 另一个 page tab 应为 active（target 未获得焦点）");
+  }
+
+  if (expectedTargetUrl !== null && otherTab.url !== expectedTargetUrl) {
+    throw new Error(
+      `assertAdjacentActivatedTab: 相邻 tab URL 应为 ${expectedTargetUrl}，实际 ${otherTab.url}`
+    );
   }
 }
 
@@ -126,6 +134,9 @@ const FIXTURE_PORT = 4567;
 const FIXTURE_ORIGIN = `http://127.0.0.1:${FIXTURE_PORT}`;
 const EXTENSION_DIR = join(REPO_ROOT, "extensions/chrome");
 const DEFAULT_DEVELOPER_DIR = "/Applications/Xcode.app/Contents/Developer";
+// 固定目标链接：fixture 只包含这一个链接（同窗口，无 target="_blank"），
+// 未受 guard 拦截的普通点击会原地导航到它——这正是 guard 必须阻止的失败模式。
+const FIXED_TARGET_URL = "https://example.test/e2e-target";
 
 function nowMs() {
   return Date.now();
@@ -341,9 +352,34 @@ class ScenarioRunner {
     }, sessionId);
   }
 
-  async #sendPageCommand(scenario, gestureSessionId, operationId, sessionId = null) {
-    const expr = `window.__gesturekitE2E && window.__gesturekitE2E.sendCommand(${JSON.stringify({ token: this.#token, gestureSessionId, operationId, scenario })})`;
-    return this.#pageEvaluate(expr, sessionId);
+  /**
+   * 读取 #e2e-link 的中心坐标。供 CDP Input.dispatchMouseEvent 移动指针用——
+   * 扩展的 action 依赖 `state.lastPointer` 解析链接 URL，必须先把指针移到链接上。
+   * @returns {Promise<{x: number, y: number}>}
+   */
+  async #linkCenterCoordinates() {
+    const result = await this.#pageEvaluate(`(() => {
+      const el = document.querySelector('#e2e-link');
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return { x: r.left + r.width / 2, y: r.top + r.height / 2 };
+    })()`, this.#pageSessionId);
+    const value = result?.result?.result?.value;
+    if (!value || typeof value.x !== "number" || typeof value.y !== "number") {
+      throw new Error("无法定位 #e2e-link 元素（fixture 页面未就绪？）");
+    }
+    return value;
+  }
+
+  /** 把指针移到 #e2e-link 中心，让 pointermove 记录 lastPointer。 */
+  async #movePointerToLink() {
+    const { x, y } = await this.#linkCenterCoordinates();
+    await this.#cdp.send("Input.dispatchMouseEvent", {
+      type: "mouseMoved",
+      x,
+      y
+    }, this.#pageSessionId);
+    await sleep(100);
   }
 
   async #getTabs() {
@@ -389,31 +425,36 @@ class ScenarioRunner {
     const tabsBefore = await this.#getTabs();
     const sourceTabId = this.#pageTargetId;
 
-    // 1. 发送 E2E 命令到 App，触发 guard arm + action 派遣
+    // 1. 先把指针移到固定链接上（扩展 action 依赖 lastPointer 解析 URL）。
+    //    fixture 链接为同窗口（无 target="_blank"）：未受 guard 拦截的普通点击会
+    //    原地导航 source tab——因此本场景只有 guard + action 链路完整才会通过。
+    await this.#movePointerToLink();
+
+    // 2. 发送 E2E 命令到 App，触发 guard arm + action 派遣
     const appResult = await this.#sendE2ECommand("success", gestureSessionId, operationId);
     if (appResult?.rejected) {
       return this.#failSummary("success", gestureSessionId, operationId, appResult.rejected?.reason || "e2e_rejected", "app_accept", nowMs() - start);
     }
 
-    // 2. 等待 guard 传播到页面（约 500ms）
+    // 3. 等待 guard 传播到页面（约 500ms）
     await sleep(600);
 
-    // 3. 模拟点击链接
+    // 4. 模拟点击链接
     await pageEvaluate(this.#cdp, `document.querySelector('#e2e-link')?.click()`, this.#pageSessionId);
 
-    // 4. 等待操作完成
+    // 5. 等待操作完成
     await sleep(1500);
 
-    // 5. 断言
+    // 6. 断言：恰好一个相邻 tab 打开、active 且 URL 等于固定目标；source tab URL 不变
     const tabsAfter = await this.#getTabs();
 
     try {
-      assertAdjacentActivatedTab(tabsAfter, sourceTabId);
+      assertAdjacentActivatedTab(tabsAfter, sourceTabId, FIXED_TARGET_URL);
     } catch (err) {
       return this.#failSummary("success", gestureSessionId, operationId, err.message, "tab_assert", nowMs() - start);
     }
 
-    // 验证 source tab URL 未变化
+    // 验证 source tab URL 未变化（未被同窗口链接原地导航）
     const sourceAfter = tabsAfter.find((t) => t.id === sourceTabId);
     const sourceBefore = tabsBefore.find((t) => t.id === sourceTabId);
     if (sourceBefore && sourceAfter && sourceBefore.url !== sourceAfter.url) {
@@ -445,23 +486,29 @@ class ScenarioRunner {
       return this.#failSummary("leaseExpiry", gestureSessionId, operationId, appResult.rejected?.reason || "e2e_rejected", "app_accept", nowMs() - start);
     }
 
-    // 2. 等待 guard arm（~200ms），然后导航 source tab 模拟用户离开
-    await sleep(300);
-
-    // 3. 导航 source tab 到另一页面，触发 guard release
-    await pageNavigate(this.#cdp, `${FIXTURE_ORIGIN}/link-reliability-target.html`, this.#pageSessionId);
+    // 2. 等待 guard arm → release 传播到页面，且 lease 完全过期（总 lease 500ms + network margin）
     await sleep(1000);
 
-    // 4. 等待 lease 完全过期（总 lease 500ms + network margin）
-    await sleep(500);
+    // 3. 记录点击前 tab 快照，把指针移到链接上，执行普通点击
+    const tabsBefore = await this.#getTabs();
+    const sourceTabId = this.#pageTargetId;
+    const sourceBefore = tabsBefore.find((t) => t.id === sourceTabId);
+    await this.#movePointerToLink();
+    await pageEvaluate(this.#cdp, `document.querySelector('#e2e-link')?.click()`, this.#pageSessionId);
+    await sleep(1500);
 
-    // 5. 发送第二次 success 命令 — 断言 guard/session 不复用（应为独立新 session）
-    const secondGsid = randomUUID();
-    const secondOpId = randomUUID();
-    const result2 = await this.#sendE2ECommand("success", secondGsid, secondOpId);
-
-    if (result2?.rejected?.reason === "e2e_operation_reused") {
-      return this.#failSummary("leaseExpiry", gestureSessionId, operationId, "session_not_released:reused", "lease_guard", nowMs() - start);
+    // 4. 诚实的最小断言：lease 过期后普通点击不被 guard 拦截。
+    //    - 不打开新相邻 tab（若 guard 仍 armed，success 动作会打开新 tab）；
+    //    - source tab 原地导航离开 fixture（普通点击 + 通用链接保护恢复的最终结果）。
+    //    真实 "guard/session 不复用" 断言依赖随机的 operationId 无法构造碰撞，属已知缺口，
+    //    不做虚假断言（见 docs/operations/e2e-checklist.md 与 troubleshooting.md）。
+    const tabsAfter = await this.#getTabs();
+    if (tabsAfter.length !== tabsBefore.length) {
+      return this.#failSummary("leaseExpiry", gestureSessionId, operationId, "guard_still_armed:new_tab_opened", "lease_guard", nowMs() - start);
+    }
+    const sourceAfter = tabsAfter.find((t) => t.id === sourceTabId);
+    if (sourceBefore && sourceAfter && sourceAfter.url === sourceBefore.url) {
+      return this.#failSummary("leaseExpiry", gestureSessionId, operationId, "guard_still_armed:click_blocked", "lease_guard", nowMs() - start);
     }
 
     return {
@@ -644,7 +691,7 @@ export async function runLinkReliabilityScenarios(config = {}) {
   const {
     token: providedToken,
     dryRun = false,
-    chromePath = CHROME_PATH,
+    chromePath = process.env.CHROME_PATH || CHROME_PATH,
     repoRoot = REPO_ROOT,
     fixturePort = FIXTURE_PORT,
   } = config;
@@ -677,17 +724,20 @@ export async function runLinkReliabilityScenarios(config = {}) {
     const fixtureDir = mkdtempSync(join(tmpdir(), "gesturekit-e2e-fixture-"));
     tempDirs.push(chromeProfile, extensionOut, fixtureDir);
 
-    // 2. 复制 fixture 文件
+    // 2. 复制 fixture 文件（fixture 只包含固定目标链接，无独立 target 页面）
     const fixturesSrc = join(repoRoot, "scripts/e2e/fixtures");
-    for (const f of ["link-reliability.html", "link-reliability-target.html"]) {
+    for (const f of ["link-reliability.html"]) {
       const src = join(fixturesSrc, f);
       writeFileSync(join(fixtureDir, f), readFileSync(src));
     }
 
-    // 3. 构建 extension（含 E2E token）
+    // 3. 构建 extension（含 E2E token）。
+    //    token 通过环境变量传入 build.mjs，不进 argv —— execSync 失败时错误信息含完整
+    //    命令行，argv 传 token 会把 token 泄漏进失败输出。
     console.error("[runner] 构建 extension...");
-    execSync(`node scripts/build.mjs --outdir "${extensionOut}" --e2e-token "${token}"`, {
+    execSync(`node scripts/build.mjs --outdir "${extensionOut}"`, {
       cwd: join(repoRoot, "extensions/chrome"),
+      env: { ...process.env, GESTUREKIT_E2E_TOKEN: token },
       stdio: "inherit"
     });
 
@@ -850,7 +900,11 @@ export async function runLinkReliabilityScenarios(config = {}) {
     return failures.length === 0 ? 0 : 1;
 
   } catch (err) {
-    console.error(`[runner] 环境预检失败: ${err.message}`);
+    // 防御：任何失败输出都不得包含 token。execSync/子进程错误信息可能含命令行或
+    // 原始输出，逐处把 token 替换为 [redacted]，避免泄漏到 stderr。
+    const raw = String(err?.message ?? err);
+    const safeMessage = raw.split(token).join("[redacted]");
+    console.error(`[runner] 环境预检失败: ${safeMessage}`);
     cleanup();
     return 2;
   }
@@ -884,7 +938,7 @@ function dryRunOutput({ chromePath, repoRoot, fixturePort }) {
   lines.push("--- 环境变量 ---");
   lines.push(`REPO_ROOT=${repoRoot}`);
   lines.push(`CHROME_PATH=${chromePath}`);
-  lines.push("DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer");
+  lines.push(`DEVELOPER_DIR=${process.env.DEVELOPER_DIR || "/Applications/Xcode.app/Contents/Developer"}`);
   lines.push("");
   lines.push("--- 临时目录 ---");
   lines.push(`Chrome profile:    ${chromeProfile}`);
@@ -896,7 +950,7 @@ function dryRunOutput({ chromePath, repoRoot, fixturePort }) {
   lines.push("");
   lines.push(`--- Extension 构建 ---`);
   lines.push(`cd ${repoRoot}/extensions/chrome`);
-  lines.push(`node scripts/build.mjs --outdir "${extensionOut}" --e2e-token "${token}"`);
+  lines.push(`GESTUREKIT_E2E_TOKEN="${token}" node scripts/build.mjs --outdir "${extensionOut}"`);
   lines.push(`extension_id=${extensionId}`);
   lines.push("");
   lines.push("--- GestureKitHost 构建 ---");
@@ -913,7 +967,7 @@ function dryRunOutput({ chromePath, repoRoot, fixturePort }) {
   lines.push("--- Fixture HTTP Server ---");
   lines.push(`端口: 127.0.0.1:${fixturePort}`);
   lines.push(`文件: ${fixtureDir}/link-reliability.html`);
-  lines.push(`文件: ${fixtureDir}/link-reliability-target.html`);
+  lines.push(`链接: ${FIXED_TARGET_URL}（同窗口固定目标）`);
   lines.push("");
   lines.push("--- GestureKitApp ---");
   lines.push(`${join(repoRoot, ".build/debug/GestureKitApp")} --e2e-control-token "${token}"`);
@@ -929,9 +983,9 @@ function dryRunOutput({ chromePath, repoRoot, fixturePort }) {
   lines.push(`  ${FIXTURE_ORIGIN}/link-reliability.html`);
   lines.push("");
   lines.push("--- 场景执行顺序 ---");
-  lines.push("1. success         — guard armed → click → 相邻标签页激活");
-  lines.push("2. leaseExpiry     — guard lease 500ms → 导航 → 不复用");
-  lines.push("3. providerUnavailable — 关闭 App → click 不被阻止");
+  lines.push("1. success         — guard+action → 相邻 tab 打开、激活且 URL=固定目标；source tab URL 不变");
+  lines.push("2. leaseExpiry     — lease 过期 → 普通点击不被 guard 拦截（不打开新 tab，source 原地导航）");
+  lines.push("3. providerUnavailable — 关闭 App → 走终态路径（绕过真实手势，已知缺口）");
   lines.push("4. resultUnknown   — 无回执 → result_unknown → 下次 success 可执行");
   lines.push("");
   lines.push("--- Cleanup ---");
@@ -955,7 +1009,11 @@ if (IS_MAIN) {
   const dryRun = args.includes("--dry-run");
 
   if (dryRun) {
-    console.log(dryRunOutput({ chromePath: CHROME_PATH, repoRoot: REPO_ROOT, fixturePort: FIXTURE_PORT }));
+    console.log(dryRunOutput({
+      chromePath: process.env.CHROME_PATH || CHROME_PATH,
+      repoRoot: REPO_ROOT,
+      fixturePort: FIXTURE_PORT
+    }));
     process.exit(0);
   }
 

@@ -670,7 +670,6 @@ final class GestureKitRuntime {
             )
             if let sessionID = gestureCoordinator.handle(.candidateStarted(candidate)) {
                 lastCandidateSessionID = sessionID
-                pendingCoordinatorGestureInfo[sessionID] = .threeFingerTap
                 let rejected = RecognizedGesture(
                     gesture: nil,
                     status: .error,
@@ -679,6 +678,8 @@ final class GestureKitRuntime {
                     dx: 0, dy: 0
                 )
                 gestureCoordinator.handle(.primitiveRejected(rejected))
+                // 无 interleaving await：candidateStarted 后立即 primitiveRejected 释放，
+                // 无需先写 pendingCoordinatorGestureInfo 再删（死写，已移除）。
                 pendingCoordinatorGestureInfo.removeValue(forKey: sessionID)
                 lastCandidateSessionID = nil
             }

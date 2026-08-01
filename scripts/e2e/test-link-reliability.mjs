@@ -75,6 +75,34 @@ describe("assertAdjacentActivatedTab", () => {
       /(?:未找到|not found|source tab)/
     );
   });
+
+  it("accepts when the adjacent tab URL matches the fixed target", () => {
+    assert.doesNotThrow(() =>
+      assertAdjacentActivatedTab(
+        [
+          { id: "source", url: "http://127.0.0.1:4567/link-reliability.html", active: false },
+          { id: "target", url: "https://example.test/e2e-target", active: true }
+        ],
+        "source",
+        "https://example.test/e2e-target"
+      )
+    );
+  });
+
+  it("rejects when the adjacent tab URL does not match the fixed target", () => {
+    assert.throws(
+      () =>
+        assertAdjacentActivatedTab(
+          [
+            { id: "source", url: "http://127.0.0.1:4567/link-reliability.html", active: false },
+            { id: "target", url: "https://example.test/wrong-target", active: true }
+          ],
+          "source",
+          "https://example.test/e2e-target"
+        ),
+      /e2e-target/
+    );
+  });
 });
 
 describe("redactSummary", () => {

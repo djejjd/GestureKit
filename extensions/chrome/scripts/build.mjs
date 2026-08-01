@@ -10,7 +10,9 @@ const { values } = parseArgs({
 });
 
 const outdir = values.outdir ?? "dist";
-const e2eToken = values["e2e-token"] ?? null;
+// token 优先取 argv（兼容旧调用），其次取环境变量。runner 通过 GESTUREKIT_E2E_TOKEN
+// 传递，避免 token 出现在 argv 中（execSync 失败时会打印完整命令行导致泄漏）。
+const e2eToken = values["e2e-token"] ?? process.env.GESTUREKIT_E2E_TOKEN ?? null;
 const isE2E = !!(outdir !== "dist" && e2eToken);
 
 // __GESTUREKIT_E2E_TOKEN__ 仅在同时提供 --outdir 和 --e2e-token 时注入

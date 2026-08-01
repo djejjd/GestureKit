@@ -178,10 +178,10 @@ zsh scripts/dev/test-link-reliability.sh --dry-run
 
 ### 预检失败下一步（退出码 2）
 
-- `Chrome 未安装在 /Applications/Google Chrome.app`：安装 Google Chrome，或设置
-  `CHROME_PATH` 指向 Chrome 可执行文件后重跑。
-- `Xcode 未安装在 /Applications/Xcode.app`：安装 Xcode，或设置 `DEVELOPER_DIR`
-  指向正确的 Developer 目录。
+- `Chrome 未安装在 <chrome_path>`：安装 Google Chrome，或设置 `CHROME_PATH` 指向
+  Chrome 可执行文件后重跑（脚本默认 `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`）。
+- `Developer 目录不存在: <developer_dir>`：安装 Xcode，或设置 `DEVELOPER_DIR` 指向
+  正确的 Developer 目录（脚本默认 `/Applications/Xcode.app/Contents/Developer`）。
 - `Node.js 未找到`：安装 Node.js 23+。
 
 ### 临时 profile 清理
@@ -195,8 +195,16 @@ Chrome profile。
 
 - I1：`providerUnavailable` 与 `resultUnknown` 走 dispatch 与终态路径，绕过真实三指
   手势→链接链路（通过杀掉并重启 App 模拟，而不是合成真实手势）。
-- I2：断言列表是 guard-armed-before-click、source tab 不变、target tab 激活的子集，
-  不是原计划全部六个断言。
+- I2：runner **不**断言 guard trace（guard-armed-before-click 时序）。success 只断言
+  source tab URL 不变 + 恰好一个相邻 tab 打开、激活且 URL 等于固定目标
+  `https://example.test/e2e-target`；leaseExpiry 只断言 lease 过期后普通点击不被 guard
+  拦截（不打开新 tab）；providerUnavailable/resultUnknown 无真实断言。这些都是完整断言
+  列表的子集，不是原计划全部六个断言。
+
+**尚未验证**：真实 Chrome runner（`zsh scripts/dev/test-link-reliability.sh`）尚未在任何机器上
+端到端执行过；它只在人工关口（Task 3 Step 5）于开发者本机运行时才算验证通过。通用 CI 的
+`swift`/`extension`/`scripts` job 只跑自动化测试与 `--dry-run`，不运行真实 Chrome，不能作为
+验证证据。
 
 因此真实 Chrome runner 不是完整替代手动触控板验收；通用 CI（quality-gate）只跑自动化
 与干跑，同样不验证真实手势链路。手动验收清单见 `docs/operations/e2e-checklist.md`。
