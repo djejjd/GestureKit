@@ -149,3 +149,54 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer GESTUREKIT_DEBUG=1 swif
 3. 在 `chrome://extensions` 刷新 `extensions/chrome` 扩展
 4. `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift run GestureKitApp`
 5. `./scripts/dev/smoke-check.sh`
+
+## 10. 链接可靠性 E2E 验收失败
+
+前置条件：macOS 15+、Xcode（`/Applications/Xcode.app`）、Google Chrome、Node.js 23+。
+真实 Chrome runner（`zsh scripts/dev/test-link-reliability.sh`）是人工关口，只通过
+`workflow_dispatch` 的 `run_real_chrome=true` 输入触发，默认 `false`，不进入通用 CI。
+
+先干跑确认命令链路：
+
+```bash
+zsh scripts/dev/test-link-reliability.sh --dry-run
+```
+
+退出码：
+
+- `0`：四个场景全部断言通过。
+- `1`：某个场景断言失败。每个场景的脱敏 JSON 摘要会打印到 stdout，`failureStage`
+  不为 `null` 的场景即为失败项。
+- `2`：环境预检失败。按下方“预检失败下一步”处理。
+
+四个场景的终态 `terminalStatus`：
+
+- `success` → `succeeded`
+- `leaseExpiry` → `lease_released`
+- `providerUnavailable` → `provider_unavailable_guard_released`
+- `resultUnknown` → `result_unknown`
+
+### 预检失败下一步（退出码 2）
+
+- `Chrome 未安装在 /Applications/Google Chrome.app`：安装 Google Chrome，或设置
+  `CHROME_PATH` 指向 Chrome 可执行文件后重跑。
+- `Xcode 未安装在 /Applications/Xcode.app`：安装 Xcode，或设置 `DEVELOPER_DIR`
+  指向正确的 Developer 目录。
+- `Node.js 未找到`：安装 Node.js 23+。
+
+### 临时 profile 清理
+
+runner 在 `$TMPDIR` 下创建 `gesturekit-e2e-chrome-*`、`gesturekit-e2e-ext-*`、
+`gesturekit-e2e-fixture-*` 一次性目录，正常结束时自动删除。若 runner 崩溃或被 SIGKILL，
+残留目录可安全手动删除：`rm -rf "$TMPDIR"/gesturekit-e2e-*`。runner 从不写入用户真实
+Chrome profile。
+
+### 已知缺口（真实 Chrome runner 是部分回归门）
+
+- I1：`providerUnavailable` 与 `resultUnknown` 走 dispatch 与终态路径，绕过真实三指
+  手势→链接链路（通过杀掉并重启 App 模拟，而不是合成真实手势）。
+- I2：断言列表是 guard-armed-before-click、source tab 不变、target tab 激活的子集，
+  不是原计划全部六个断言。
+
+因此真实 Chrome runner 不是完整替代手动触控板验收；通用 CI（quality-gate）只跑自动化
+与干跑，同样不验证真实手势链路。手动验收清单见 `docs/operations/e2e-checklist.md`。

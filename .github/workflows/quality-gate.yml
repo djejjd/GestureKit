@@ -1,0 +1,109 @@
+name: quality-gate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      run_real_chrome:
+        description: 运行真实 Chrome 链接可靠性验收（人工关口，不替代通用 CI）
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ─────────────────────────────────────────────────────────────────
+  # 通用质量门。注意：通用 CI 只验证自动化测试与构建产物，不等于真实
+  # 触控板验收。真实手势→链接链路仅由下方 real-chrome（人工关口）执行。
+  # 失败日志只打印命令、阶段、退出码和脱敏摘要；profile 与日志原文不
+  # 进入任何步骤输出或 artifact。
+  # ─────────────────────────────────────────────────────────────────
+
+  swift:
+    name: swift
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: swift test
+        run: swift test
+      - name: swift build
+        run: swift build
+
+  extension:
+    name: extension
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: extensions/chrome
+    steps:
+      - uses: actions/checkout@v4
+      - name: npm ci
+        run: npm ci
+      - name: npm test
+        run: npm test
+      - name: npm run build
+        run: npm run build
+
+  scripts:
+    name: scripts
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      - name: npm ci (provider protocol 测试依赖)
+        working-directory: extensions/chrome
+        run: npm ci
+      - name: render native host manifest
+        run: zsh scripts/dev/test-render-native-host-manifest.sh
+      - name: install native host
+        run: zsh scripts/dev/test-install-native-host.sh
+      - name: install local dry-run
+        run: zsh scripts/dev/test-install-local.sh
+      - name: smoke dry-run
+        run: zsh scripts/dev/test-smoke-check.sh
+      - name: provider protocol
+        run: zsh scripts/dev/test-provider-protocol.sh
+      - name: link reliability runner unit tests
+        run: node --test scripts/e2e/test-link-reliability.mjs
+      - name: link reliability dry-run
+        run: zsh scripts/dev/test-link-reliability.sh --dry-run
+
+  # ─────────────────────────────────────────────────────────────────
+  # 真实 Chrome 验收（人工关口）。
+  # 仅在 workflow_dispatch 显式传入 run_real_chrome=true 时执行，默认
+  # false。启动真实 Chrome 与 GestureKitApp，写入临时 profile，跑完四类
+  # 链接场景后上传脱敏 JSON 摘要。绝不上传 profile、日志原文、token 或
+  # 凭据。该 job 是部分回归门，不替代手动触控板验收（已知缺口见
+  # docs/operations/e2e-checklist.md 与 troubleshooting.md）。
+  # ─────────────────────────────────────────────────────────────────
+
+  real-chrome:
+    name: real-chrome (manual acceptance)
+    runs-on: macos-15
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.run_real_chrome == 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - name: npm ci (runner 构建 extension 依赖)
+        working-directory: extensions/chrome
+        run: npm ci
+      - name: run real Chrome link reliability acceptance
+        shell: bash {0}
+        run: |
+          set -o pipefail
+          # 只保留脱敏 JSON 摘要行（stdout 中以 { 开头的行）写入 artifact；
+          # stderr 进度保留在 Actions 控制台，不上传日志原文。
+          zsh scripts/dev/test-link-reliability.sh | rg '^\{' > link-reliability-summaries.jsonl
+      - name: upload redacted summaries
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: link-reliability-summaries
+          path: link-reliability-summaries.jsonl
+          if-no-files-found: error

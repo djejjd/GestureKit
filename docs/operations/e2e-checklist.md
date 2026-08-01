@@ -88,16 +88,80 @@
 ```bash
 zsh scripts/dev/test-render-native-host-manifest.sh
 zsh scripts/dev/test-install-native-host.sh
+zsh scripts/dev/test-install-local.sh
 zsh scripts/dev/test-smoke-check.sh
 zsh scripts/dev/test-provider-protocol.sh
+node --test scripts/e2e/test-link-reliability.mjs
+zsh scripts/dev/test-link-reliability.sh --dry-run
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift test
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift build
 DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift run GestureKitHost --self-test
 cd extensions/chrome
+npm ci
 npm test
 npm run build
 git diff --check
 ```
+
+## 链接可靠性 E2E 控制平面（v2.4-A）
+
+> 通用 CI（quality-gate）≠ 真实触控板验证。通用 CI 只验证自动化测试、构建产物与干跑
+> （`--dry-run`）；真实 Chrome 验收是人工关口，只在 `workflow_dispatch` 显式传入
+> `run_real_chrome=true` 时执行，默认 `false`。
+
+### 本地前置条件
+
+- macOS 15+，Xcode 安装在 `/Applications/Xcode.app`。
+- Google Chrome Stable 安装在 `/Applications/Google Chrome.app`。
+- Node.js 23+（预检仅检查 `node` 是否存在，建议 23+）。
+- 无需准备用户 profile：runner 使用一次性临时 profile。
+
+### 运行入口
+
+```bash
+zsh scripts/dev/test-link-reliability.sh --dry-run   # 干跑：打印命令，不启动 GUI/Chrome
+zsh scripts/dev/test-link-reliability.sh             # 真实 Chrome 验收（人工关口）
+```
+
+退出码同 runner：`0` = 四个场景全部断言通过，`1` = 某场景断言失败，`2` = 环境预检失败。
+
+### 四个场景与终态
+
+| 场景 | E2E 命令 | 终态 terminalStatus | 说明 |
+|---|---|---|---|
+| success | e2e success | `succeeded` | guard 就绪 → 点击 → 相邻新 tab 激活 |
+| leaseExpiry | e2e leaseExpiry | `lease_released` | guard 租约 500ms 释放，不复用 |
+| providerUnavailable | e2e providerUnavailable | `provider_unavailable_guard_released` | 关闭 App → 点击不被阻止 |
+| resultUnknown | e2e resultUnknown | `result_unknown` | 无回执 → 下次 success 可执行 |
+
+runner 把每个场景输出为一条脱敏 `LinkReliabilitySummary` JSON 行（stdout），字段：
+`scenario`、`gestureSessionId`、`operationId`、`terminalStatus`、`failureStage`、
+`durationMs`。query 中的 `token`/`secret`/`key` 等会被脱敏。
+
+### 预检失败下一步（退出码 2）
+
+- `preflight_failed: Chrome 未安装在 /Applications/Google Chrome.app` → 安装 Google Chrome，或设置 `CHROME_PATH` 指向 Chrome 可执行文件后重跑。
+- `preflight_failed: Xcode 未安装在 /Applications/Xcode.app` → 安装 Xcode，或设置 `DEVELOPER_DIR` 指向正确的 Developer 目录。
+- `preflight_failed: Node.js 未找到` → 安装 Node.js 23+。
+
+### 临时 profile 清理语义
+
+runner 会在系统临时目录创建一次性目录：`gesturekit-e2e-chrome-*`（Chrome user-data-dir）、
+`gesturekit-e2e-ext-*`（extension 构建产物）、`gesturekit-e2e-fixture-*`（fixture 页面）。
+正常结束时 runner 的 `cleanup()` 会删除这三个临时目录并终止 App/Chrome/fixture server 进程。
+若 runner 被 SIGKILL 或崩溃，这些目录可能残留；可直接删除 `$TMPDIR/gesturekit-e2e-*` 目录，
+不影响任何真实 profile（runner 从不写入用户 profile）。
+
+### 已知真实 Chrome 验收缺口
+
+- 缺口 I1：`providerUnavailable` 与 `resultUnknown` 两个场景走 dispatch 与终态路径，但绕过真实
+  三指手势→链接链路（通过杀掉并重启 App 模拟 provider 不可用，而不是合成真实手势）。
+- 缺口 I2：runner 断言 guard-armed-before-click、source tab 不变、target tab 激活，是完整断言
+  列表的子集，不是原计划的全部六个断言。
+
+这些缺口意味着真实 Chrome runner 是**部分回归门**，不是完整替代手动触控板验收。通用 CI
+（quality-gate）甚至不运行真实 Chrome；两个自动化层的边界和复用手动清单，见
+`docs/operations/troubleshooting.md` 的“链接可靠性 E2E”章节。
 
 ## 诊断日志
 
