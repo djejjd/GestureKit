@@ -61,7 +61,18 @@ if CommandLine.arguments.contains("--stdio-bridge") {
 runStdioBridge()
 
 func runStdioBridge() {
-    let bridge = ProviderBridge(connection: AppIPCClient().connect())
+    // E2E 验收通过 GESTUREKIT_IPC_PORT 让 Host 连到测试 App 的独立 IPC 端口，
+    // 避免与真实实例的默认 17653 冲突。无效值回退默认端口。
+    let ipcPort: NWEndpoint.Port = {
+        if let raw = ProcessInfo.processInfo.environment["GESTUREKIT_IPC_PORT"],
+           let value = UInt16(raw),
+           value > 0,
+           let port = NWEndpoint.Port(rawValue: value) {
+            return port
+        }
+        return 17653
+    }()
+    let bridge = ProviderBridge(connection: AppIPCClient(port: ipcPort).connect())
     bridge.start()
     bridge.wait()
 }

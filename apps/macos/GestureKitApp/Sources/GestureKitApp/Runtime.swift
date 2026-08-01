@@ -114,7 +114,9 @@ final class GestureKitRuntime {
     func start() {
         guard listeningTask == nil, eventServer == nil else { return }
         do {
-            let server = try LocalEventServer(logger: logger) { [weak self] envelope in
+            // E2E 验收通过 GESTUREKIT_IPC_PORT 隔离到独立端口，避免与真实实例的 17653 冲突。
+            let ipcPort = LocalEventServer.ipcPortFromEnvironment(ProcessInfo.processInfo.environment)
+            let server = try LocalEventServer(port: ipcPort, logger: logger) { [weak self] envelope in
                 Task { @MainActor [weak self] in
                     self?.handleIPCEnvelope(envelope)
                 }

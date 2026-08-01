@@ -65,10 +65,13 @@ actor E2EControlServer {
             case .ready:
                 if let port = listener.port {
                     Task { await self.setPort(port.rawValue) }
-                    print("gesturekit_e2e_control_port=\(port.rawValue)")
+                    // 必须无缓冲写入 stdout：runner 通过该行发现端口。App 的 stdout 在
+                    // 被重定向为管道时是块缓冲的，print() 不会在运行期间刷出，
+                    // 会导致 runner 读不到端口而超时。
+                    writeToStdout("gesturekit_e2e_control_port=\(port.rawValue)")
                 }
             case .failed(let error):
-                print("gesturekit_e2e_control_listener_failed error=\(error)")
+                writeToStdout("gesturekit_e2e_control_listener_failed error=\(error)")
             default:
                 break
             }
@@ -149,4 +152,11 @@ actor E2EControlServer {
     private func setPort(_ value: UInt16) {
         _port = value
     }
+}
+
+/// 无缓冲写入 stdout：`FileHandle.write` 直接调用 write(2)，不受 stdio 用户态
+/// 块缓冲影响，确保 runner 能实时读到端口行（见 E2EControlServer 的 .ready 处理器）。
+private func writeToStdout(_ line: String) {
+    guard let data = (line + "\n").data(using: .utf8) else { return }
+    FileHandle.standardOutput.write(data)
 }

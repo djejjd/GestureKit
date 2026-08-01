@@ -14,6 +14,19 @@ final class LocalEventServer: @unchecked Sendable {
     var onConnectionCountChanged: ((Int) -> Void)?
     var onConnectionRemoved: ((UUID) -> Void)?
 
+    /// 解析 `GESTUREKIT_IPC_PORT` 环境覆盖。E2E 验收时测试 App 必须与真实 App
+    /// 的默认端口 17653 隔离，Host 才能连到正确的测试 App；无效值回退默认端口。
+    static func ipcPortFromEnvironment(_ environment: [String: String]) -> NWEndpoint.Port {
+        guard let raw = environment["GESTUREKIT_IPC_PORT"],
+              let value = UInt16(raw),
+              value > 0,
+              let port = NWEndpoint.Port(rawValue: value)
+        else {
+            return 17653
+        }
+        return port
+    }
+
     init(
         port: NWEndpoint.Port = 17653,
         logger: GestureKitLogger,
@@ -25,10 +38,10 @@ final class LocalEventServer: @unchecked Sendable {
     }
 
     func start() {
-        listener.stateUpdateHandler = { [logger] state in
+        listener.stateUpdateHandler = { [logger, listener] state in
             switch state {
             case .ready:
-                logger.info("ipc_listener_ready port=17653")
+                logger.info("ipc_listener_ready port=\(listener.port?.rawValue ?? 17653)")
             case .failed(let error):
                 logger.error("ipc_listener_failed error=\"\(error)\"")
             case .cancelled:
