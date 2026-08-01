@@ -103,3 +103,85 @@ git commit -m "test(runtime): wire gated e2e control into runtime"
 ## Concerns
 
 无。
+
+---
+
+## Task 1b Review Fix: providerUnavailable guard release 缺口
+
+**日期**: 2026-08-01
+**状态**: DONE
+
+### 问题描述
+
+review 发现 `Runtime.swift` 的 `dispatchE2EOperationSync` 中，`.providerUnavailable` 场景调用
+`gestureCoordinator.handle(.candidateStarted(...))` + `.primitiveClassified(...)` 后，因无活跃 provider，
+`handleCoordinatorContextRequest` early return，coordinator 的 session 留在 `activeSessions` 里成为孤儿——
+**guard release 从未触发**。违反计划要求"所有退出路径调用既有 guard release 与 Journal 终态写入"和
+AGENTS.md §5（资源创建事件必须在所有退出路径恰好对应一次成功/拒绝终态）。
+
+### 修复内容
+
+#### 1. `Runtime.swift` — `.providerUnavailable` 分支改用 `primitiveRejected`
+
+将原来的 `candidateStarted` + `primitiveClassified` 改为 `candidateStarted` + `primitiveRejected`，
+与 `.leaseExpiry` 分支保持一致模式：
+
+- `candidateStarted` → arm guard（coordinator 创建 session，触发 guardRouter → handleCandidateGuardArm）
+- `primitiveRejected` → coordinator 自动调用 guardReleaseRouter → `handleCandidateGuardRelease` + 清理 `activeSessions`
+- 同时清理 `pendingCoordinatorGestureInfo` 和 `lastCandidateSessionID`
+- `writeProviderUnavailableTerminalState` 不变，仍写入 Journal 终态
+
+**效果**: coordinator session 不再泄漏；guard release 在所有退出路径触发。
+
+#### 2. `E2ERuntimeScenarioTests.swift` — 增强测试断言
+
+`testProviderUnavailableScenarioGeneratesTerminalState` 改为使用 `makeAuthenticatedRuntime()`（带 outbound recorder）：
+
+- 新增断言 `interactionGuardArm` 已发送（arm guard）
+- 新增断言 `interactionGuardRelease` 已发送（guard release 通过 guardReleaseRouter → handleCandidateGuardRelease 触发）
+- 新增断言无 `actionRequest` 和 `contextRequest`（此场景不走 classification）
+- 保留 Journal 终态事件断言
+
+`makeAuthenticatedRuntime` helper 返回值增加 `RuntimeRecordingJournal`（第5个元素），所有调用点已更新。
+
+#### 3. Minor 2: `E2EControlServer.swift` — `.failed` case 日志
+
+```swift
+case .failed(let error):
+    print("gesturekit_e2e_control_listener_failed error=\(error)")
+```
+
+#### 4. Minor 3: `Runtime.swift` — `Task { try? await server.start() }` 错误处理
+
+```swift
+Task {
+    do {
+        try await server.start()
+    } catch {
+        logger.error("e2e_control_server_start_failed error=\"\(error)\"")
+    }
+}
+```
+
+### 测试验证
+
+```
+# E2ERuntimeScenarioTests（7 测试，全部通过）
+swift test --filter E2ERuntimeScenarioTests
+  → 7 tests, 0 failures
+
+# 全量测试
+swift test
+  → 179 tests, 0 failures
+```
+
+### Commit
+
+```
+fix(runtime): release guard on provider-unavailable e2e path
+```
+
+修改文件：
+- `apps/macos/GestureKitApp/Sources/GestureKitApp/Runtime.swift`
+- `apps/macos/GestureKitApp/Sources/GestureKitApp/E2EControlServer.swift`
+- `Tests/GestureKitAppTests/E2ERuntimeScenarioTests.swift`

@@ -11,7 +11,7 @@ final class E2ERuntimeScenarioTests: XCTestCase {
     // MARK: - Success scenario
 
     func testSuccessScenarioFeedsGesturePipelineWithAuthenticatedProvider() throws {
-        let (runtime, _, _, outbound) = try makeAuthenticatedRuntime()
+        let (runtime, _, _, outbound, _) = try makeAuthenticatedRuntime()
         let command = E2ELinkOperationCommand(
             token: "test-token", gestureSessionId: "gs-s", operationId: "op-s", scenario: .success
         )
@@ -27,7 +27,7 @@ final class E2ERuntimeScenarioTests: XCTestCase {
     }
 
     func testE2ESuccessScenarioSendsActionAfterContext() throws {
-        let (runtime, sessionID, connectionID, outbound) = try makeAuthenticatedRuntime()
+        let (runtime, sessionID, connectionID, outbound, _) = try makeAuthenticatedRuntime()
         let command = E2ELinkOperationCommand(
             token: "test-token", gestureSessionId: "gs-a", operationId: "op-a", scenario: .success
         )
@@ -56,7 +56,7 @@ final class E2ERuntimeScenarioTests: XCTestCase {
     // MARK: - Lease expiry scenario
 
     func testLeaseExpiryScenarioArmsGuardButDoesNotDispatchAction() throws {
-        let (runtime, _, _, outbound) = try makeAuthenticatedRuntime()
+        let (runtime, _, _, outbound, _) = try makeAuthenticatedRuntime()
         let command = E2ELinkOperationCommand(
             token: "test-token", gestureSessionId: "gs-l", operationId: "op-l",
             scenario: .leaseExpiry
@@ -82,16 +82,7 @@ final class E2ERuntimeScenarioTests: XCTestCase {
     // MARK: - Provider unavailable scenario
 
     func testProviderUnavailableScenarioGeneratesTerminalState() throws {
-        let journal = RuntimeRecordingJournal()
-        let runtime = GestureKitRuntime(
-            menuBarHandler: { _ in },
-            touchBackend: StubTouchBackend(),
-            settingsStore: StubE2ESettingsStore(),
-            logger: GestureKitLogger(terminalWriter: { _ in }),
-            operationJournal: journal,
-            appContextResolver: AppContextResolver(),
-            e2eControlToken: "test-token"
-        )
+        let (runtime, _, _, outbound, journal) = try makeAuthenticatedRuntime()
         let command = E2ELinkOperationCommand(
             token: "test-token", gestureSessionId: "gs-u", operationId: "op-u",
             scenario: .providerUnavailable
@@ -101,8 +92,18 @@ final class E2ERuntimeScenarioTests: XCTestCase {
 
         XCTAssertEqual(result, .accepted(gestureSessionId: "gs-u", operationId: "op-u"))
 
-        // 无 provider 时，context 请求应失败但不崩溃。
-        // guard release 应仍然触发。
+        // guard arm 应触发（candidateStarted）
+        let guardArm = outbound.all(of: .interactionGuardArm)
+        XCTAssertFalse(guardArm.isEmpty, "providerUnavailable 场景应先 arm guard")
+
+        // guard release 应触发（primitiveRejected → guardReleaseRouter → handleCandidateGuardRelease）
+        let guardRelease = outbound.all(of: .interactionGuardRelease)
+        XCTAssertFalse(guardRelease.isEmpty, "providerUnavailable 场景应释放 guard")
+
+        // 不应产生 action_request 或 context_request（此场景使用 primitiveRejected 而非 primitiveClassified）
+        XCTAssertNil(outbound.latest(of: .actionRequest), "providerUnavailable 场景不应派发 action")
+        XCTAssertNil(outbound.latest(of: .contextRequest), "providerUnavailable 场景不应触发 context_request")
+
         // Journal 应记录不可用终态事件。
         let terminalEvents = journal.events.filter {
             $0.type == .actionResult && $0.gestureSessionId == "gs-u"
@@ -113,7 +114,7 @@ final class E2ERuntimeScenarioTests: XCTestCase {
     // MARK: - Result unknown scenario
 
     func testResultUnknownScenarioDispatchesActionThenConverges() throws {
-        let (runtime, sessionID, connectionID, outbound) = try makeAuthenticatedRuntime()
+        let (runtime, sessionID, connectionID, outbound, _) = try makeAuthenticatedRuntime()
         let command = E2ELinkOperationCommand(
             token: "test-token", gestureSessionId: "gs-r", operationId: "op-r",
             scenario: .resultUnknown
@@ -173,7 +174,7 @@ final class E2ERuntimeScenarioTests: XCTestCase {
 
     private func makeAuthenticatedRuntime(
         token: String = "test-token"
-    ) throws -> (GestureKitRuntime, String, UUID, ProviderOutboundRecorder) {
+    ) throws -> (GestureKitRuntime, String, UUID, ProviderOutboundRecorder, RuntimeRecordingJournal) {
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("E2ERuntimeScenario-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -202,7 +203,7 @@ final class E2ERuntimeScenarioTests: XCTestCase {
             providerOutboundSink: { outbound.append($0) },
             e2eControlToken: token
         )
-        return (runtime, session.providerSessionID, connectionID, outbound)
+        return (runtime, session.providerSessionID, connectionID, outbound, journal)
     }
 
     private func currentTimestampMs() -> Int64 {

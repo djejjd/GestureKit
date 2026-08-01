@@ -67,8 +67,8 @@ actor E2EControlServer {
                     Task { await self.setPort(port.rawValue) }
                     print("gesturekit_e2e_control_port=\(port.rawValue)")
                 }
-            case .failed:
-                break
+            case .failed(let error):
+                print("gesturekit_e2e_control_listener_failed error=\(error)")
             default:
                 break
             }

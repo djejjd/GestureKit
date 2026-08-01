@@ -101,7 +101,13 @@ final class GestureKitRuntime {
                 return await self.dispatchE2EOperation(command)
             }
             self.e2eServer = server
-            Task { try? await server.start() }
+            Task {
+                do {
+                    try await server.start()
+                } catch {
+                    logger.error("e2e_control_server_start_failed error=\"\(error)\"")
+                }
+            }
         }
     }
 
@@ -656,7 +662,8 @@ final class GestureKitRuntime {
             return .accepted(gestureSessionId: command.gestureSessionId, operationId: command.operationId)
 
         case .providerUnavailable:
-            // 无 provider 上下文：走 classificaton 但 context 请求会失败。
+            // 无 provider 上下文：走 candidate → primitiveRejected 触发 guardReleaseRouter
+            // → handleCandidateGuardRelease + 清理 coordinator activeSessions。
             // 写入不可用终态到 Journal。
             let candidate = GestureCandidate(
                 startedAt: now, centroidX: 0.5, centroidY: 0.5, fingerCount: 3
@@ -664,16 +671,16 @@ final class GestureKitRuntime {
             if let sessionID = gestureCoordinator.handle(.candidateStarted(candidate)) {
                 lastCandidateSessionID = sessionID
                 pendingCoordinatorGestureInfo[sessionID] = .threeFingerTap
-                let recognized = RecognizedGesture(
-                    gesture: .threeFingerTap,
-                    status: .success,
-                    reason: .success,
+                let rejected = RecognizedGesture(
+                    gesture: nil,
+                    status: .error,
+                    reason: .unknown,
                     durationMs: 100,
-                    dx: 0, dy: 0,
-                    centroidX: 0.5, centroidY: 0.5
+                    dx: 0, dy: 0
                 )
-                gestureCoordinator.handle(.primitiveClassified(recognized))
-                // context 请求将因无 provider 而失败，写入终态。
+                gestureCoordinator.handle(.primitiveRejected(rejected))
+                pendingCoordinatorGestureInfo.removeValue(forKey: sessionID)
+                lastCandidateSessionID = nil
             }
             writeProviderUnavailableTerminalState(
                 gestureSessionId: command.gestureSessionId, operationId: command.operationId
