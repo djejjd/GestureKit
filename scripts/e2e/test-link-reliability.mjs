@@ -6,7 +6,7 @@ import { assertAdjacentActivatedTab, redactSummary } from "./run-link-reliabilit
 // 在 runner 实现前这些 import 会抛 MODULE_NOT_FOUND，满足 Step 2 的 FAIL 预期。
 
 describe("assertAdjacentActivatedTab", () => {
-  it("accepts only an adjacent active fixed-target tab", () => {
+  it("accepts when target is the only other page tab and active", () => {
     assert.doesNotThrow(() =>
       assertAdjacentActivatedTab(
         [
@@ -18,7 +18,7 @@ describe("assertAdjacentActivatedTab", () => {
     );
   });
 
-  it("rejects non-adjacent active tabs", () => {
+  it("rejects when more than two page tabs exist", () => {
     assert.throws(
       () =>
         assertAdjacentActivatedTab(
@@ -29,7 +29,8 @@ describe("assertAdjacentActivatedTab", () => {
           ],
           "source"
         ),
-      /adjacent/
+      // 三 tab 场景应拒绝（fixture 临时 profile 仅应有 source + target）
+      /(?:exactly.*two tab|恰好.*两个)/
     );
   });
 
@@ -47,7 +48,7 @@ describe("assertAdjacentActivatedTab", () => {
     );
   });
 
-  it("rejects when source tab is the only active tab", () => {
+  it("rejects when source tab is active (新 tab 应获得焦点)", () => {
     assert.throws(
       () =>
         assertAdjacentActivatedTab(
@@ -57,7 +58,21 @@ describe("assertAdjacentActivatedTab", () => {
           ],
           "source"
         ),
-      /adjacent/
+      /source.*active|active.*source|不应.*active/
+    );
+  });
+
+  it("rejects when source tab not found", () => {
+    assert.throws(
+      () =>
+        assertAdjacentActivatedTab(
+          [
+            { id: "tab1", url: "about:blank", active: false },
+            { id: "tab2", url: "https://example.test/e2e-target", active: true }
+          ],
+          "source"
+        ),
+      /(?:未找到|not found|source tab)/
     );
   });
 });

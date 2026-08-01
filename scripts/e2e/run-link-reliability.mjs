@@ -38,33 +38,31 @@ export const LinkReliabilitySummary = null; // 仅文档标记；JS 使用 JSDoc
 // ═══════════════════════════════════════════════════════════════════
 
 /**
- * 断言 tab 列表中存在一个与 sourceTabId 相邻且处于 active 状态的标签页。
- * 相邻 = source 在 tabs 列表中的位置紧邻 active tab。
+ * 断言：在 fixture 临时 profile 场景下，点击 target="_blank" 后新 tab 为唯一的另一个
+ * page target 且获得焦点（active）。校验依赖 CDP `document.hasFocus()` 的真实 active 状态，
+ * 而非 `Target.getTargets` 数组顺序或僵死的 `#pageTargetId`。
  *
  * @param {Array<{id: string, url: string, active: boolean}>} tabs
  * @param {string} sourceTabId
  * @throws {Error} 断言失败
  */
 export function assertAdjacentActivatedTab(tabs, sourceTabId) {
-  if (!Array.isArray(tabs) || tabs.length < 2) {
-    throw new Error("assertAdjacentActivatedTab: 至少需要两个 tab");
+  if (!Array.isArray(tabs) || tabs.length !== 2) {
+    throw new Error("assertAdjacentActivatedTab: 期望恰好两个 page tab（fixture + target）");
   }
 
-  const sourceIndex = tabs.findIndex((t) => t.id === sourceTabId);
-  if (sourceIndex === -1) {
+  const sourceTab = tabs.find((t) => t.id === sourceTabId);
+  if (!sourceTab) {
     throw new Error(`assertAdjacentActivatedTab: 未找到 source tab ${sourceTabId}`);
   }
 
-  const activeTab = tabs.find((t) => t.active);
-  if (!activeTab) {
-    throw new Error("assertAdjacentActivatedTab: 无 active tab");
+  if (sourceTab.active) {
+    throw new Error("assertAdjacentActivatedTab: source tab 不应为 active（新 tab 应获得焦点）");
   }
 
-  const activeIndex = tabs.indexOf(activeTab);
-  if (Math.abs(activeIndex - sourceIndex) !== 1) {
-    throw new Error(
-      `assertAdjacentActivatedTab: no adjacent active tab (sourceIndex=${sourceIndex}, activeIndex=${activeIndex})`
-    );
+  const otherTab = tabs.find((t) => t.id !== sourceTabId);
+  if (!otherTab || !otherTab.active) {
+    throw new Error("assertAdjacentActivatedTab: 另一个 page tab 应为 active（target 未获得焦点）");
   }
 }
 
@@ -250,13 +248,16 @@ class CDPClient {
   /**
    * @param {string} method
    * @param {object} [params]
+   * @param {string} [sessionId] 可选，用于将命令路由到特定 target session
    * @returns {Promise<any>}
    */
-  async send(method, params = {}) {
+  async send(method, params = {}, sessionId = null) {
     const id = ++this.#msgId;
     return new Promise((resolve) => {
       this.#callbacks.set(id, resolve);
-      this.#ws.send(JSON.stringify({ id, method, params }));
+      const msg = { id, method, params };
+      if (sessionId) msg.sessionId = sessionId;
+      this.#ws.send(JSON.stringify(msg));
     });
   }
 
@@ -279,8 +280,12 @@ class ScenarioRunner {
   #tempDirs;
   #pageTargetId = null;
   #scenarioResults = [];
+  // C2 修复：需保存 processes 数组引用和 app 启动参数用于重启
+  #processes;
+  #appPath;
+  #buildEnv;
 
-  constructor(token, controlPort, cdp, fixtureServer, appProcess, chromeProcess, tempDirs) {
+  constructor(token, controlPort, cdp, fixtureServer, appProcess, chromeProcess, tempDirs, processes, appPath, buildEnv) {
     this.#token = token;
     this.#controlPort = controlPort;
     this.#cdp = cdp;
@@ -288,6 +293,9 @@ class ScenarioRunner {
     this.#appProcess = appProcess;
     this.#chromeProcess = chromeProcess;
     this.#tempDirs = tempDirs;
+    this.#processes = processes;
+    this.#appPath = appPath;
+    this.#buildEnv = buildEnv;
   }
 
   async #sendE2ECommand(scenario, gestureSessionId, operationId) {
@@ -312,11 +320,33 @@ class ScenarioRunner {
   }
 
   async #getTabs() {
-    // 使用 CDP Target.getTargets 获取所有 tab 类型 target
+    // 使用 CDP Target.getTargets 获取所有 page 类型 target
     const targets = await this.#cdp.send("Target.getTargets", {});
-    return (targets.targetInfos || [])
-      .filter((t) => t.type === "page")
-      .map((t) => ({ id: t.targetId, url: t.url, active: t.targetId === this.#pageTargetId }));
+    const pageTargets = (targets.targetInfos || []).filter((t) => t.type === "page");
+
+    // 附着每个 page target，通过 document.hasFocus() 获取真实 active 状态
+    // （TargetInfo 无 active 字段；#pageTargetId 在 target="_blank" 后不变，会误判）
+    const tabs = await Promise.all(pageTargets.map(async (t) => {
+      try {
+        const attached = await this.#cdp.send("Target.attachToTarget", {
+          targetId: t.targetId,
+          flatten: true
+        });
+        const sessionId = attached.sessionId;
+        // 先启用 Runtime domain（新附着 target 默认未启用）
+        await this.#cdp.send("Runtime.enable", {}, sessionId);
+        const result = await this.#cdp.send("Runtime.evaluate", {
+          expression: "document.hasFocus()",
+          returnByValue: true
+        }, sessionId);
+        const hasFocus = result?.result?.result?.value === true;
+        return { id: t.targetId, url: t.url, active: hasFocus };
+      } catch {
+        // 附着或 evaluate 失败（如已销毁的 tab），标记为非 active
+        return { id: t.targetId, url: t.url, active: false };
+      }
+    }));
+    return tabs;
   }
 
   // ═══════════════════════════════════════════════════════════════
@@ -504,6 +534,39 @@ class ScenarioRunner {
     return { scenario, gestureSessionId, operationId, terminalStatus, failureStage, durationMs };
   }
 
+  // ═══════════════════════════════════════════════════════════════
+  // 辅助：重启 GestureKitApp（用于 providerUnavailable 之后恢复 App 进程）
+  // ═══════════════════════════════════════════════════════════════
+
+  async #restartApp() {
+    console.error("[runner] 重启 GestureKitApp...");
+    const child = spawn(this.#appPath, ["--e2e-control-token", this.#token], {
+      env: { ...process.env, ...this.#buildEnv },
+      stdio: ["ignore", "pipe", "inherit"]
+    });
+    this.#processes.push(child);
+    this.#appProcess = child;
+
+    return new Promise((resolve, reject) => {
+      const rl = createInterface({ input: child.stdout });
+      rl.on("line", (line) => {
+        const m = line.match(/^gesturekit_e2e_control_port=(\d+)$/);
+        if (m) {
+          this.#controlPort = parseInt(m[1], 10);
+          console.error(`[runner] E2E control port (重启): ${this.#controlPort}`);
+          resolve(this.#controlPort);
+        }
+      });
+      child.on("error", reject);
+      child.on("exit", (code) => {
+        reject(new Error(`GestureKitApp 重启后退出，code=${code}`));
+      });
+      setTimeout(() => {
+        reject(new Error("GestureKitApp 重启超时未输出 e2e port"));
+      }, 15000);
+    });
+  }
+
   async runAll() {
     // 先获取当前页面 target ID
     const targets = await this.#cdp.send("Target.getTargets", {});
@@ -541,8 +604,8 @@ class ScenarioRunner {
     console.error("[runner] 场景 3/4: providerUnavailable");
     results.push(await this.#runProviderUnavailable());
 
-    // providerUnavailable 可能已杀死 App，需重启
-    // （实际 runner 会在此重启 App，或标记为需重启）
+    // providerUnavailable 已杀死 App，需重启以恢复 resultUnknown 所需的 TCP 控制端口
+    await this.#restartApp();
 
     console.error("[runner] 场景 4/4: resultUnknown");
     results.push(await this.#runResultUnknown());
@@ -743,9 +806,12 @@ export async function runLinkReliabilityScenarios(config = {}) {
     // 10. 运行四个场景
     const runner = new ScenarioRunner(
       token, controlPort, cdp, fixtureServer,
-      processes.find(() => true), // app process
-      processes.find(() => true), // chrome process
-      tempDirs
+      processes[0], // app process（最先入 processes）
+      processes[processes.length - 1], // chrome process（最后入 processes）
+      tempDirs,
+      processes,   // 数组引用，供 #restartApp 添加新进程以进入 cleanup
+      appPath,     // GestureKitApp 二进制路径（step 7 已声明），供 #restartApp 重新 spawn
+      buildEnv     // 编译环境变量（DEVELOPER_DIR 等），供 #restartApp 继承
     );
     const results = await runner.runAll();
 
