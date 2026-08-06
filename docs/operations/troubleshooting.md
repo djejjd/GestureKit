@@ -149,3 +149,71 @@ DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer GESTUREKIT_DEBUG=1 swif
 3. 在 `chrome://extensions` 刷新 `extensions/chrome` 扩展
 4. `DEVELOPER_DIR=/Applications/Xcode.app/Contents/Developer swift run GestureKitApp`
 5. `./scripts/dev/smoke-check.sh`
+
+## 10. 链接可靠性 E2E 验收失败
+
+前置条件：macOS 15+、Xcode（`/Applications/Xcode.app`）、Google Chrome、Node.js 23+。
+真实 Chrome runner（`zsh scripts/dev/test-link-reliability.sh`）是人工关口，只通过
+`workflow_dispatch` 的 `run_real_chrome=true` 输入触发，默认 `false`，不进入通用 CI。
+
+先干跑确认命令链路：
+
+```bash
+zsh scripts/dev/test-link-reliability.sh --dry-run
+```
+
+退出码：
+
+- `0`：四个场景全部断言通过。
+- `1`：某个场景断言失败。每个场景的脱敏 JSON 摘要会打印到 stdout，`failureStage`
+  不为 `null` 的场景即为失败项。
+- `2`：环境预检失败。按下方“预检失败下一步”处理。
+
+四个场景的终态 `terminalStatus`：
+
+- `success` → `succeeded`
+- `leaseExpiry` → `lease_released`
+- `providerUnavailable` → `provider_unavailable_guard_released`
+- `resultUnknown` → `result_unknown`
+
+### 预检失败下一步（退出码 2）
+
+- `Chrome 未安装在 <chrome_path>`：安装 Google Chrome，或设置 `CHROME_PATH` 指向
+  Chrome 可执行文件后重跑（脚本默认 `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome`）。
+- `Developer 目录不存在: <developer_dir>`：安装 Xcode，或设置 `DEVELOPER_DIR` 指向
+  正确的 Developer 目录（脚本默认 `/Applications/Xcode.app/Contents/Developer`）。
+- `Node.js 未找到`：安装 Node.js 23+。
+
+### 临时 profile 清理
+
+runner 在 `$TMPDIR` 下创建 `gesturekit-e2e-chrome-*`、`gesturekit-e2e-ext-*`、
+`gesturekit-e2e-fixture-*` 一次性目录，正常结束时自动删除。若 runner 崩溃或被 SIGKILL，
+残留目录可安全手动删除：`rm -rf "$TMPDIR"/gesturekit-e2e-*`。runner 从不写入用户真实
+Chrome profile。
+
+### 已知缺口（真实 Chrome runner 是部分回归门）
+
+- I1：`providerUnavailable` 与 `resultUnknown` 走 dispatch 与终态路径，绕过真实三指
+  手势→链接链路（通过杀掉并重启 App 模拟，而不是合成真实手势）。
+- I2：runner **不**断言 guard trace（guard-armed-before-click 时序）。success 只断言
+  source tab URL 不变 + 恰好一个相邻 tab 打开、激活且 URL 等于固定目标
+  `https://example.test/e2e-target`；leaseExpiry 只断言 lease 过期后普通点击不被 guard
+  拦截（不打开新 tab）；providerUnavailable/resultUnknown 无真实断言。这些都是完整断言
+  列表的子集，不是原计划全部六个断言。
+- I3（2026-08 真实 Chrome 首次试跑发现）：**扩展→Host→App 的 provider 连通性在
+  `--load-extension` 加载方式下无法建立**。Chrome 对未打包扩展分配路径推导的扩展 ID，
+  与 runner 按 manifest `key` 写入 native messaging manifest 的 `allowed_origins` 不匹配，
+  `connectNative` 被 Chrome 拒绝，Host 不拉起，测试 App 收不到 provider 连接
+  （`authenticated_provider_unavailable`）。因此 `success`/`leaseExpiry` 两个场景失败；
+  只有不依赖链路的 `providerUnavailable`/`resultUnknown` 通过。修复方向：按实际加载的
+  扩展 ID（路径推导）写 `allowed_origins`，并把 manifest 写到 Chrome 实际读取的位置。
+  属后续修复任务，本分支不阻塞合并。
+
+**尚未验证 / 已知失败**：真实 Chrome runner（`zsh scripts/dev/test-link-reliability.sh`）在
+2026-08-01 首次本机试跑时环境预检通过、四场景均执行并输出摘要；`providerUnavailable`/
+`resultUnknown` 通过，`success`/`leaseExpiry` 因缺口 I3 失败。真实硬件、权限与系统手势冲突
+仍须手动触控板验收。通用 CI 的 `swift`/`extension`/`scripts` job 只跑自动化测试与
+`--dry-run`，不运行真实 Chrome，不能作为验证证据。
+
+因此真实 Chrome runner 不是完整替代手动触控板验收；通用 CI（quality-gate）只跑自动化
+与干跑，同样不验证真实手势链路。手动验收清单见 `docs/operations/e2e-checklist.md`。

@@ -23,6 +23,9 @@ import {
   markSettingsSyncStale,
   SETTINGS_SYNC_STATUS_STORAGE_KEY
 } from "./settingsSync";
+import { createE2EControl, type E2EPageCommand } from "./e2eControl";
+
+declare const __GESTUREKIT_E2E_TOKEN__: string | undefined;
 import { cacheAppConfigurationSnapshot } from "../settings/appConfigurationCache";
 import {
   appendDiagnostic,
@@ -46,6 +49,17 @@ const GUARD_DIAGNOSTIC_LIMIT = 50;
 type GuardTrace = { timestamp: number; stage: string; detail: string };
 const guardTraces = new Map<string, GuardTrace[]>();
 let diagnosticLoggingEnabled = false;
+// E2E 控制：生产构建时 token 为 null，所有请求返回 e2e_unavailable
+const e2eToken: string | null = typeof __GESTUREKIT_E2E_TOKEN__ !== "undefined" ? __GESTUREKIT_E2E_TOKEN__ : null;
+const e2eAllowedOrigin: string | null = e2eToken ? "http://127.0.0.1:4567" : null;
+const e2eControl = createE2EControl({
+  token: e2eToken,
+  allowedOrigin: e2eAllowedOrigin,
+  dispatch: async (_command: E2EPageCommand) => {
+    // Task 3+ 实现：桥接至 link 操作管线
+    return { status: "e2e_dispatched" };
+  }
+});
 // v2 boundary keeps resolved page URLs and target references inside Chrome.
 const chromeProvider = new ChromeProvider(chromeApi, async (tabId, message) => {
   try { return await chrome.tabs.sendMessage(tabId, message); }
@@ -254,6 +268,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     (controlCenterRequestForwarder?.open() ?? Promise.resolve({ status: "unavailable" }))
       .then(sendResponse)
       .catch(() => sendResponse({ status: "unavailable" }));
+    return true;
+  }
+
+  if (message?.type === "gesturekit.e2eLinkOperation") {
+    e2eControl.handle(message.origin, message.command)
+      .then(sendResponse)
+      .catch(() => sendResponse({ status: "e2e_unavailable" }));
     return true;
   }
 

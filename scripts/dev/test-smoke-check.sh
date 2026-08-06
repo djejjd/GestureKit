@@ -17,15 +17,15 @@ assert_output() {
   local quoted_chrome_dir="${(q)repo_root}/extensions/chrome"
   local quoted_host_path="${(q)expected_host_path}"
 
-  rg -Fq "env DEVELOPER_DIR=$quoted_developer_dir swift build --package-path $quoted_repo_root" <(print -r -- "$output") || return 1
-  rg -Fq "env DEVELOPER_DIR=$quoted_developer_dir swift run --package-path $quoted_repo_root GestureKitHost --self-test" <(print -r -- "$output") || return 1
-  rg -Fq "cd $quoted_chrome_dir && npm run build" <(print -r -- "$output") || return 1
-  rg -Fq "$quoted_repo_root/scripts/dev/install-native-host.sh --host-path $quoted_host_path" <(print -r -- "$output") || return 1
-  rg -Fq "$quoted_repo_root/scripts/dev/test-provider-protocol.sh" <(print -r -- "$output") || {
+  grep -Fq "env DEVELOPER_DIR=$quoted_developer_dir swift build --package-path $quoted_repo_root" <(print -r -- "$output") || return 1
+  grep -Fq "env DEVELOPER_DIR=$quoted_developer_dir swift run --package-path $quoted_repo_root GestureKitHost --self-test" <(print -r -- "$output") || return 1
+  grep -Fq "cd $quoted_chrome_dir && npm run build" <(print -r -- "$output") || return 1
+  grep -Fq "$quoted_repo_root/scripts/dev/install-native-host.sh --host-path $quoted_host_path" <(print -r -- "$output") || return 1
+  grep -Fq "$quoted_repo_root/scripts/dev/test-provider-protocol.sh" <(print -r -- "$output") || {
     echo "expected smoke check to invoke the Provider protocol contract check" >&2
     return 1
   }
-  rg -Fq "open -a Google\\ Chrome chrome-extension://$extension_id/smoke.html" <(print -r -- "$output") || return 1
+  grep -Fq "open -a Google\\ Chrome chrome-extension://$extension_id/smoke.html" <(print -r -- "$output") || return 1
 }
 
 output=$("$script" --extension-id "$extension_id" --dry-run)

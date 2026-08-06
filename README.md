@@ -86,6 +86,29 @@ npm test
 npm run build
 ```
 
+## 链接可靠性 E2E 与 CI 质量门
+
+GestureKit 附带一套链接可靠性 E2E 控制平面，用真实 Chrome 验证四类 link 操作场景
+（`success`、`leaseExpiry`、`providerUnavailable`、`resultUnknown`），每个场景输出一条
+脱敏 `LinkReliabilitySummary` JSON。
+
+- 干跑（不启动 GUI/Chrome，可安全在 CI 执行）：
+
+```bash
+zsh scripts/dev/test-link-reliability.sh --dry-run
+```
+
+- 真实 Chrome 验收（人工关口，macOS 专用）：
+
+```bash
+zsh scripts/dev/test-link-reliability.sh
+```
+
+真实 Chrome 验收只在 GitHub Actions 的 `workflow_dispatch` 显式传入 `run_real_chrome=true`
+时执行，默认 `false`，不会在通用 CI 自动运行。**通用 CI 不等于真实触控板验证**：它只验证
+自动化测试、构建产物与干跑；真实手势→链接链路仍是人工验收关口。已知边界与缺口见
+[端到端验收清单](docs/operations/e2e-checklist.md) 与[排障说明](docs/operations/troubleshooting.md)。
+
 ## 文档
 
 - [V1 产品契约](docs/product/gesturekit-v1-contract.md)
@@ -94,6 +117,7 @@ npm run build
 - [架构决策记录](docs/adr/)
 - [本地安装说明](docs/operations/local-install.md)
 - [端到端验收清单](docs/operations/e2e-checklist.md)
+- [排障说明](docs/operations/troubleshooting.md)
 
 ## 贡献
 
@@ -172,6 +196,20 @@ npm install
 npm test
 npm run build
 ```
+
+### Link-reliability E2E & CI quality gate
+
+A link-reliability E2E control plane drives four link-action scenarios
+(`success`, `leaseExpiry`, `providerUnavailable`, `resultUnknown`) against real Chrome,
+printing one redacted `LinkReliabilitySummary` JSON line per scenario.
+
+- Dry run (no GUI/Chrome): `zsh scripts/dev/test-link-reliability.sh --dry-run`
+- Real-Chrome acceptance (manual gate, macOS only): `zsh scripts/dev/test-link-reliability.sh`
+
+The real-Chrome runner only runs via `workflow_dispatch` with `run_real_chrome=true`
+(default `false`); it never runs in general CI. General CI is not a substitute for real
+trackpad validation. See [e2e-checklist](docs/operations/e2e-checklist.md) and
+[troubleshooting](docs/operations/troubleshooting.md) for boundaries and known gaps.
 
 ### Contributing
 

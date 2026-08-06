@@ -1,0 +1,136 @@
+name: quality-gate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      run_real_chrome:
+        description: 运行真实 Chrome 链接可靠性验收（人工关口，不替代通用 CI）
+        type: boolean
+        required: false
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: quality-gate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # ─────────────────────────────────────────────────────────────────
+  # 通用质量门。注意：通用 CI 只验证自动化测试与构建产物，不等于真实
+  # 触控板验收。真实手势→链接链路仅由下方 real-chrome（人工关口）执行。
+  # 失败日志只打印命令、阶段、退出码和脱敏摘要；profile 与日志原文不
+  # 进入任何步骤输出或 artifact。
+  # ─────────────────────────────────────────────────────────────────
+
+  swift:
+    name: swift
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      # Package.swift 要求 Swift tools 6.2；macos-15 runner 默认只带 6.1。
+      - uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: "6.2"
+      - name: swift test
+        # MenuBarControllerTests 依赖 WindowServer（GUI 会话），GitHub hosted runner
+        # 无登录会话，CGSConnectionByID 断言崩溃。CI 跳过该 UI 套件，本机全量仍跑。
+        run: swift test --skip MenuBarControllerTests
+      - name: swift build
+        run: swift build
+
+  extension:
+    name: extension
+    runs-on: macos-15
+    defaults:
+      run:
+        working-directory: extensions/chrome
+    steps:
+      - uses: actions/checkout@v4
+      - name: npm ci
+        run: npm ci
+      - name: npm test
+        run: npm test
+      - name: npm run build
+        run: npm run build
+
+  scripts:
+    name: scripts
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+      # smoke/health 脚本断言 swift build 命令链路，需与 swift job 相同的 6.2 工具链。
+      - uses: swift-actions/setup-swift@v2
+        with:
+          swift-version: "6.2"
+      - name: npm ci (provider protocol 测试依赖)
+        working-directory: extensions/chrome
+        run: npm ci
+      - name: render native host manifest
+        run: zsh scripts/dev/test-render-native-host-manifest.sh
+      - name: install native host
+        run: zsh scripts/dev/test-install-native-host.sh
+      - name: install local dry-run
+        run: zsh scripts/dev/test-install-local.sh
+      - name: smoke dry-run
+        run: zsh scripts/dev/test-smoke-check.sh
+      - name: provider protocol
+        run: zsh scripts/dev/test-provider-protocol.sh
+      # 注意：link-reliability 单元测试由下面的 --dry-run wrapper 内部执行
+      # （test-link-reliability.sh 先跑 node --test 再 dry-run），不再单独跑一遍。
+      - name: link reliability dry-run
+        run: zsh scripts/dev/test-link-reliability.sh --dry-run
+
+  # ─────────────────────────────────────────────────────────────────
+  # 真实 Chrome 验收（人工关口）。
+  # 仅在 workflow_dispatch 显式传入 run_real_chrome=true 时执行，默认
+  # false。启动真实 Chrome 与 GestureKitApp，写入临时 profile，跑完四类
+  # 链接场景后上传脱敏 JSON 摘要。绝不上传 profile、日志原文、token 或
+  # 凭据。该 job 是部分回归门，不替代手动触控板验收（已知缺口见
+  # docs/operations/e2e-checklist.md 与 troubleshooting.md）。
+  # ─────────────────────────────────────────────────────────────────
+
+  real-chrome:
+    name: real-chrome (manual acceptance)
+    runs-on: macos-15
+    if: github.event_name == 'workflow_dispatch' && github.event.inputs.run_real_chrome == 'true'
+    steps:
+      - uses: actions/checkout@v4
+      - name: npm ci (runner 构建 extension 依赖)
+        working-directory: extensions/chrome
+        run: npm ci
+      - name: run real Chrome link reliability acceptance
+        shell: bash
+        run: |
+          set -eo pipefail
+          # 先捕获 runner 真实退出码（不经管道，避免被 rg 的退出码掩盖），
+          # 再过滤 stdout 中的脱敏 JSON 摘要行写入 artifact；stderr 进度保留在
+          # Actions 控制台，不上传日志原文。
+          set +e
+          zsh scripts/dev/test-link-reliability.sh > link-reliability-raw.jsonl
+          runner_status=$?
+          set -e
+          # 只保留脱敏 JSON 摘要行（stdout 中以 { 开头的行）；rg 无匹配退出 1，
+          # 用 || true 容忍，由下方 test -s 做真正校验。
+          rg '^\{' link-reliability-raw.jsonl > link-reliability-summaries.jsonl || true
+          rm -f link-reliability-raw.jsonl
+          # runner 真实非零退出原样传导为步骤失败。
+          if [[ $runner_status -ne 0 ]]; then
+            exit $runner_status
+          fi
+          # 显式非空校验：runner 退出 0 却未产生任何 JSON 摘要行时失败。
+          # （此前 if-no-files-found 因 > 重定向先建文件而永不触发，已移除。）
+          if [[ ! -s link-reliability-summaries.jsonl ]]; then
+            echo "runner exited 0 but produced no JSON summary lines" >&2
+            exit 1
+          fi
+      - name: upload redacted summaries
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: link-reliability-summaries
+          path: link-reliability-summaries.jsonl

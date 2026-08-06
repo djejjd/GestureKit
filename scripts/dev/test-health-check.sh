@@ -16,14 +16,14 @@ touch "$host_path"
   --host-path "$host_path" >"$manifest_path"
 
 output=$("$script" --host-path "$host_path" --manifest-path "$manifest_path")
-rg -Fq "PASS 开发环境" <(print -r -- "$output")
-rg -Fq "PASS 构建产物" <(print -r -- "$output")
-rg -Fq "PASS Native Messaging" <(print -r -- "$output")
-rg -Fq "WAITING Chrome 到 Host" <(print -r -- "$output")
-rg -Fq "WAITING Host 到 App" <(print -r -- "$output")
+grep -Fq "PASS 开发环境" <(print -r -- "$output")
+grep -Fq "PASS 构建产物" <(print -r -- "$output")
+grep -Fq "PASS Native Messaging" <(print -r -- "$output")
+grep -Fq "WAITING Chrome 到 Host" <(print -r -- "$output")
+grep -Fq "WAITING Host 到 App" <(print -r -- "$output")
 
 missing_output=$("$script" --host-path "$tmpdir/missing-host" --manifest-path "$tmpdir/missing-manifest" || true)
-rg -Fq "FAIL 构建产物" <(print -r -- "$missing_output")
-rg -Fq "FAIL Native Messaging" <(print -r -- "$missing_output")
+grep -Fq "FAIL 构建产物" <(print -r -- "$missing_output")
+grep -Fq "FAIL Native Messaging" <(print -r -- "$missing_output")
 
 echo "health-check ok"

@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<meta charset="utf-8">
+<title>GestureKit E2E Link Reliability</title>
+<style>
+  body { font-family: -apple-system, sans-serif; max-width: 600px; margin: 80px auto; text-align: center; }
+  a { font-size: 24px; padding: 16px 32px; display: inline-block; background: #2563eb; color: #fff; border-radius: 8px; text-decoration: none; }
+  a:hover { background: #1d4ed8; }
+  #status { margin-top: 32px; color: #666; }
+</style>
+<h1>GestureKit E2E Link Reliability</h1>
+<p><a id="e2e-link" href="https://example.test/e2e-target">Open Adjacent Target</a></p>
+<div id="status">等待测试命令...</div>
+<script>
+  const statusEl = document.getElementById("status");
+
+  // 监听 E2E 测试结果回传
+  window.addEventListener("message", (event) => {
+    if (event.source !== window) return;
+    if (event.data?.type === "gesturekit.e2eLinkResult") {
+      statusEl.textContent = `E2E 结果: status=${event.data.status} session=${event.data.gestureSessionId}`;
+    }
+  });
+
+  // 暴露供 CDP Runtime.evaluate 调用的 E2E 入口
+  window.__gesturekitE2E = {
+    sendCommand(command) {
+      window.postMessage({
+        type: "gesturekit.e2eLinkOperation",
+        token: command.token,
+        gestureSessionId: command.gestureSessionId,
+        operationId: command.operationId,
+        scenario: command.scenario
+      }, location.origin);
+      statusEl.textContent = `已发送命令: scenario=${command.scenario} operationId=${command.operationId}`;
+    },
+    getStatus() {
+      return statusEl.textContent;
+    }
+  };
+</script>

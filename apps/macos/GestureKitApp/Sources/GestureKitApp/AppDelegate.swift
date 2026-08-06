@@ -9,6 +9,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var controlCenter: ControlCenterWindowController?
     private let settingsStore = UserDefaultsSettingsStore()
     private var operationJournal: (any OperationJournaling)?
+    private let e2eControlToken: String?
+
+    init(e2eControlToken: String?) {
+        self.e2eControlToken = e2eControlToken
+        super.init()
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         let journal = try? OperationJournal(path: journalURL().path)
@@ -17,7 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.menuBar?.apply(event: event)
         }, settingsStore: settingsStore, operationJournal: journal, controlCenterOpenHandler: { [weak self] in
             self?.showControlCenter()
-        })
+        }, e2eControlToken: e2eControlToken)
         let control = RuntimeControl(runtime: runtime!)
         self.control = control
         let menuBar = MenuBarController(control: control) { [weak self] in
