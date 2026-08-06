@@ -37,7 +37,9 @@ jobs:
         with:
           swift-version: "6.2"
       - name: swift test
-        run: swift test
+        # MenuBarControllerTests 依赖 WindowServer（GUI 会话），GitHub hosted runner
+        # 无登录会话，CGSConnectionByID 断言崩溃。CI 跳过该 UI 套件，本机全量仍跑。
+        run: swift test --skip MenuBarControllerTests
       - name: swift build
         run: swift build
 
