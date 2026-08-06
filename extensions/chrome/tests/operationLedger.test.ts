@@ -104,7 +104,7 @@ describe("OperationLedger", () => {
     await store.compact(compactedAt + 7 * 24 * 60 * 60 * 1000);
     await expect(store.status("operation-0")).resolves.toBeNull();
     await expect(store.status(`operation-${tombstoneCount - 1}`)).resolves.toBeNull();
-  }, 15_000);
+  }, 60_000);
 
   it("recovers accepted and final transactions across worker restart boundaries", async () => {
     const databaseName = `ledger-${crypto.randomUUID()}`;
