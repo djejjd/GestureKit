@@ -15,18 +15,37 @@ public struct GestureRecognizer: Sendable {
 
     private var session: Session?
     private var settings: GestureRecognitionSettings
+    /// 当前活跃手势定义集。识别器按定义集的 fingerCount 匹配帧手指数，
+    /// 并在 classify 时按命中定义的 primitive/direction 输出语义。
+    private var definitions: [GestureDefinition]
     /// A higher touch count belongs to another gesture. After a terminal count
     /// drop, do not reenter until the remaining touches lift.
     private var requiresAllTouchesLift = false
 
-    public init(settings: GestureRecognitionSettings = .standard) {
+    public init(
+        settings: GestureRecognitionSettings = .standard,
+        definitions: [GestureDefinition] = DefaultRules.defaultGestureDefinitions
+    ) {
         self.settings = settings
+        self.definitions = definitions
     }
 
     public mutating func updateSettings(_ settings: GestureRecognitionSettings) {
         self.settings = settings
         session = nil
         requiresAllTouchesLift = false
+    }
+
+    /// 切换活跃手势定义集（配置更新时调用）。清空进行中的 session，
+    /// 避免旧定义集的候选复用新定义集状态。
+    public mutating func updateDefinitions(_ definitions: [GestureDefinition]) {
+        self.definitions = definitions
+        session = nil
+        requiresAllTouchesLift = false
+    }
+
+    private var activeFingerCounts: Set<Int> {
+        Set(definitions.map(\.fingers))
     }
 
     public mutating func observe(_ frame: TouchFrame) -> [GestureSessionEvent] {
@@ -51,7 +70,7 @@ public struct GestureRecognizer: Sendable {
             let gesture = classify(activeSession, endedAt: frame.time)
             return gesture.gesture == nil ? [.primitiveRejected(gesture)] : [.primitiveClassified(gesture)]
         }
-        if fingerCount == 3, let centroid = Self.centroid(of: frame.activeTouches) {
+        if activeFingerCounts.contains(fingerCount), let centroid = Self.centroid(of: frame.activeTouches) {
             if var existing = session {
                 existing.latestCentroid = centroid
                 session = existing
@@ -80,24 +99,19 @@ public struct GestureRecognizer: Sendable {
         let horizontalEnough = abs(dx) >= settings.swipeMinDistance
             && abs(dx) >= abs(dy) * settings.swipeHorizontalRatio
 
+        let gesture: GestureType?
         if duration <= 0.45 && distance <= 0.06 {
-            return RecognizedGesture(
-                gesture: .threeFingerTap,
-                status: .success,
-                reason: .success,
-                durationMs: durationMs,
-                dx: dx,
-                dy: dy,
-                thresholds: settings,
-                centroidX: session.startCentroid.x,
-                centroidY: session.startCentroid.y
-            )
+            gesture = outputGesture(fingerCount: session.fingerCount, primitive: .tap, direction: nil)
+        } else if isQuickFlick && horizontalEnough {
+            gesture = outputGesture(fingerCount: session.fingerCount, primitive: .swipe, direction: dx < 0 ? .left : .right)
+        } else {
+            gesture = nil
         }
-        if isQuickFlick && horizontalEnough {
+        guard let gesture else {
             return RecognizedGesture(
-                gesture: dx < 0 ? .threeFingerSwipeLeft : .threeFingerSwipeRight,
-                status: .success,
-                reason: .success,
+                gesture: nil,
+                status: .gestureUnstable,
+                reason: failureReason(duration: duration, dx: dx, dy: dy),
                 durationMs: durationMs,
                 dx: dx,
                 dy: dy,
@@ -107,9 +121,9 @@ public struct GestureRecognizer: Sendable {
             )
         }
         return RecognizedGesture(
-            gesture: nil,
-            status: .gestureUnstable,
-            reason: failureReason(duration: duration, dx: dx, dy: dy),
+            gesture: gesture,
+            status: .success,
+            reason: .success,
             durationMs: durationMs,
             dx: dx,
             dy: dy,
@@ -117,6 +131,32 @@ public struct GestureRecognizer: Sendable {
             centroidX: session.startCentroid.x,
             centroidY: session.startCentroid.y
         )
+    }
+
+    /// 按 session 手指数 + 运动原语/方向，仅在活跃定义集声明了该组合时输出语义手势。
+    /// 未声明的组合（如二指点按）返回 nil，由调用方收敛为不稳定。
+    private func outputGesture(fingerCount: Int, primitive: GesturePrimitive, direction: GestureDirection?) -> GestureType? {
+        guard let gesture = Self.gestureType(fingerCount: fingerCount, primitive: primitive, direction: direction) else { return nil }
+        let isDefined = definitions.contains { definition in
+            definition.fingers == fingerCount
+                && definition.primitive == primitive
+                && (primitive == .tap || definition.direction == direction)
+        }
+        return isDefined ? gesture : nil
+    }
+
+    private static func gestureType(fingerCount: Int, primitive: GesturePrimitive, direction: GestureDirection?) -> GestureType? {
+        switch (fingerCount, primitive, direction) {
+        case (2, .swipe, .some(.left)): return .twoFingerSwipeLeft
+        case (2, .swipe, .some(.right)): return .twoFingerSwipeRight
+        case (3, .tap, _): return .threeFingerTap
+        case (3, .swipe, .some(.left)): return .threeFingerSwipeLeft
+        case (3, .swipe, .some(.right)): return .threeFingerSwipeRight
+        case (4, .tap, _): return .fourFingerTap
+        case (4, .swipe, .some(.left)): return .fourFingerSwipeLeft
+        case (4, .swipe, .some(.right)): return .fourFingerSwipeRight
+        default: return nil
+        }
     }
 
     private func rejected(_ session: Session, endedAt: TimeInterval) -> RecognizedGesture {

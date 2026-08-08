@@ -91,6 +91,79 @@ describe("Provider Protocol v2 — TypeScript", () => {
   });
 
   // --------------------------------------------------------
+  // V2.5 新增标准动作解码
+  // --------------------------------------------------------
+
+  it("decodes action_request for a new V2.5 tab action (browser.tab.open_new)", () => {
+    const raw = {
+      protocolVersion: 2,
+      messageId: "new-tab-001",
+      providerSessionId: "session-chrome-001",
+      gestureSessionId: "gesture-session-002",
+      operationId: "operation-002",
+      type: "action_request",
+      timestamp: 1782200001000,
+      payload: {
+        actionId: "browser.tab.open_new",
+        contextId: "context-002",
+        targetRef: null,
+        parameters: {},
+        deadline: 1782200002000,
+      },
+      error: null,
+    };
+
+    const envelope = decodeProviderEnvelope(raw);
+    const payload = envelope.payload as ActionDescriptor;
+    expect(payload.actionId).toBe("browser.tab.open_new");
+  });
+
+  it("decodes action_request for all new V2.5 standard action IDs", () => {
+    const newActionIds = [
+      "browser.tab.open_new",
+      "browser.tab.pin",
+      "browser.tab.unpin",
+      "browser.tab.toggle_mute",
+      "browser.tab.close_others",
+      "browser.tab.restore",
+      "browser.link.copy",
+      "browser.page.copy_url",
+      "browser.page.scroll_top_bottom",
+    ] as const;
+
+    for (const actionId of newActionIds) {
+      const envelope = decodeProviderEnvelope({
+        protocolVersion: 2,
+        messageId: `m-${actionId}`,
+        providerSessionId: "session-test",
+        gestureSessionId: "g-1",
+        operationId: "op-1",
+        type: "action_request",
+        timestamp: 1000,
+        payload: { actionId, contextId: "ctx", targetRef: null, parameters: {}, deadline: 2000 },
+        error: null,
+      });
+      expect((envelope.payload as ActionDescriptor).actionId).toBe(actionId);
+    }
+  });
+
+  it("rejects an unknown actionId not in the V2.5 whitelist", () => {
+    expect(() =>
+      decodeProviderEnvelope({
+        protocolVersion: 2,
+        messageId: "bad-action-001",
+        providerSessionId: "session-test",
+        gestureSessionId: "g-1",
+        operationId: "op-1",
+        type: "action_request",
+        timestamp: 1000,
+        payload: { actionId: "browser.tab.teleport", contextId: "ctx", targetRef: null, parameters: {}, deadline: 2000 },
+        error: null,
+      })
+    ).toThrow("actionId");
+  });
+
+  // --------------------------------------------------------
   // Round-trip encode/decode
   // --------------------------------------------------------
 

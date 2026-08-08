@@ -368,4 +368,38 @@ describe("pointerTracker", () => {
       vi.useRealTimers();
     }
   });
+
+  it("writes copied text to the clipboard via gesturekit.copyText", async () => {
+    const writeText = vi.fn(async () => {});
+    vi.stubGlobal("navigator", { ...window.navigator, clipboard: { writeText } });
+    let runtimeListener: ((message: any, sender: unknown, sendResponse: (response: unknown) => void) => boolean) | null = null;
+    vi.stubGlobal("chrome", {
+      runtime: { onMessage: { addListener: vi.fn((listener) => { runtimeListener = listener; }) } }
+    });
+    await import("../src/content/pointerTracker");
+
+    let response: unknown = null;
+    runtimeListener?.({ type: "gesturekit.copyText", text: "https://example.com/a" }, {}, (message) => { response = message; });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(writeText).toHaveBeenCalledWith("https://example.com/a");
+    expect(response).toEqual({ status: "success" });
+  });
+
+  it("scrolls the page via gesturekit.scroll", async () => {
+    const scrollTo = vi.fn();
+    window.scrollTo = scrollTo;
+    let runtimeListener: ((message: any, sender: unknown, sendResponse: (response: unknown) => void) => boolean) | null = null;
+    vi.stubGlobal("chrome", {
+      runtime: { onMessage: { addListener: vi.fn((listener) => { runtimeListener = listener; }) } }
+    });
+    await import("../src/content/pointerTracker");
+
+    let response: unknown = null;
+    runtimeListener?.({ type: "gesturekit.scroll", position: "bottom" }, {}, (message) => { response = message; });
+
+    expect(scrollTo).toHaveBeenCalledWith({ top: expect.any(Number), behavior: "smooth" });
+    expect(response).toEqual({ status: "success" });
+  });
 });

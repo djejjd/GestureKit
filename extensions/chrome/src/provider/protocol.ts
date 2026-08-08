@@ -21,8 +21,8 @@ export const PROVIDER_PROTOCOL_VERSION = 2 as const;
 // MARK: - 标准动作 ID
 
 /**
- * Provider Protocol v2 的标准动作 ID（7 种）。
- * 所有 V1 手势行为映射到这组标准化动作。
+ * Provider Protocol v2 的标准动作 ID（16 种）。
+ * 所有 V1 手势行为映射到这组标准化动作。V2.5 新增 Tab 管理类与链接页面类。
  */
 export type StandardActionID =
   | "browser.link.open_adjacent"
@@ -31,7 +31,18 @@ export type StandardActionID =
   | "browser.tab.close_current"
   | "browser.history.back"
   | "browser.history.forward"
-  | "browser.page.reload";
+  | "browser.page.reload"
+  // V2.5 新增 — Tab 管理类
+  | "browser.tab.open_new"
+  | "browser.tab.pin"
+  | "browser.tab.unpin"
+  | "browser.tab.toggle_mute"
+  | "browser.tab.close_others"
+  | "browser.tab.restore"
+  // V2.5 新增 — 链接页面类
+  | "browser.link.copy"
+  | "browser.page.copy_url"
+  | "browser.page.scroll_top_bottom";
 
 // MARK: - 消息类型
 
@@ -347,6 +358,26 @@ const VALID_MESSAGE_TYPE_SET = new Set<string>(VALID_MESSAGE_TYPES);
 /** ActionResult 合法 outcome 值集合。 */
 const VALID_OUTCOMES = new Set<string>(["succeeded", "failed", "result_unknown"]);
 
+/** StandardActionID 合法值集合（与 Swift/JSON Schema 三方一致）。 */
+const VALID_ACTION_IDS: readonly string[] = [
+  "browser.link.open_adjacent",
+  "browser.tab.activate_previous",
+  "browser.tab.activate_next",
+  "browser.tab.close_current",
+  "browser.history.back",
+  "browser.history.forward",
+  "browser.page.reload",
+  "browser.tab.open_new",
+  "browser.tab.pin",
+  "browser.tab.unpin",
+  "browser.tab.toggle_mute",
+  "browser.tab.close_others",
+  "browser.tab.restore",
+  "browser.link.copy",
+  "browser.page.copy_url",
+  "browser.page.scroll_top_bottom",
+];
+
 // MARK: - 运行时校验
 
 /**
@@ -394,7 +425,7 @@ function validatePayloadField(type: ProviderMessageType, key: string, value: unk
       case "integerArray": return Array.isArray(value) && value.every(isInteger);
       case "object": return typeof value === "object" && value !== null && !Array.isArray(value);
       case "stringMap": return typeof value === "object" && value !== null && !Array.isArray(value) && Object.values(value as Record<string, unknown>).every((item) => typeof item === "string");
-      case "actionId": return typeof value === "string" && ["browser.link.open_adjacent", "browser.tab.activate_previous", "browser.tab.activate_next", "browser.tab.close_current", "browser.history.back", "browser.history.forward", "browser.page.reload"].includes(value);
+      case "actionId": return typeof value === "string" && VALID_ACTION_IDS.includes(value);
       case "targetKind": return value === "standard_link" || value === "no_target" || value === "page_unavailable";
       case "outcome": return typeof value === "string" && VALID_OUTCOMES.has(value);
       case "reason": return typeof value === "string";

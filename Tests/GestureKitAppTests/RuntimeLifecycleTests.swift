@@ -391,6 +391,8 @@ private struct LifecycleStubSettingsStore: SettingsStore, AppConfigurationStore 
     func saveAppConfiguration(_ configuration: AppConfiguration) throws {}
     func importLegacyAppConfiguration(_ configuration: AppConfiguration) throws {}
     func hasLegacyMigrationMarker() throws -> Bool { false }
+    func loadBindingOverrides() throws -> [BindingOverride] { [] }
+    func saveBindingOverrides(_ overrides: [BindingOverride]) throws {}
 }
 
 private final class RuntimeRecordingJournal: OperationJournaling, @unchecked Sendable {

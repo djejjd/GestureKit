@@ -299,7 +299,7 @@ final class ProviderProtocolV2Tests: XCTestCase {
 
     // MARK: - 标准动作 ID
 
-    /// Provider Protocol v2 必须定义以下 7 个标准动作 ID。
+    /// Provider Protocol v2 必须定义以下 16 个标准动作 ID。
     /// 这是 Core 与 Provider 之间的最小契约，Provider 通过能力声明告知支持哪些动作。
     func testStandardActionIDCases() {
         // browser.link.open_adjacent：在当前标签右侧打开目标链接
@@ -316,6 +316,24 @@ final class ProviderProtocolV2Tests: XCTestCase {
         XCTAssertEqual(StandardActionID.browserHistoryForward.rawValue, "browser.history.forward")
         // browser.page.reload：刷新页面
         XCTAssertEqual(StandardActionID.browserPageReload.rawValue, "browser.page.reload")
+        // browser.tab.open_new：打开新标签页
+        XCTAssertEqual(StandardActionID.browserTabOpenNew.rawValue, "browser.tab.open_new")
+        // browser.tab.pin：固定当前标签页
+        XCTAssertEqual(StandardActionID.browserTabPin.rawValue, "browser.tab.pin")
+        // browser.tab.unpin：取消固定当前标签页
+        XCTAssertEqual(StandardActionID.browserTabUnpin.rawValue, "browser.tab.unpin")
+        // browser.tab.toggle_mute：静音/取消静音当前标签页
+        XCTAssertEqual(StandardActionID.browserTabToggleMute.rawValue, "browser.tab.toggle_mute")
+        // browser.tab.close_others：关闭除当前标签外的其他标签
+        XCTAssertEqual(StandardActionID.browserTabCloseOthers.rawValue, "browser.tab.close_others")
+        // browser.tab.restore：恢复最近关闭的标签页
+        XCTAssertEqual(StandardActionID.browserTabRestore.rawValue, "browser.tab.restore")
+        // browser.link.copy：复制指针指向的链接 URL
+        XCTAssertEqual(StandardActionID.browserLinkCopy.rawValue, "browser.link.copy")
+        // browser.page.copy_url：复制当前页面 URL
+        XCTAssertEqual(StandardActionID.browserPageCopyURL.rawValue, "browser.page.copy_url")
+        // browser.page.scroll_top_bottom：滚动到页面顶部/底部
+        XCTAssertEqual(StandardActionID.browserPageScrollTopBottom.rawValue, "browser.page.scroll_top_bottom")
     }
 
     /// 验证所有 StandardActionID 枚举 case 都已被测试覆盖。
@@ -327,9 +345,18 @@ final class ProviderProtocolV2Tests: XCTestCase {
             .browserTabCloseCurrent,
             .browserHistoryBack,
             .browserHistoryForward,
-            .browserPageReload
+            .browserPageReload,
+            .browserTabOpenNew,
+            .browserTabPin,
+            .browserTabUnpin,
+            .browserTabToggleMute,
+            .browserTabCloseOthers,
+            .browserTabRestore,
+            .browserLinkCopy,
+            .browserPageCopyURL,
+            .browserPageScrollTopBottom
         ]
-        XCTAssertEqual(all.count, 7, "Provider Protocol v2 必须恰好包含 7 个标准动作")
+        XCTAssertEqual(all.count, 16, "Provider Protocol v2 必须恰好包含 16 个标准动作")
     }
 
     // MARK: - ProviderEvent 证据链字段

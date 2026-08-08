@@ -197,4 +197,8 @@ private struct StubSettingsStore: SettingsStore {
     }
 
     func saveRules(_ rules: [Rule]) throws {}
+
+    func loadBindingOverrides() throws -> [BindingOverride] { [] }
+
+    func saveBindingOverrides(_ overrides: [BindingOverride]) throws {}
 }

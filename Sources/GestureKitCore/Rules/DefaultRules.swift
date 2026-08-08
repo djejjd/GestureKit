@@ -7,6 +7,22 @@ public enum DefaultRules {
         .init(id: "three-finger-swipe-left", primitive: .swipe, fingers: 3, repetitions: 1, maxIntervalMs: nil, direction: .left, region: .any, maxDurationMs: 300),
         .init(id: "three-finger-swipe-right", primitive: .swipe, fingers: 3, repetitions: 1, maxIntervalMs: nil, direction: .right, region: .any, maxDurationMs: 300)
     ]
+
+    /// V2.5 开放预设手势集：二指左右滑动、四指轻点/滑动。
+    /// 二指上下滑动（滚动）为系统刚需，不占用；四指默认由系统「切换桌面空间」占用，
+    /// 是否启用由系统手势检测/引导决定（见设计 §7）。
+    public static let v2PresetGestureDefinitions: [GestureDefinition] = [
+        .init(id: "two-finger-swipe-left", primitive: .swipe, fingers: 2, repetitions: 1, maxIntervalMs: nil, direction: .left, region: .any, maxDurationMs: 300),
+        .init(id: "two-finger-swipe-right", primitive: .swipe, fingers: 2, repetitions: 1, maxIntervalMs: nil, direction: .right, region: .any, maxDurationMs: 300),
+        .init(id: "four-finger-tap", primitive: .tap, fingers: 4, repetitions: 1, maxIntervalMs: nil, direction: nil, region: .any, maxDurationMs: 180),
+        .init(id: "four-finger-swipe-left", primitive: .swipe, fingers: 4, repetitions: 1, maxIntervalMs: nil, direction: .left, region: .any, maxDurationMs: 300),
+        .init(id: "four-finger-swipe-right", primitive: .swipe, fingers: 4, repetitions: 1, maxIntervalMs: nil, direction: .right, region: .any, maxDurationMs: 300)
+    ]
+
+    /// V2.5 默认活跃手势定义集：既有 V1 三指手势 + 开放预设（二指/四指）。
+    public static let defaultGestureDefinitions: [GestureDefinition] =
+        v1GestureDefinitions + v2PresetGestureDefinitions
+
     /// V1 的 provider-neutral 预设绑定。旧 `v1` 仅为存量设置迁移保留；
     /// 新路径一律经 `RuleEngine.resolve` 输出标准 ActionDescriptor。
     public static let v1Bindings: [BindingRule] = [

@@ -3,6 +3,9 @@ import Foundation
 public protocol SettingsStore {
     func loadRules() throws -> [Rule]
     func saveRules(_ rules: [Rule]) throws
+    /// 加载用户绑定覆盖；缺省返回空数组（调用方据此回退默认绑定）。
+    func loadBindingOverrides() throws -> [BindingOverride]
+    func saveBindingOverrides(_ overrides: [BindingOverride]) throws
 }
 
 /// App 配置的持久化边界。Provider 只能消费快照，不能通过此接口写入配置。
@@ -21,6 +24,7 @@ public struct UserDefaultsSettingsStore: SettingsStore, AppConfigurationStore {
     private let defaults: UserDefaults
     private let rulesKey = "gesturekit.rules.v1"
     private let appConfigurationTransactionKey = "gesturekit.appConfiguration.v2.transaction"
+    private let bindingOverridesKey = "gesturekit.bindings.v2.overrides"
 
     public init(defaults: UserDefaults = .standard) {
         self.defaults = defaults
@@ -36,6 +40,16 @@ public struct UserDefaultsSettingsStore: SettingsStore, AppConfigurationStore {
     public func saveRules(_ rules: [Rule]) throws {
         let data = try JSONEncoder.gestureKit.encode(rules)
         defaults.set(data, forKey: rulesKey)
+    }
+
+    public func loadBindingOverrides() throws -> [BindingOverride] {
+        guard let data = defaults.data(forKey: bindingOverridesKey) else { return [] }
+        return try JSONDecoder.gestureKit.decode([BindingOverride].self, from: data)
+    }
+
+    public func saveBindingOverrides(_ overrides: [BindingOverride]) throws {
+        let data = try JSONEncoder.gestureKit.encode(overrides)
+        defaults.set(data, forKey: bindingOverridesKey)
     }
 
     public func loadAppConfiguration() throws -> AppConfiguration? {

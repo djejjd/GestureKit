@@ -13,7 +13,7 @@ public struct AppConfiguration: Codable, Equatable, Sendable {
         storeEpoch: String,
         schemaVersion: Int,
         configurationVersion: Int64,
-        gestureDefinitions: [GestureDefinition] = DefaultRules.v1GestureDefinitions,
+        gestureDefinitions: [GestureDefinition] = DefaultRules.defaultGestureDefinitions,
         rules: [BindingRule],
         recognition: GestureRecognitionSettings
     ) {
@@ -30,7 +30,7 @@ public struct AppConfiguration: Codable, Equatable, Sendable {
             storeEpoch: storeEpoch,
             schemaVersion: 3,
             configurationVersion: 1,
-            gestureDefinitions: DefaultRules.v1GestureDefinitions,
+            gestureDefinitions: DefaultRules.defaultGestureDefinitions,
             rules: DefaultRules.v1Bindings,
             recognition: .standard
         )
@@ -80,7 +80,7 @@ public struct AppConfiguration: Codable, Equatable, Sendable {
         storeEpoch = try values.decode(String.self, forKey: .storeEpoch)
         schemaVersion = try values.decode(Int.self, forKey: .schemaVersion)
         configurationVersion = try values.decode(Int64.self, forKey: .configurationVersion)
-        gestureDefinitions = try values.decodeIfPresent([GestureDefinition].self, forKey: .gestureDefinitions) ?? DefaultRules.v1GestureDefinitions
+        gestureDefinitions = try values.decodeIfPresent([GestureDefinition].self, forKey: .gestureDefinitions) ?? DefaultRules.defaultGestureDefinitions
         rules = try values.decode([BindingRule].self, forKey: .rules)
         recognition = try values.decode(GestureRecognitionSettings.self, forKey: .recognition)
     }

@@ -17,6 +17,7 @@ export type ActionRequest = {
   targetRef?: string | null;
   gestureSessionId: string;
   deadline: number;
+  parameters?: Record<string, string>;
 };
 export type ActionResult = { status: "success" | "guard_unavailable" | "guard_expired" | "context_expired" | "target_not_found" | "page_unavailable" | "edge_reached" | "chrome_api_error" };
 export type OperationStatusResponse = { operationId: string; status: "accepted" | "success" | "failed" | "result_unknown" | "not_found" };
@@ -29,7 +30,29 @@ type StoredTarget = { contextId: string; gestureSessionId: string; tabId: number
 type StoredContext = { gestureSessionId: string; tabId: number; expiresAt: number; allowedActionIds?: readonly StandardActionID[] };
 type ContentBridge = (tabId: number, message: Record<string, unknown>) => Promise<unknown>;
 
-const SWIPE_ACTION_IDS = ["browser.tab.activate_previous", "browser.tab.activate_next"] as const satisfies readonly StandardActionID[];
+/**
+ * 无需链接目标的动作集合（swipe 上下文允许的动作）。
+ * 保持 V2.4 的既有限制：close_current / history / reload / link.open_adjacent
+ * 仍仅在带目标的（tap）上下文执行；V2.5 新增的非链接动作加入此集合。
+ */
+const NON_TARGET_ACTION_IDS = [
+  "browser.tab.activate_previous",
+  "browser.tab.activate_next",
+  "browser.tab.open_new",
+  "browser.tab.pin",
+  "browser.tab.unpin",
+  "browser.tab.toggle_mute",
+  "browser.tab.close_others",
+  "browser.tab.restore",
+  // 非链接动作：任意手势（含非三指点按）都应可触发；缺此列表会导致
+  // requiresTargetRef=false 的 context 在 preflight 被 allowedActionIds 拒绝。
+  "browser.tab.close_current",
+  "browser.page.reload",
+  "browser.history.back",
+  "browser.history.forward",
+  "browser.page.copy_url",
+  "browser.page.scroll_top_bottom"
+] as const satisfies readonly StandardActionID[];
 
 /**
  * Chrome Provider v2 boundary. URLs stay in this process behind session-bound
@@ -61,7 +84,7 @@ export class ChromeProvider {
       gestureSessionId: request.gestureSessionId,
       tabId: tab.id,
       expiresAt,
-      allowedActionIds: request.requiresTargetRef ? undefined : SWIPE_ACTION_IDS
+      allowedActionIds: request.requiresTargetRef ? undefined : NON_TARGET_ACTION_IDS
     });
     if (request.requiresTargetRef && pageIdentityInfo.protocol !== "http:" && pageIdentityInfo.protocol !== "https:") {
       return { contextId, expiresAt, targetKind: "page_unavailable", pageIdentity };
@@ -144,6 +167,19 @@ export class ChromeProvider {
       }
       if (guard.status !== "guard_consumed") return { status: guard.status === "guard_expired" ? "guard_expired" : "guard_unavailable" };
       url = target.url;
+    } else if (request.actionId === "browser.link.copy") {
+      // 复制链接：解析 opaque targetRef 到 URL，但不消费交互保护（无导航副作用）。
+      const target = request.targetRef ? this.targets.get(request.targetRef) : undefined;
+      if (!target || target.contextId !== request.contextId || target.expiresAt < now) {
+        return { status: "context_expired" };
+      }
+      if (target.gestureSessionId !== request.gestureSessionId) {
+        return { status: "guard_unavailable" };
+      }
+      if (active.id !== target.tabId) {
+        return { status: "context_expired" };
+      }
+      url = target.url;
     }
     return { status: "ready", url };
   }
@@ -151,7 +187,7 @@ export class ChromeProvider {
   async executeAccepted(request: ActionRequest, url?: string): Promise<ActionResult> {
     this.statuses.set(request.operationId, { operationId: request.operationId, status: "accepted" });
     try {
-      const result = await executeStandardAction(this.api, request.actionId, url);
+      const result = await executeStandardAction(this.api, request.actionId, url, request.parameters);
       const status = result.status === "success" ? "success" : result.status;
       this.statuses.set(request.operationId, { operationId: request.operationId, status: status === "success" ? "success" : "failed" });
       if (status !== "success") await this.releaseCurrentGuard(request.gestureSessionId);

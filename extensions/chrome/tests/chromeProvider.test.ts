@@ -12,7 +12,11 @@ function makeApi(): ChromeApi {
       remove: vi.fn(async () => {}),
       goBack: vi.fn(async () => {}),
       goForward: vi.fn(async () => {}),
-      reload: vi.fn(async () => {})
+      reload: vi.fn(async () => {}),
+      sendMessage: vi.fn(async () => ({ status: "success" }))
+    },
+    sessions: {
+      restore: vi.fn(async () => ({}))
     }
   };
 }
@@ -66,8 +70,10 @@ describe("ChromeProvider", () => {
         remove: vi.fn(),
         goBack: vi.fn(),
         goForward: vi.fn(),
-        reload: vi.fn()
-      }
+        reload: vi.fn(),
+        sendMessage: vi.fn(async () => ({ status: "success" }))
+      },
+      sessions: { restore: vi.fn(async () => ({})) }
     } satisfies ChromeApi;
     const provider = new ChromeProvider(api, bridge());
 
@@ -82,12 +88,9 @@ describe("ChromeProvider", () => {
   });
 
   it.each([
-    "browser.tab.close_current",
-    "browser.history.back",
-    "browser.history.forward",
-    "browser.page.reload",
-    "browser.link.open_adjacent"
-  ] satisfies StandardActionID[])("rejects %s from a swipe context", async (actionId) => {
+    "browser.link.open_adjacent",
+    "browser.link.copy"
+  ] satisfies StandardActionID[])("rejects link-only actions from a swipe context", async (actionId) => {
     const api = makeApi();
     const provider = new ChromeProvider(api, bridge());
     const deadline = Date.now() + 1_000;
@@ -106,6 +109,26 @@ describe("ChromeProvider", () => {
     expect(api.tabs.goForward).not.toHaveBeenCalled();
     expect(api.tabs.reload).not.toHaveBeenCalled();
     expect(api.tabs.create).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "browser.tab.close_current",
+    "browser.history.back",
+    "browser.history.forward",
+    "browser.page.reload"
+  ] satisfies StandardActionID[])("allows non-link actions from a swipe context (V2.5 open binding)", async (actionId) => {
+    const api = makeApi();
+    const provider = new ChromeProvider(api, bridge());
+    const deadline = Date.now() + 10_000;
+    const snapshot = await provider.context({ gestureSessionId: "g-swipe-allow", requiresTargetRef: false, deadline });
+
+    await expect(provider.execute({
+      operationId: `op-${actionId}`,
+      actionId,
+      contextId: snapshot.contextId,
+      gestureSessionId: "g-swipe-allow",
+      deadline
+    })).resolves.toMatchObject({ status: "success" });
   });
 
   it("creates a live tab context and executes a swipe when no recent pointer exists", async () => {
@@ -195,8 +218,10 @@ describe("ChromeProvider", () => {
         remove: vi.fn(),
         goBack: vi.fn(),
         goForward: vi.fn(),
-        reload: vi.fn()
-      }
+        reload: vi.fn(),
+        sendMessage: vi.fn(async () => ({ status: "success" }))
+      },
+      sessions: { restore: vi.fn(async () => ({})) }
     } satisfies ChromeApi;
     const provider = new ChromeProvider(api, bridge());
     const deadline = Date.now() + 10_000;
@@ -222,8 +247,10 @@ describe("ChromeProvider", () => {
         remove: vi.fn(),
         goBack: vi.fn(),
         goForward: vi.fn(),
-        reload: vi.fn()
-      }
+        reload: vi.fn(),
+        sendMessage: vi.fn(async () => ({ status: "success" }))
+      },
+      sessions: { restore: vi.fn(async () => ({})) }
     } satisfies ChromeApi;
     const provider = new ChromeProvider(api, bridge());
     const deadline = Date.now() + 10_000;
@@ -254,8 +281,10 @@ describe("ChromeProvider", () => {
         remove: vi.fn(),
         goBack: vi.fn(),
         goForward: vi.fn(),
-        reload: vi.fn()
-      }
+        reload: vi.fn(),
+        sendMessage: vi.fn(async () => ({ status: "success" }))
+      },
+      sessions: { restore: vi.fn(async () => ({})) }
     } satisfies ChromeApi;
     const provider = new ChromeProvider(api, bridge());
     const deadline = Date.now() + 10_000;
@@ -274,5 +303,109 @@ describe("ChromeProvider", () => {
       deadline
     })).resolves.toMatchObject({ status: "success" });
     expect(api.tabs.update).toHaveBeenCalled();
+  });
+
+  it("executes close_current on non-tap context (requiresTargetRef=false)", async () => {
+    const api = {
+      tabs: {
+        query: vi.fn(async () => [{ id: 10, index: 1, windowId: 4, active: true, url: "https://example.test/" }]),
+        create: vi.fn(),
+        update: vi.fn(async (id) => ({ id })),
+        remove: vi.fn(),
+        goBack: vi.fn(),
+        goForward: vi.fn(),
+        reload: vi.fn(),
+        sendMessage: vi.fn(async () => ({ status: "success" }))
+      },
+      sessions: { restore: vi.fn(async () => ({})) }
+    } satisfies ChromeApi;
+    const provider = new ChromeProvider(api, bridge());
+    const deadline = Date.now() + 10_000;
+
+    const snapshot = await provider.context({
+      gestureSessionId: "g-close-nontap",
+      requiresTargetRef: false,
+      deadline
+    });
+
+    // 非三指点按手势（四指点按/双击等，requiresTargetRef=false）的 context
+    // allowedActionIds 收窄到 NON_TARGET_ACTION_IDS，close_current 必须在其中。
+    await expect(provider.execute({
+      operationId: "op-close-nontap",
+      actionId: "browser.tab.close_current",
+      contextId: snapshot.contextId,
+      gestureSessionId: "g-close-nontap",
+      deadline
+    })).resolves.toMatchObject({ status: "success" });
+    expect(api.tabs.remove).toHaveBeenCalled();
+  });
+});
+
+describe("ChromeProvider V2.5 新增标准动作", () => {
+  it.each([
+    "browser.tab.open_new",
+    "browser.tab.pin",
+    "browser.tab.unpin",
+    "browser.tab.toggle_mute",
+    "browser.tab.close_others",
+    "browser.tab.restore",
+    "browser.page.copy_url",
+    "browser.page.scroll_top_bottom"
+  ] satisfies StandardActionID[])("executes %s from a non-target context", async (actionId) => {
+    const api = makeApi();
+    const provider = new ChromeProvider(api, bridge());
+    const deadline = Date.now() + 1_000;
+    const snapshot = await provider.context({ gestureSessionId: "g-v25", requiresTargetRef: false, deadline });
+
+    await expect(provider.execute({
+      operationId: `op-${actionId}`,
+      actionId,
+      contextId: snapshot.contextId,
+      gestureSessionId: "g-v25",
+      deadline,
+      parameters: actionId === "browser.page.scroll_top_bottom" ? { position: "bottom" } : undefined
+    })).resolves.toMatchObject({ status: "success" });
+  });
+
+  it("executes copy_link from a target context without consuming the guard", async () => {
+    const api = makeApi();
+    const messages: Record<string, unknown>[] = [];
+    const provider = new ChromeProvider(api, async (_tabId, message) => {
+      messages.push(message);
+      if (message.type === "gesturekit.guardConsume") return { status: "guard_consumed" };
+      return { status: "success", url: "https://example.com/a", frameId: 0 };
+    });
+    const deadline = Date.now() + 1_000;
+    const snapshot = await provider.context({ gestureSessionId: "g-copy", requiresTargetRef: true, deadline });
+
+    await expect(provider.execute({
+      operationId: "op-copy",
+      actionId: "browser.link.copy",
+      contextId: snapshot.contextId,
+      targetRef: snapshot.targetRef,
+      gestureSessionId: "g-copy",
+      deadline
+    })).resolves.toMatchObject({ status: "success" });
+    // copy 不消费交互保护（无导航副作用），guardConsume 不应被调用
+    expect(messages.some((message) => message.type === "gesturekit.guardConsume")).toBe(false);
+    expect(api.tabs.sendMessage).toHaveBeenCalledWith(10, { type: "gesturekit.copyText", text: "https://example.com/a" });
+  });
+
+  it("rejects copy_link when the target context expired", async () => {
+    const api = makeApi();
+    const provider = new ChromeProvider(api, bridge());
+    const deadline = Date.now() + 1_000;
+    const snapshot = await provider.context({ gestureSessionId: "g-copy-expired", requiresTargetRef: true, deadline });
+    const expired = Date.now() - 1_000;
+
+    await expect(provider.execute({
+      operationId: "op-copy-expired",
+      actionId: "browser.link.copy",
+      contextId: snapshot.contextId,
+      targetRef: snapshot.targetRef,
+      gestureSessionId: "g-copy-expired",
+      deadline: expired
+    })).resolves.toMatchObject({ status: "context_expired" });
+    expect(api.tabs.sendMessage).not.toHaveBeenCalled();
   });
 });

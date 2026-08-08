@@ -1,7 +1,13 @@
 export type GestureType =
   | "three_finger_tap"
   | "three_finger_swipe_left"
-  | "three_finger_swipe_right";
+  | "three_finger_swipe_right"
+  // V2.5 预设手势集（识别器支持 2/4 指）
+  | "two_finger_swipe_left"
+  | "two_finger_swipe_right"
+  | "four_finger_tap"
+  | "four_finger_swipe_left"
+  | "four_finger_swipe_right";
 
 export type ActionType =
   | "open_link_background"

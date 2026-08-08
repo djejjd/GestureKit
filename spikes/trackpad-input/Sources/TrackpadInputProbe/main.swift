@@ -102,16 +102,16 @@ private final class ObservationState {
     private func printRecognizedGesture(_ recognized: RecognizedGesture) {
         let distance = hypotf(recognized.dx, recognized.dy)
         switch recognized.gesture {
-        case .threeFingerTap:
+        case .threeFingerTap, .fourFingerTap:
             printCandidate(.tap, recognized: recognized, distance: distance)
-        case .threeFingerSwipeLeft:
+        case .threeFingerSwipeLeft, .twoFingerSwipeLeft, .fourFingerSwipeLeft:
             printCandidate(.swipeLeft, recognized: recognized, distance: distance)
-        case .threeFingerSwipeRight:
+        case .threeFingerSwipeRight, .twoFingerSwipeRight, .fourFingerSwipeRight:
             printCandidate(.swipeRight, recognized: recognized, distance: distance)
         case nil:
             candidateCounts.recordUnclear()
             let line = String(
-                format: "[candidate:unclear] fingers=3 duration_ms=%d dx=%.3f dy=%.3f distance=%.3f",
+                format: "[candidate:unclear] duration_ms=%d dx=%.3f dy=%.3f distance=%.3f",
                 recognized.durationMs,
                 recognized.dx,
                 recognized.dy,

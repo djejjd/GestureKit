@@ -14,6 +14,9 @@ GestureKit 让你用触控板手势完成 Chrome 常用操作：三指点按打�
 - 链接点击保护：三指点按时阻止链接原地跳转，改在新标签页打开
 - 端到端操作记录：每次操作持久化到 SQLite，支持脱敏证据导出
 - 原生 App 与 Chrome 扩展通过认证 IPC 会话安全通信
+- （V2.5）手势→动作绑定可在控制中心配置并立即生效；识别器支持预设多指手势（二指左右滑动、四指轻点/滑动），新增 Tab 管理类与链接页面类动作
+
+> V2.5 新增动作需要扩展权限 `sessions`（恢复关闭标签页）与 `clipboardWrite`（复制链接/页面 URL），均已包含在 `extensions/chrome/manifest.json`。安装时以 Developer Mode 加载 unpacked 扩展即可，无需额外授权。
 
 ## 手势
 

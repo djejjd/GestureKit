@@ -5,9 +5,9 @@ import GestureKitCore
 /// 不知道任何 Chrome API，也不启动 InteractionShield。
 @MainActor
 final class GestureSessionCoordinator {
-    static let contextBudgetMs: Int64 = 120
-    static let actionBudgetMs: Int64 = 150
-    static let centerDoubleTapWindowMs: Int64 = 300
+    static let contextBudgetMs: Int64 = 250
+    static let actionBudgetMs: Int64 = 300
+    static let centerDoubleTapWindowMs: Int64 = 500
 
     private struct PendingTap {
         let sessionID: String
@@ -90,7 +90,11 @@ final class GestureSessionCoordinator {
               let classifiedAt = session.classifiedAtMs,
               let gesture = session.composedGesture else { return }
         let elapsed = monotonicClockMs() - classifiedAt
-        guard elapsed <= Self.contextBudgetMs, elapsed <= Self.actionBudgetMs else { return }
+        guard elapsed <= Self.contextBudgetMs, elapsed <= Self.actionBudgetMs else {
+            // 静默丢弃是"小概率没反应"的来源（无动作也无操作记录）；打 warn 便于定位真慢的 context。
+            logger.warn("context_dropped elapsed=\(elapsed)ms budget=\(Self.contextBudgetMs)ms sessionId=\(sessionID)")
+            return
+        }
         guard let action = ruleEngine.resolve(gesture: gesture, context: context) else { return }
         guard monotonicClockMs() - classifiedAt <= Self.actionBudgetMs else { return }
         actionRouter(sessionID, action)
@@ -117,6 +121,11 @@ final class GestureSessionCoordinator {
         switch primitive {
         case .threeFingerSwipeLeft: return .threeFingerSwipeLeft
         case .threeFingerSwipeRight: return .threeFingerSwipeRight
+        case .twoFingerSwipeLeft: return .twoFingerSwipeLeft
+        case .twoFingerSwipeRight: return .twoFingerSwipeRight
+        case .fourFingerSwipeLeft: return .fourFingerSwipeLeft
+        case .fourFingerSwipeRight: return .fourFingerSwipeRight
+        case .fourFingerTap: return .fourFingerTap
         case .threeFingerTap:
             guard let centroidX = recognized.centroidX else {
                 logger.debug("compose centroidX=nil sessionId=\(sessionID)")

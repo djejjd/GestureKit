@@ -123,7 +123,7 @@ function createV2Dispatcher(port: PortLike, ledger: Awaited<typeof providerLedge
   const adapter = new ChromeActionAdapter(
     v2Contexts,
     async (url) => { await executeStandardAction(chromeApi, "browser.link.open_adjacent", url); },
-    async (action) => { await executeStandardAction(chromeApi, action.actionId); }
+    async (action) => { await executeStandardAction(chromeApi, action.actionId, undefined, action.parameters); }
   );
   return new V2Dispatcher(v2Contexts, adapter, async () => {
     const resolved = await resolveLastPointer();
@@ -191,6 +191,21 @@ const reconnectablePort = createReconnectableNativePort({
       try {
         const envelope = decodeProviderEnvelope(message) as ProviderEnvelope;
         if (controlCenterRequestForwarder.handle(envelope)) return;
+        if (envelope.type === "health_probe") {
+          // App 保活心跳：回声响应确认链路；消息本身已唤醒 SW。
+          port.postMessage({
+            protocolVersion: 2,
+            messageId: crypto.randomUUID(),
+            providerSessionId: envelope.providerSessionId,
+            type: "health_probe",
+            timestamp: Date.now(),
+            payload: {
+              probeSequence: (envelope.payload as { probeSequence: number }).probeSequence,
+              sentAt: Date.now()
+            }
+          });
+          return;
+        }
         if (envelope.type === "configuration_snapshot") {
           authenticatedProviderSessionId = envelope.providerSessionId;
           void handleConfigurationSnapshot(

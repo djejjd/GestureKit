@@ -4,6 +4,12 @@ public enum GestureType: String, Codable, Equatable, Sendable {
     case threeFingerTap = "three_finger_tap"
     case threeFingerSwipeLeft = "three_finger_swipe_left"
     case threeFingerSwipeRight = "three_finger_swipe_right"
+    // V2.5 预设手势集：二指滑动、四指轻点/滑动（向后兼容 case）
+    case twoFingerSwipeLeft = "two_finger_swipe_left"
+    case twoFingerSwipeRight = "two_finger_swipe_right"
+    case fourFingerTap = "four_finger_tap"
+    case fourFingerSwipeLeft = "four_finger_swipe_left"
+    case fourFingerSwipeRight = "four_finger_swipe_right"
 }
 
 public enum ActionType: String, Codable, Equatable, Sendable {

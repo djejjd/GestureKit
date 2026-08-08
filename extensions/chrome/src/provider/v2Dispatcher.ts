@@ -66,7 +66,7 @@ export class V2Dispatcher {
       }
       try {
         const result = this.chromeProvider
-          ? await this.chromeProvider.executeAccepted({ operationId, actionId: action.actionId, contextId: action.contextId, targetRef: action.targetRef, gestureSessionId: envelope.gestureSessionId!, deadline: action.deadline }, livePreflight?.url)
+          ? await this.chromeProvider.executeAccepted({ operationId, actionId: action.actionId, contextId: action.contextId, targetRef: action.targetRef, gestureSessionId: envelope.gestureSessionId!, deadline: action.deadline, parameters: action.parameters }, livePreflight?.url)
           : await this.actions.execute(action);
         const outcome: ActionResultOutcome = ("outcome" in result ? result.outcome === "succeeded" : result.status === "success") ? "succeeded" : "failed";
         const reason: ActionResultReason = "outcome" in result && result.outcome === "failed" ? result.reason : outcome === "succeeded" ? "completed" : "chrome_api_error";
