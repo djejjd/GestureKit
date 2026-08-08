@@ -2,7 +2,9 @@ import { describe, expect, it, vi } from "vitest";
 import { executeGestureAction, executeStandardAction } from "../src/background/actionExecutor";
 import type { ChromeApi } from "../src/background/chromeApi";
 
-function makeChromeApi(tabs: Array<{ id: number; index: number; active?: boolean; windowId: number }>): ChromeApi {
+type MockTab = { id: number; index: number; active?: boolean; windowId: number; pinned?: boolean; mutedInfo?: { muted: boolean }; url?: string };
+
+function makeChromeApi(tabs: MockTab[]): ChromeApi {
   return {
     tabs: {
       query: vi.fn(async (queryInfo) => {
@@ -27,6 +29,8 @@ function makeChromeApi(tabs: Array<{ id: number; index: number; active?: boolean
       update: vi.fn(async (tabId, updateProperties) => ({
         id: tabId,
         active: Boolean(updateProperties.active),
+        pinned: Boolean(updateProperties.pinned),
+        muted: Boolean(updateProperties.muted),
         index: 0,
         windowId: 1
       })),
@@ -41,7 +45,11 @@ function makeChromeApi(tabs: Array<{ id: number; index: number; active?: boolean
       }),
       goBack: vi.fn(async () => {}),
       goForward: vi.fn(async () => {}),
-      reload: vi.fn(async () => {})
+      reload: vi.fn(async () => {}),
+      sendMessage: vi.fn(async () => ({ status: "success" }))
+    },
+    sessions: {
+      restore: vi.fn(async () => ({}))
     }
   };
 }
@@ -181,5 +189,120 @@ describe("executeGestureAction", () => {
     expect(result.status).toBe("success");
     expect(api.tabs.update).toHaveBeenCalledWith(11, { active: true });
     expect(api.tabs.remove).toHaveBeenCalledWith(10);
+  });
+});
+
+describe("executeStandardAction V2.5 新增动作", () => {
+  it("opens a new tab in the active window", async () => {
+    const api = makeChromeApi([{ id: 10, index: 0, active: true, windowId: 7 }]);
+
+    const result = await executeStandardAction(api, "browser.tab.open_new");
+
+    expect(result.status).toBe("success");
+    expect(api.tabs.create).toHaveBeenCalledWith({ active: true, windowId: 7 });
+  });
+
+  it("pins the active tab", async () => {
+    const api = makeChromeApi([{ id: 10, index: 0, active: true, windowId: 7 }]);
+
+    const result = await executeStandardAction(api, "browser.tab.pin");
+
+    expect(result.status).toBe("success");
+    expect(api.tabs.update).toHaveBeenCalledWith(10, { pinned: true });
+  });
+
+  it("unpins the active tab", async () => {
+    const api = makeChromeApi([{ id: 10, index: 0, active: true, windowId: 7, pinned: true }]);
+
+    const result = await executeStandardAction(api, "browser.tab.unpin");
+
+    expect(result.status).toBe("success");
+    expect(api.tabs.update).toHaveBeenCalledWith(10, { pinned: false });
+  });
+
+  it("mutes an unmuted active tab", async () => {
+    const api = makeChromeApi([{ id: 10, index: 0, active: true, windowId: 7, mutedInfo: { muted: false } }]);
+
+    const result = await executeStandardAction(api, "browser.tab.toggle_mute");
+
+    expect(result.status).toBe("success");
+    expect(api.tabs.update).toHaveBeenCalledWith(10, { muted: true });
+  });
+
+  it("unmutes a muted active tab", async () => {
+    const api = makeChromeApi([{ id: 10, index: 0, active: true, windowId: 7, mutedInfo: { muted: true } }]);
+
+    const result = await executeStandardAction(api, "browser.tab.toggle_mute");
+
+    expect(result.status).toBe("success");
+    expect(api.tabs.update).toHaveBeenCalledWith(10, { muted: false });
+  });
+
+  it("closes all tabs except the active and pinned ones", async () => {
+    const api = makeChromeApi([
+      { id: 10, index: 0, active: true, windowId: 7 },
+      { id: 11, index: 1, windowId: 7 },
+      { id: 12, index: 2, windowId: 7, pinned: true },
+      { id: 13, index: 3, windowId: 7 }
+    ]);
+
+    const result = await executeStandardAction(api, "browser.tab.close_others");
+
+    expect(result.status).toBe("success");
+    expect(api.tabs.remove).toHaveBeenCalledWith([11, 13]);
+  });
+
+  it("restores the most recently closed tab", async () => {
+    const api = makeChromeApi([{ id: 10, index: 0, active: true, windowId: 7 }]);
+
+    const result = await executeStandardAction(api, "browser.tab.restore");
+
+    expect(result.status).toBe("success");
+    expect(api.sessions.restore).toHaveBeenCalledOnce();
+  });
+
+  it("copies the resolved link URL to the clipboard via the active tab content script", async () => {
+    const api = makeChromeApi([{ id: 10, index: 0, active: true, windowId: 7 }]);
+
+    const result = await executeStandardAction(api, "browser.link.copy", "https://example.com/a");
+
+    expect(result.status).toBe("success");
+    expect(api.tabs.sendMessage).toHaveBeenCalledWith(10, { type: "gesturekit.copyText", text: "https://example.com/a" });
+  });
+
+  it("returns page_unavailable when copying a link without a resolved URL", async () => {
+    const api = makeChromeApi([{ id: 10, index: 0, active: true, windowId: 7 }]);
+
+    const result = await executeStandardAction(api, "browser.link.copy");
+
+    expect(result.status).toBe("page_unavailable");
+    expect(api.tabs.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it("copies the active tab URL to the clipboard", async () => {
+    const api = makeChromeApi([{ id: 10, index: 0, active: true, windowId: 7, url: "https://example.com/current" }]);
+
+    const result = await executeStandardAction(api, "browser.page.copy_url");
+
+    expect(result.status).toBe("success");
+    expect(api.tabs.sendMessage).toHaveBeenCalledWith(10, { type: "gesturekit.copyText", text: "https://example.com/current" });
+  });
+
+  it("scrolls to the top by default", async () => {
+    const api = makeChromeApi([{ id: 10, index: 0, active: true, windowId: 7 }]);
+
+    const result = await executeStandardAction(api, "browser.page.scroll_top_bottom");
+
+    expect(result.status).toBe("success");
+    expect(api.tabs.sendMessage).toHaveBeenCalledWith(10, { type: "gesturekit.scroll", position: "top" });
+  });
+
+  it("scrolls to the bottom when parameters specify position=bottom", async () => {
+    const api = makeChromeApi([{ id: 10, index: 0, active: true, windowId: 7 }]);
+
+    const result = await executeStandardAction(api, "browser.page.scroll_top_bottom", undefined, { position: "bottom" });
+
+    expect(result.status).toBe("success");
+    expect(api.tabs.sendMessage).toHaveBeenCalledWith(10, { type: "gesturekit.scroll", position: "bottom" });
   });
 });

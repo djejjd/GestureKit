@@ -330,6 +330,20 @@ if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
       cancelProtectedClick();
       return false;
     }
+    if (message.type === "gesturekit.copyText") {
+      const text = typeof message.text === "string" ? message.text : "";
+      void (async () => {
+        const ok = await writeTextToClipboard(text);
+        sendResponse({ status: ok ? "success" : "copy_failed" });
+      })();
+      return true;
+    }
+    if (message.type === "gesturekit.scroll") {
+      const top = message.position === "bottom" ? document.documentElement.scrollHeight : 0;
+      window.scrollTo({ top, behavior: "smooth" });
+      sendResponse({ status: "success" });
+      return false;
+    }
     if (message.type !== "gesturekit.resolveLastPointer") {
       return false;
     }
@@ -337,6 +351,39 @@ if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
     sendResponse(resolveLinkAtLastPointer(Date.now(), { consumeNextClick: Boolean(message.consumeNextClick) }));
     return false;
   });
+}
+
+/**
+ * 将文本写入剪贴板。优先使用 Async Clipboard API；在页面无用户激活
+ * （content script 未被聚焦）时回退到 execCommand 隐藏 textarea 方案。
+ * 需要扩展 manifest 的 "clipboardWrite" 权限。
+ */
+async function writeTextToClipboard(text: string): Promise<boolean> {
+  if (!text) return false;
+  try {
+    if (navigator.clipboard?.writeText) {
+      await navigator.clipboard.writeText(text);
+      return true;
+    }
+  } catch {
+    // fall through to execCommand fallback
+  }
+  try {
+    const textarea = document.createElement("textarea");
+    textarea.value = text;
+    textarea.style.position = "fixed";
+    textarea.style.top = "0";
+    textarea.style.left = "0";
+    textarea.style.opacity = "0";
+    document.body.appendChild(textarea);
+    textarea.focus();
+    textarea.select();
+    const ok = document.execCommand("copy");
+    textarea.remove();
+    return ok;
+  } catch {
+    return false;
+  }
 }
 
 function traceGuard(gestureSessionId: string | undefined | null, stage: string, detail: string) {
