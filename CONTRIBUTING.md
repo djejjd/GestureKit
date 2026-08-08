@@ -1,6 +1,6 @@
 # 贡献指南
 
-感谢参与 GestureKit。提交任何变更前，请阅读 [提交与发布规范](docs/contributing/commit-and-release-guide.md) 和根目录 [AGENTS.md](AGENTS.md)。
+感谢参与 GestureKit。提交任何变更前，请阅读 [提交与发布规范](docs/contributing/提交与发布规范.md) 和根目录 [AGENTS.md](AGENTS.md)。
 
 ## 基本流程
 

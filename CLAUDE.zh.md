@@ -86,9 +86,9 @@ Chrome 扩展侧以 IndexedDB operation ledger + telemetry outbox 对应，支�
 
 实施顺序：`Task 1/2/2A（Spike）→ Task 3（协议定义）→ Task 4（操作日志）→ Task 5（认证 IPC）→ Task 10A（UI 框架搭建）→ Task 6/7（账本/会话）→ Task 8（Chrome 守护/动作）→ Task 9（配置迁移）→ Task 10B（UI 数据接入）→ Task 11（端到端验收/清理）`。
 
-完整计划：`docs/plans/gesturekit-reliability-platform-implementation-plan.md`
-UI 契约：`docs/architecture/gesturekit-v2-ui-information-architecture.md`
-架构决策：`docs/adr/0001-use-native-host-shim.md` 至 `0003`
+完整计划：`docs/plans/v2/可靠性平台-实施计划.md`
+UI 契约：`docs/architecture/v2-UI信息架构.md`
+架构决策：`docs/adr/0001-使用原生宿主中间层.md` 至 `0003`
 
 ## 关键约定
 

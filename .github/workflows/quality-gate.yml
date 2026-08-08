@@ -91,7 +91,7 @@ jobs:
   # false。启动真实 Chrome 与 GestureKitApp，写入临时 profile，跑完四类
   # 链接场景后上传脱敏 JSON 摘要。绝不上传 profile、日志原文、token 或
   # 凭据。该 job 是部分回归门，不替代手动触控板验收（已知缺口见
-  # docs/operations/e2e-checklist.md 与 troubleshooting.md）。
+  # docs/operations/端到端检查清单.md 与 troubleshooting.md）。
   # ─────────────────────────────────────────────────────────────────
 
   real-chrome:
