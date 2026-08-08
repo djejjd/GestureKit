@@ -3,20 +3,18 @@ import { parseArgs } from "node:util";
 
 const { values } = parseArgs({
   options: {
-    "outdir": { type: "string" },
-    "e2e-token": { type: "string" }
+    "outdir": { type: "string" }
   },
   strict: false
 });
 
 const outdir = values.outdir ?? "dist";
-// token 优先取 argv（兼容旧调用），其次取环境变量。runner 通过 GESTUREKIT_E2E_TOKEN
-// 传递，避免 token 出现在 argv 中（execSync 失败时会打印完整命令行导致泄漏）。
-const e2eToken = values["e2e-token"] ?? process.env.GESTUREKIT_E2E_TOKEN ?? null;
-const isE2E = !!(outdir !== "dist" && e2eToken);
 
-// __GESTUREKIT_E2E_TOKEN__ 仅在同时提供 --outdir 和 --e2e-token 时注入
-const define = isE2E ? { __GESTUREKIT_E2E_TOKEN__: JSON.stringify(e2eToken) } : {};
+// E2E：允许通过环境变量覆盖 native messaging host 名（独立 host 名，避开用户级真实
+// com.gesturekit.host manifest）。仅当设置 GESTUREKIT_HOST_NAME 时注入 esbuild define；
+// 生产构建不设置，background.ts 的 typeof 守卫回退到默认 "com.gesturekit.host"。
+const hostName = process.env.GESTUREKIT_HOST_NAME;
+const hostNameDefine = hostName ? { __GESTUREKIT_HOST_NAME__: JSON.stringify(hostName) } : undefined;
 
 const builds = [
   build({
@@ -25,7 +23,7 @@ const builds = [
     format: "esm",
     outfile: `${outdir}/background/background.js`,
     sourcemap: false,
-    define
+    ...(hostNameDefine ? { define: hostNameDefine } : {})
   }),
   build({
     entryPoints: ["src/content/pointerTracker.ts"],
@@ -49,19 +47,5 @@ const builds = [
     sourcemap: false
   })
 ];
-
-// 仅在 E2E 构建时包含受控页面桥接
-if (isE2E) {
-  builds.push(
-    build({
-      entryPoints: ["src/e2e/controlledPageBridge.ts"],
-      bundle: true,
-      format: "iife",
-      outfile: `${outdir}/content/controlledPageBridge.js`,
-      sourcemap: false,
-      define
-    })
-  );
-}
 
 await Promise.all(builds);

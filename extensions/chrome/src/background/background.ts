@@ -23,9 +23,6 @@ import {
   markSettingsSyncStale,
   SETTINGS_SYNC_STATUS_STORAGE_KEY
 } from "./settingsSync";
-import { createE2EControl, type E2EPageCommand } from "./e2eControl";
-
-declare const __GESTUREKIT_E2E_TOKEN__: string | undefined;
 import { cacheAppConfigurationSnapshot } from "../settings/appConfigurationCache";
 import {
   appendDiagnostic,
@@ -35,7 +32,11 @@ import {
 } from "../diagnostics/diagnostics";
 import { diagnosticLoggingEnabledFromSnapshot } from "../settings/appConfigurationCache";
 
-const HOST_NAME = "com.gesturekit.host";
+// E2E 构建（scripts/build.mjs 设 GESTUREKIT_HOST_NAME）可通过 define 覆盖 host 名，
+// 使 E2E 扩展连接独立 host（com.gesturekit.host.e2e），完全避开用户级真实 manifest。
+// 生产构建不注入 define；typeof 守卫对未声明全局安全，回退到默认名。
+declare const __GESTUREKIT_HOST_NAME__: string | undefined;
+const HOST_NAME = typeof __GESTUREKIT_HOST_NAME__ !== "undefined" ? __GESTUREKIT_HOST_NAME__ : "com.gesturekit.host";
 const STATUS_STORAGE_KEY = "gesturekitStatus";
 
 let manager: ReturnType<typeof createNativePortManager>;
@@ -49,17 +50,6 @@ const GUARD_DIAGNOSTIC_LIMIT = 50;
 type GuardTrace = { timestamp: number; stage: string; detail: string };
 const guardTraces = new Map<string, GuardTrace[]>();
 let diagnosticLoggingEnabled = false;
-// E2E 控制：生产构建时 token 为 null，所有请求返回 e2e_unavailable
-const e2eToken: string | null = typeof __GESTUREKIT_E2E_TOKEN__ !== "undefined" ? __GESTUREKIT_E2E_TOKEN__ : null;
-const e2eAllowedOrigin: string | null = e2eToken ? "http://127.0.0.1:4567" : null;
-const e2eControl = createE2EControl({
-  token: e2eToken,
-  allowedOrigin: e2eAllowedOrigin,
-  dispatch: async (_command: E2EPageCommand) => {
-    // Task 3+ 实现：桥接至 link 操作管线
-    return { status: "e2e_dispatched" };
-  }
-});
 // v2 boundary keeps resolved page URLs and target references inside Chrome.
 const chromeProvider = new ChromeProvider(chromeApi, async (tabId, message) => {
   try { return await chrome.tabs.sendMessage(tabId, message); }
@@ -268,13 +258,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     (controlCenterRequestForwarder?.open() ?? Promise.resolve({ status: "unavailable" }))
       .then(sendResponse)
       .catch(() => sendResponse({ status: "unavailable" }));
-    return true;
-  }
-
-  if (message?.type === "gesturekit.e2eLinkOperation") {
-    e2eControl.handle(message.origin, message.command)
-      .then(sendResponse)
-      .catch(() => sendResponse({ status: "e2e_unavailable" }));
     return true;
   }
 
