@@ -25,6 +25,7 @@
 - [0003-沿用V1规则引擎](adr/0003-沿用V1规则引擎.md)
 
 ### 架构与设计
+- [v2.5-手势绑定与手势系统-设计](architecture/v2.5-手势绑定与手势系统-设计.md)
 - [可靠性可观测平台-架构](architecture/可靠性可观测平台-架构.md)
 - [v2-UI信息架构](architecture/v2-UI信息架构.md)
 - [v1-技术设计](architecture/v1-技术设计.md)
