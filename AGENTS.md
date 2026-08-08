@@ -53,18 +53,19 @@
 ## 8. 文档规范
 
 - 文档文件名用中文，格式 `<前缀>-<中文主题>.md`，不含空格；保留名 `README.md`、`CLAUDE.md`、`AGENTS.md`、`CONTRIBUTING.md`、`.gitignore` 不改。
-- 前缀保证排序：adr 用 `0001-` 编号，product/releases 用版本号，quality 用 `YYYY-MM-DD-` 日期，plans/archive 历史用版本号。
+- **版本归类**：版本敏感文档按版本分目录——`plans/v1/`（历史）+ `plans/v2/`（当前）、`product/v1/` + `product/v2/`；跨版本文档（adr/architecture/operations/contributing/research）保持主题目录。
+- 前缀保证排序：adr 用 `0001-` 编号，product/releases 用版本号（如 `v2.4-`），quality 用 `YYYY-MM-DD-` 日期。
 - 每篇文档开头写元信息块：`状态`（draft/in-progress/completed/superseded）、`创建`、`最后更新`、`关联`；`plans/` 必填状态。
 - 同一主题的迭代更新原文件，在文内追加"修订记录"并更新元信息，**不新增文件**；仅当有独立发布与验收生命周期时才新建，且旧文件置 `superseded` 并 `关联` 指向新文件。
-- `plans/` 只放进行中的计划，一主题域至多一个进行中文件；`completed`/`superseded` 移入 `plans/archive/`。
-- 新增文档前先检查：能否更新现有文件、归入 archive、并入既有主题或分类；全部否定才允许新建。
+- `plans/v2/` 一主题域至多一个计划文件，新旧靠状态字段区分，不建子目录；`completed`/`superseded` 就地标记，历史版本文档归 `plans/v1/`。
+- 新增文档前先检查：能否更新现有文件、归入既有版本/主题、并入既有分类；全部否定才允许新建。
 - 命名映射、目录职责与迁移细节见 [文档体系规范与整改方案](docs/contributing/文档体系规范与整改方案.md)。
 
 ## 9. 权威资料
 
 - [文档体系规范与整改方案](docs/contributing/文档体系规范与整改方案.md)
-- [提交与发布规范](docs/contributing/commit-and-release-guide.md)
+- [提交与发布规范](docs/contributing/提交与发布规范.md)
 - [PR 模板](.github/PULL_REQUEST_TEMPLATE.md)
-- [发布说明模板](docs/releases/RELEASE_TEMPLATE.md)
+- [发布说明模板](docs/releases/发布模板.md)
 - [产品契约](docs/product/)
 - [架构与决策记录](docs/architecture/) 与 [ADR](docs/adr/)

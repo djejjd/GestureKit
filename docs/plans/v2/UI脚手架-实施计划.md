@@ -11,7 +11,7 @@
 ## Global Constraints
 
 - 所有面向用户的文案和代码注释使用中文；协议字段、路径和 API 名称保持原样。
-- 遵循 [`gesturekit-v2-ui-information-architecture.md`](../architecture/gesturekit-v2-ui-information-architecture.md) 的页面责任、隐私边界和状态文案。
+- 遵循 [`gesturekit-v2-ui-information-architecture.md`](../../architecture/v2-UI信息架构.md) 的页面责任、隐私边界和状态文案。
 - Task 10A 不接入未完成的 Task 6–9 业务逻辑，不展示伪造的“已连接”“已同步”或“无需权限”状态。
 - popup 只读，不得写入用户配置、应用推荐或持久化诊断历史。
 - 普通 UI、菜单栏和 popup 不得显示协议枚举、错误码、Provider secret、nonce、session ID、原始 `targetRef`、URL query/hash、Cookie 或网页正文。
@@ -437,8 +437,8 @@ git commit -m "feat: reduce popup to page context"
 ## Task 5: 更新原实施计划顺序并执行 UI 框架验收
 
 **Files:**
-- Modify: `docs/plans/gesturekit-reliability-platform-implementation-plan.md`
-- Modify: `docs/architecture/gesturekit-v2-ui-information-architecture.md`
+- Modify: `docs/plans/v2/可靠性平台-实施计划.md`
+- Modify: `docs/architecture/v2-UI信息架构.md`
 
 - [ ] **Step 1: 记录新的执行顺序**
 
@@ -469,8 +469,8 @@ Expected: exit 0。
 - [ ] **Step 3: 提交**
 
 ```bash
-git add docs/plans/gesturekit-reliability-platform-implementation-plan.md \
-  docs/architecture/gesturekit-v2-ui-information-architecture.md
+git add docs/plans/v2/可靠性平台-实施计划.md \
+  docs/architecture/v2-UI信息架构.md
 git commit -m "docs: stage task 10 UI framework before provider work"
 ```
 

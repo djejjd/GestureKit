@@ -8,7 +8,7 @@
 2. 连续执行三指点按 10 次。
 3. 连续执行三指左滑 10 次。
 4. 连续执行三指右滑 10 次。
-5. 把识别稳定性记录到 `docs/research/macos-trackpad-input-options.md`。
+5. 把识别稳定性记录到 `docs/research/macOS触控板输入方案-调研.md`。
 6. 分别在 Chrome 前台和非 Chrome 前台测试。
 7. 如果系统设置里存在冲突的 macOS 三指系统手势，开启后至少测试一次。
 8. 使用 `Ctrl-C` 结束 probe，确认它打印 `listener_stopped`。
