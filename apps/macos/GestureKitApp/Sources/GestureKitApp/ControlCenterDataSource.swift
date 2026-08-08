@@ -11,6 +11,7 @@ protocol ControlCenterDataSource {
     func privacyPage() -> PrivacyPageState
     func presetPage() -> PresetPageState
     func updateBinding(id: String, enabled: Bool) throws
+    func updateGestureBinding(gestureDefinitionID: String, actionID: StandardActionID?, enabled: Bool) throws
     func updateSensitivity(_ sensitivity: SwipeSensitivity) throws
     func restoreDefaultConfiguration() throws
     func exportEvidence(operationID: String, to url: URL) throws
@@ -54,6 +55,7 @@ final class PreviewControlCenterDataSource: ControlCenterDataSource {
         ])
     }
     func updateBinding(id: String, enabled: Bool) throws {}
+    func updateGestureBinding(gestureDefinitionID: String, actionID: StandardActionID?, enabled: Bool) throws {}
     func updateSensitivity(_ sensitivity: SwipeSensitivity) throws {}
     func restoreDefaultConfiguration() throws {}
 
@@ -66,24 +68,33 @@ final class RuntimeControlCenterDataSource: ControlCenterDataSource {
     private let journal: any OperationJournaling
     private let configurationStore: any AppConfigurationStore
     private let health: () -> ControlCenterHealth
+    private let loadUserBindingsHandler: () throws -> [BindingOverride]
     private let updateBindingHandler: (String, Bool) throws -> Void
+    private let updateGestureBindingHandler: (String, StandardActionID?, Bool) throws -> Void
     private let updateSensitivityHandler: (SwipeSensitivity) throws -> Void
     private let restoreDefaultsHandler: () throws -> Void
+    private let systemGestureResolver: (SystemGestureSetting) -> Bool
 
     init(
         journal: any OperationJournaling,
         configurationStore: any AppConfigurationStore,
         health: @escaping () -> ControlCenterHealth,
+        loadUserBindings: @escaping () throws -> [BindingOverride] = { [] },
         updateBinding: @escaping (String, Bool) throws -> Void = { _, _ in },
+        updateGestureBinding: @escaping (String, StandardActionID?, Bool) throws -> Void = { _, _, _ in },
         updateSensitivity: @escaping (SwipeSensitivity) throws -> Void = { _ in },
-        restoreDefaults: @escaping () throws -> Void = {}
+        restoreDefaults: @escaping () throws -> Void = {},
+        systemGestureResolver: @escaping (SystemGestureSetting) -> Bool = TrackpadPreferenceReader.isEnabled
     ) {
         self.journal = journal
         self.configurationStore = configurationStore
         self.health = health
+        self.loadUserBindingsHandler = loadUserBindings
         self.updateBindingHandler = updateBinding
+        self.updateGestureBindingHandler = updateGestureBinding
         self.updateSensitivityHandler = updateSensitivity
         self.restoreDefaultsHandler = restoreDefaults
+        self.systemGestureResolver = systemGestureResolver
     }
 
     func overview() -> ControlCenterOverview {
@@ -152,15 +163,89 @@ final class RuntimeControlCenterDataSource: ControlCenterDataSource {
         guard let configuration = try? configurationStore.loadAppConfiguration() else {
             return PresetPageState(cards: [.init(title: "手势与操作", detail: "正在准备配置数据", severity: .informational)])
         }
-        let supported = configuration.rules.filter { ["link-open-adjacent", "swipe-left-next-tab", "swipe-right-previous-tab"].contains($0.id) }
+        let userBindings = UserBindingConfiguration(overrides: (try? loadUserBindingsHandler()) ?? [])
+        let bindings = bindingRows(configuration: configuration, userBindings: userBindings)
         return PresetPageState(
             cards: [
                 .init(title: "配置版本", detail: "版本 \(configuration.configurationVersion)", severity: .informational),
                 configurationStatusCard(health())
             ],
-            bindings: supported.map { .init(id: $0.id, gesture: displayGestureNameForBinding($0.gestureDefinitionId), action: displayActionName($0.actionId), enabled: $0.enabled) },
-            sensitivity: configuration.recognition.swipeSensitivity
+            bindings: bindings,
+            sensitivity: configuration.recognition.swipeSensitivity,
+            conflicts: systemGestureConflicts(bindings: bindings)
         )
+    }
+
+    /// 将权威手势定义集展开为绑定行：默认绑定手势显示默认/覆盖状态，新手势显示新增/未绑定。
+    private func bindingRows(configuration: AppConfiguration, userBindings: UserBindingConfiguration) -> [GestureBindingPresentation] {
+        let defaults = DefaultRules.v1Bindings
+        return configuration.gestureDefinitions.map { definition in
+            let defaultBinding = defaults.first { $0.gestureDefinitionId == definition.id }
+            let additionOverride = userBindings.overrides.first { $0.gestureDefinitionId == definition.id }
+
+            let bindingID: String
+            let actionID: StandardActionID?
+            let enabled: Bool
+            let hasUserOverride: Bool
+
+            if let defaultBinding {
+                let override = userBindings.overrides.first { $0.id == defaultBinding.id }
+                bindingID = defaultBinding.id
+                actionID = override?.actionId ?? defaultBinding.actionId
+                enabled = override?.enabled ?? defaultBinding.enabled
+                hasUserOverride = override != nil
+            } else if let additionOverride {
+                bindingID = additionOverride.id
+                actionID = additionOverride.actionId
+                enabled = additionOverride.enabled ?? true
+                hasUserOverride = true
+            } else {
+                bindingID = "user-\(definition.id)"
+                actionID = nil
+                // 未绑定新手势默认"启用"：用户选动作即视为启用意图，保存时 enabled=true 生效；
+                // 若用户想禁用再关开关（保存 enabled=false）。
+                enabled = true
+                hasUserOverride = false
+            }
+
+            return GestureBindingPresentation(
+                id: bindingID,
+                gestureDefinitionID: definition.id,
+                gesture: displayGestureNameForDefinition(definition.id),
+                actionID: actionID,
+                action: actionID.map { displayActionName($0) } ?? "未绑定",
+                enabled: enabled,
+                hasUserOverride: hasUserOverride
+            )
+        }
+    }
+
+    /// 用户绑定手势若被系统触控板手势占用，生成引导关闭提示。
+    private func systemGestureConflicts(bindings: [GestureBindingPresentation]) -> [SystemGestureConflict] {
+        var conflicts: [SystemGestureConflict] = []
+        let hasEnabledTwoFinger = bindings.contains {
+            $0.enabled && $0.actionID != nil && ($0.gestureDefinitionID == "two-finger-swipe-left" || $0.gestureDefinitionID == "two-finger-swipe-right")
+        }
+        if hasEnabledTwoFinger && systemGestureResolver(.twoFingerPageSwipe) {
+            conflicts.append(SystemGestureConflict(
+                id: "two-finger-page-swipe",
+                gesture: "二指左/右滑",
+                setting: "在页面间轻扫",
+                howToDisable: "请在 系统设置 → 触控板 → 更多手势 中关闭「在页面间轻扫」，让二指左右滑由 GestureKit 独占识别。"
+            ))
+        }
+        let hasEnabledFourFinger = bindings.contains {
+            $0.enabled && $0.actionID != nil && ($0.gestureDefinitionID == "four-finger-swipe-left" || $0.gestureDefinitionID == "four-finger-swipe-right")
+        }
+        if hasEnabledFourFinger && systemGestureResolver(.fourFingerAppSwipe) {
+            conflicts.append(SystemGestureConflict(
+                id: "four-finger-app-swipe",
+                gesture: "四指左/右滑",
+                setting: "在应用之间轻扫",
+                howToDisable: "请在 系统设置 → 触控板 → 更多手势 中关闭「在应用之间轻扫」，让四指左右滑由 GestureKit 识别。"
+            ))
+        }
+        return conflicts
     }
 
     private func configurationStatusCard(_ health: ControlCenterHealth) -> ControlCenterStatusCard {
@@ -171,6 +256,9 @@ final class RuntimeControlCenterDataSource: ControlCenterDataSource {
         }
     }
     func updateBinding(id: String, enabled: Bool) throws { try updateBindingHandler(id, enabled) }
+    func updateGestureBinding(gestureDefinitionID: String, actionID: StandardActionID?, enabled: Bool) throws {
+        try updateGestureBindingHandler(gestureDefinitionID, actionID, enabled)
+    }
     func updateSensitivity(_ sensitivity: SwipeSensitivity) throws { try updateSensitivityHandler(sensitivity) }
     func restoreDefaultConfiguration() throws { try restoreDefaultsHandler() }
 
@@ -228,11 +316,20 @@ final class RuntimeControlCenterDataSource: ControlCenterDataSource {
     }
 }
 
-private func displayGestureNameForBinding(_ id: String) -> String {
+/// 手势定义 id（kebab-case）→ 中文展示名。
+func displayGestureNameForDefinition(_ id: String) -> String {
     switch id {
-    case "three-finger-tap": return "三指点按链接"
+    case "three-finger-tap": return "三指点按"
+    case "three-finger-tap-left-edge": return "三指点按（左侧）"
+    case "three-finger-tap-right-edge": return "三指点按（右侧）"
+    case "three-finger-double-tap-center": return "三指双击"
     case "three-finger-swipe-left": return "三指左滑"
     case "three-finger-swipe-right": return "三指右滑"
+    case "two-finger-swipe-left": return "二指左滑"
+    case "two-finger-swipe-right": return "二指右滑"
+    case "four-finger-tap": return "四指点按"
+    case "four-finger-swipe-left": return "四指左滑"
+    case "four-finger-swipe-right": return "四指右滑"
     default: return "手势"
     }
 }
@@ -263,11 +360,16 @@ private func displayGestureName(_ rawValue: String?) -> String? {
     case "three_finger_tap": return "三指点按"
     case "three_finger_swipe_left": return "三指左滑"
     case "three_finger_swipe_right": return "三指右滑"
+    case "two_finger_swipe_left": return "二指左滑"
+    case "two_finger_swipe_right": return "二指右滑"
+    case "four_finger_tap": return "四指点按"
+    case "four_finger_swipe_left": return "四指左滑"
+    case "four_finger_swipe_right": return "四指右滑"
     default: return rawValue
     }
 }
 
-private func displayActionName(_ actionId: StandardActionID) -> String {
+func displayActionName(_ actionId: StandardActionID) -> String {
     switch actionId {
     case .browserLinkOpenAdjacent: return "链接在新标签页打开"
     case .browserTabActivatePrevious: return "切换左侧标签页"
@@ -276,6 +378,15 @@ private func displayActionName(_ actionId: StandardActionID) -> String {
     case .browserHistoryBack: return "后退"
     case .browserHistoryForward: return "前进"
     case .browserPageReload: return "刷新页面"
+    case .browserTabOpenNew: return "打开新标签页"
+    case .browserTabPin: return "固定当前标签页"
+    case .browserTabUnpin: return "取消固定当前标签页"
+    case .browserTabToggleMute: return "静音/取消静音当前标签页"
+    case .browserTabCloseOthers: return "关闭其他标签页"
+    case .browserTabRestore: return "恢复刚关闭的标签页"
+    case .browserLinkCopy: return "复制链接"
+    case .browserPageCopyURL: return "复制页面 URL"
+    case .browserPageScrollTopBottom: return "滚动到页面顶部/底部"
     }
 }
 

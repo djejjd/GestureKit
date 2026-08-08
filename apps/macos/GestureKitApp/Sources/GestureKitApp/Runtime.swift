@@ -30,6 +30,11 @@ final class GestureKitRuntime {
     private var pendingRequests: [String: (action: String, timestamp: Int64)] = [:]
     /// E2E 测试控制服务；仅当启动参数包含非空 token 时创建。
     private var e2eServer: E2EControlServer?
+    /// 保活心跳：周期向扩展发 healthProbe，保持扩展 Service Worker 活跃，
+    /// 避免 Chrome 空闲约 30 秒后休眠 SW，导致手势 context 请求撞冷启动。
+    private var keepAliveTask: Task<Void, Never>?
+    private var keepAliveSequence: Int64 = 0
+    private let keepAliveIntervalNanoseconds: UInt64 = 20_000_000_000
     /// 组合器：把原始原语（3 种）组合为带区域和重复含义的手势（6 种）。
     private lazy var gestureCoordinator: GestureSessionCoordinator = GestureSessionCoordinator(
         ruleEngine: ruleEngine,
@@ -80,7 +85,10 @@ final class GestureKitRuntime {
             .map(ConfigurationMigration.init(store:))
         self.configurationMigration = migration
         let configuration = try? migration?.authoritativeConfiguration()
-        self.recognizer = GestureRecognizer(settings: configuration?.recognition ?? .standard)
+        self.recognizer = GestureRecognizer(
+            settings: configuration?.recognition ?? .standard,
+            definitions: configuration?.gestureDefinitions ?? DefaultRules.defaultGestureDefinitions
+        )
         self.logger = logger
         self.operationJournal = operationJournal
         self.providerSessions = providerSessions
@@ -88,8 +96,14 @@ final class GestureKitRuntime {
         self.providerOutboundSink = providerOutboundSink
         self.controlCenterOpenHandler = controlCenterOpenHandler
         self.diagnosticSink = diagnosticSink
-        self.ruleEngine = configuration.map(RuleEngine.init(configuration:))
-            ?? RuleEngine(rules: (try? settingsStore.loadRules()) ?? DefaultRules.v1)
+        // Task 4：优先从用户绑定覆盖构建 RuleEngine；无覆盖时回退权威配置/存量规则。
+        let userBindings = (try? settingsStore.loadBindingOverrides()) ?? []
+        if !userBindings.isEmpty {
+            self.ruleEngine = RuleEngine(overrides: userBindings, defaultBindings: DefaultRules.v1Bindings)
+        } else {
+            self.ruleEngine = configuration.map(RuleEngine.init(configuration:))
+                ?? RuleEngine(rules: (try? settingsStore.loadRules()) ?? DefaultRules.v1)
+        }
         self.appSessionId = UUID().uuidString
 
         // E2E 测试控制边界：仅当启动参数包含非空 token 时暴露。
@@ -153,6 +167,7 @@ final class GestureKitRuntime {
             terminal: true
         )
         startTouchListening()
+        startProviderKeepAlive()
     }
 
     func stop() {
@@ -162,6 +177,8 @@ final class GestureKitRuntime {
         }
         listeningTask?.cancel()
         listeningTask = nil
+        keepAliveTask?.cancel()
+        keepAliveTask = nil
         eventServer?.stop()
         eventServer = nil
         _ = touchBackend.stop()
@@ -287,17 +304,70 @@ final class GestureKitRuntime {
 
     func apply(configuration: AppConfiguration) {
         recognizer.updateSettings(configuration.recognition)
+        recognizer.updateDefinitions(configuration.gestureDefinitions)
         ruleEngine = RuleEngine(configuration: configuration)
         gestureCoordinator.updateRuleEngine(ruleEngine)
         refreshConfigurationSnapshot()
     }
 
+    /// 按默认绑定的稳定 id 切换启用状态；统一走用户覆盖路径（立即生效）。
     func updateBinding(id: String, enabled: Bool) throws {
+        guard let binding = DefaultRules.v1Bindings.first(where: { $0.id == id }) else {
+            throw AppConfigurationEditError.unknownBinding(id)
+        }
+        try updateGestureBinding(gestureDefinitionID: binding.gestureDefinitionId, actionID: nil, enabled: enabled)
+    }
+
+    /// Task 4：用户绑定「手势 → 动作」的单一入口。
+    ///
+    /// 默认绑定手势按稳定绑定 id 生成覆盖（保留 contextConstraints/priority）；
+    /// 无默认绑定的新手势（二指/四指）按 gestureDefinitionId 生成新增绑定。
+    /// 保存后立即重建 RuleEngine、同步权威配置快照 → 立即生效。
+    func updateGestureBinding(gestureDefinitionID: String, actionID: StandardActionID?, enabled: Bool) throws {
         guard let configurationMigration else { throw AppConfigurationUnavailable.storeUnavailable }
         let configuration = try configurationMigration.authoritativeConfiguration()
-        let updated = try configuration.updatingBinding(id: id, enabled: enabled)
+        var userBindings = UserBindingConfiguration(overrides: try settingsStore.loadBindingOverrides())
+
+        if let defaultBinding = DefaultRules.v1Bindings.first(where: { $0.gestureDefinitionId == gestureDefinitionID }) {
+            // 默认绑定手势：把动作切回默认且启用态未变时清除覆盖（回退默认）。
+            let defaultAction = defaultBinding.actionId
+            let effectiveAction = actionID ?? defaultAction
+            if enabled == defaultBinding.enabled && effectiveAction == defaultAction {
+                userBindings = userBindings.removing(id: defaultBinding.id)
+            } else {
+                userBindings = userBindings.updating(BindingOverride(
+                    id: defaultBinding.id,
+                    enabled: enabled,
+                    actionId: effectiveAction == defaultAction ? nil : effectiveAction
+                ))
+            }
+        } else if let actionID {
+            // 新手势绑定：创建/更新新增绑定（动作是绑定的必要条件）。
+            userBindings = userBindings.updating(BindingOverride(
+                id: "user-\(gestureDefinitionID)",
+                gestureDefinitionId: gestureDefinitionID,
+                enabled: enabled,
+                actionId: actionID
+            ))
+        } else {
+            // 新手势解除绑定：移除新增绑定。
+            userBindings = userBindings.removing(id: "user-\(gestureDefinitionID)")
+        }
+
+        try settingsStore.saveBindingOverrides(userBindings.overrides)
+        let effective = userBindings.effectiveBindings(defaults: DefaultRules.v1Bindings)
+        let updated = AppConfiguration(
+            storeEpoch: configuration.storeEpoch,
+            schemaVersion: 3,
+            configurationVersion: configuration.configurationVersion + 1,
+            gestureDefinitions: configuration.gestureDefinitions,
+            rules: effective,
+            recognition: configuration.recognition
+        )
         try (settingsStore as? any AppConfigurationStore)?.saveAppConfiguration(updated)
-        apply(configuration: updated)
+        ruleEngine = RuleEngine(overrides: userBindings.overrides, defaultBindings: DefaultRules.v1Bindings)
+        gestureCoordinator.updateRuleEngine(ruleEngine)
+        refreshConfigurationSnapshot()
     }
 
     func updateSensitivity(_ sensitivity: SwipeSensitivity) throws {
@@ -309,6 +379,8 @@ final class GestureKitRuntime {
 
     func restoreDefaultConfiguration() throws {
         guard let configurationMigration else { throw AppConfigurationUnavailable.storeUnavailable }
+        // 恢复默认同时清除用户绑定覆盖，否则下次热更新会重新应用旧覆盖。
+        try settingsStore.saveBindingOverrides([])
         let current = try configurationMigration.authoritativeConfiguration()
         let restored = AppConfiguration(
             storeEpoch: current.storeEpoch,
@@ -355,6 +427,11 @@ final class GestureKitRuntime {
 
     func observeForTesting(_ frame: TouchFrame) -> RecognizedGesture? {
         recognizer.observe(frame).compactMap(\.recognizedGesture).first
+    }
+
+    /// 测试入口：直接查询当前 RuleEngine 的手势→动作解析，验证绑定热更新立即生效。
+    func resolveForTesting(gesture: ComposedGesture, context: ProviderContextSnapshot) -> ActionDescriptor? {
+        ruleEngine.resolve(gesture: gesture, context: context)
     }
 
     func processFrameForTesting(_ frame: TouchFrame) -> RecognizedGesture? {
@@ -861,6 +938,38 @@ final class GestureKitRuntime {
         )
     }
 
+    /// 启动保活心跳：每 ~20s 向扩展发 healthProbe，保持扩展 SW 活跃（Chrome 空闲约 30s
+    /// 会休眠 SW，导致手势 context 请求撞冷启动而超预算丢弃）。
+    private func startProviderKeepAlive() {
+        guard keepAliveTask == nil else { return }
+        keepAliveTask = Task { @MainActor [weak self] in
+            while !Task.isCancelled {
+                try? await Task.sleep(nanoseconds: self?.keepAliveIntervalNanoseconds ?? 20_000_000_000)
+                guard let self, !Task.isCancelled else { return }
+                self.sendKeepAliveProbe()
+            }
+        }
+    }
+
+    /// 发一次保活 healthProbe（有已认证 Provider 会话时）。可测试：直接调用即发。
+    func sendKeepAliveProbe() {
+        guard let session = providerSessions.activeSession() else { return }
+        keepAliveSequence += 1
+        let outbound = ProviderEnvelope(
+            protocolVersion: 2,
+            messageId: UUID().uuidString,
+            providerSessionId: session.providerSessionID,
+            gestureSessionId: nil,
+            operationId: nil,
+            type: .healthProbe,
+            timestamp: currentTimestampMs(),
+            payload: .healthProbe(HealthProbePayload(probeSequence: keepAliveSequence, sentAt: currentTimestampMs())),
+            error: nil
+        )
+        try? providerSessions.send(outbound, to: session.providerSessionID)
+        logger.info("keep_alive_health_probe seq=\(keepAliveSequence) sessionId=\(session.providerSessionID)", rateLimitKey: "keep_alive_health_probe")
+    }
+
     private func scheduleExecutionTimeout(requestId: String, action: String, timestamp: Int64) {
         Task { @MainActor [weak self] in
             try? await Task.sleep(nanoseconds: UInt64(1_500_000_000))
@@ -934,6 +1043,8 @@ final class GestureKitRuntime {
         case .threeFingerTap: return .openLinkBackground
         case .threeFingerSwipeLeft: return .activateLeftTab
         case .threeFingerSwipeRight: return .activateRightTab
+        // V2.5 预设手势无默认 v1 动作；仅诊断展示用，动作由绑定规则决定。
+        case .twoFingerSwipeLeft, .twoFingerSwipeRight, .fourFingerTap, .fourFingerSwipeLeft, .fourFingerSwipeRight: return nil
         }
     }
 

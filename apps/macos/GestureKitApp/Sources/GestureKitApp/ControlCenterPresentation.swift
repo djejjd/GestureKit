@@ -128,19 +128,54 @@ struct PresetPageState: Equatable {
     let cards: [ControlCenterStatusCard]
     let bindings: [GestureBindingPresentation]
     let sensitivity: SwipeSensitivity
+    /// 系统手势占用冲突提示（绑定二指/四指左右滑且系统设置开启时）。
+    let conflicts: [SystemGestureConflict]
 
-    init(cards: [ControlCenterStatusCard], bindings: [GestureBindingPresentation] = [], sensitivity: SwipeSensitivity = .standard) {
+    init(
+        cards: [ControlCenterStatusCard],
+        bindings: [GestureBindingPresentation] = [],
+        sensitivity: SwipeSensitivity = .standard,
+        conflicts: [SystemGestureConflict] = []
+    ) {
         self.cards = cards
         self.bindings = bindings
         self.sensitivity = sensitivity
+        self.conflicts = conflicts
     }
 }
 
 struct GestureBindingPresentation: Identifiable, Equatable {
+    /// 绑定规则 id（默认绑定的稳定 id，或新手势的 `user-<gestureDefinitionID>`）。
     let id: String
+    /// 手势定义 id（如 `three-finger-swipe-left`），是 UI 更新绑定的稳定标识。
+    let gestureDefinitionID: String
+    /// 手势中文展示名。
     let gesture: String
-    let action: String
-    let enabled: Bool
+    /// 当前生效动作；nil 表示未绑定。
+    var actionID: StandardActionID?
+    /// 当前动作中文名；未绑定时为「未绑定」。
+    var action: String
+    /// 是否启用。
+    var enabled: Bool
+    /// 是否为用户覆盖（默认绑定未被触碰时为 false）。
+    var hasUserOverride: Bool
+
+    /// 绑定状态文案：默认绑定 / 用户覆盖 / 未绑定。
+    var statusText: String {
+        guard actionID != nil else { return "未绑定" }
+        return hasUserOverride ? "用户覆盖" : "默认绑定"
+    }
+}
+
+/// 系统手势占用冲突：App 绑定某手势但 macOS 系统设置占用相同手势时的引导提示。
+struct SystemGestureConflict: Identifiable, Equatable {
+    let id: String
+    /// 冲突的手势中文名（如「二指左/右滑」）。
+    let gesture: String
+    /// 被占用的系统设置名（如「在页面间轻扫」）。
+    let setting: String
+    /// 引导用户关闭系统设置的文案。
+    let howToDisable: String
 }
 
 /// 运行时提供给控制中心的健康快照；不包含 session ID、凭据或协议错误。

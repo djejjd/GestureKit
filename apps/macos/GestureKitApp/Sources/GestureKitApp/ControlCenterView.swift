@@ -95,7 +95,7 @@ struct ControlCenterView: View {
             .confirmationDialog("恢复默认配置？", isPresented: $showingRestoreDefaultsConfirmation, titleVisibility: .visible) {
                 Button("恢复默认配置", role: .destructive, action: restoreDefaults)
             } message: {
-                Text("将恢复三项手势开关和轻扫灵敏度，不会删除操作记录或诊断日志。")
+                Text("将恢复所有手势的默认绑定并清除用户自定义，同时恢复轻扫灵敏度，不会删除操作记录或诊断日志。")
             }
         case .providers:
             ProviderPage(state: dataSource.providerPage())
@@ -108,9 +108,13 @@ struct ControlCenterView: View {
         }
     }
 
-    private func updateBinding(id: String, enabled: Bool) {
+    private func updateBinding(binding: GestureBindingPresentation) {
         do {
-            try dataSource.updateBinding(id: id, enabled: enabled)
+            try dataSource.updateGestureBinding(
+                gestureDefinitionID: binding.gestureDefinitionID,
+                actionID: binding.actionID,
+                enabled: binding.enabled
+            )
             evidenceExportStatus = nil
         } catch {
             evidenceExportStatus = "手势设置更新失败，请稍后重试"

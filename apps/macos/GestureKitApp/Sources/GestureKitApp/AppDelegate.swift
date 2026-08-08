@@ -10,6 +10,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let settingsStore = UserDefaultsSettingsStore()
     private var operationJournal: (any OperationJournaling)?
     private let e2eControlToken: String?
+    private var singleInstanceLockFD: Int32?
 
     init(e2eControlToken: String?) {
         self.e2eControlToken = e2eControlToken
@@ -17,6 +18,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // 单实例保护：flock 独占锁已被持有说明已有实例在运行，退出重复实例。
+        guard let singleInstanceLockFD = SingleInstanceGuard.acquireLock() else {
+            print("GestureKitApp 已在运行，退出重复实例")
+            NSApp.terminate(nil)
+            return
+        }
+        self.singleInstanceLockFD = singleInstanceLockFD
+
         let journal = try? OperationJournal(path: journalURL().path)
         operationJournal = journal
         runtime = GestureKitRuntime(menuBarHandler: { [weak self] event in
@@ -53,7 +62,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             journal: journal,
             configurationStore: settingsStore,
             health: { [weak self] in self?.runtime?.controlCenterHealth ?? .preparing },
+            loadUserBindings: { [weak self] in (try self?.settingsStore.loadBindingOverrides()) ?? [] },
             updateBinding: { [weak self] id, enabled in try self?.runtime?.updateBinding(id: id, enabled: enabled) },
+            updateGestureBinding: { [weak self] gid, actionID, enabled in
+                try self?.runtime?.updateGestureBinding(gestureDefinitionID: gid, actionID: actionID, enabled: enabled)
+            },
             updateSensitivity: { [weak self] value in try self?.runtime?.updateSensitivity(value) },
             restoreDefaults: { [weak self] in try self?.runtime?.restoreDefaultConfiguration() }
         )
@@ -68,5 +81,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         runtime?.stop()
+        SingleInstanceGuard.releaseLock(fd: singleInstanceLockFD)
+        singleInstanceLockFD = nil
     }
 }

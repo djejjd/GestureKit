@@ -156,6 +156,12 @@ final class E2ERuntimeScenarioTests: XCTestCase {
         XCTAssertNil(port, "无 --e2e-control-token 时不得暴露 e2e port")
     }
 
+    func testKeepAliveProbeSentToAuthenticatedProvider() throws {
+        let (runtime, _, _, outbound, _) = try makeAuthenticatedRuntime()
+        runtime.sendKeepAliveProbe()
+        XCTAssertNotNil(outbound.latest(of: .healthProbe))
+    }
+
     func testWithTokenE2EServerStarted() {
         let runtime = GestureKitRuntime(
             menuBarHandler: { _ in },
@@ -230,6 +236,8 @@ private struct StubE2ESettingsStore: SettingsStore, AppConfigurationStore {
     func saveAppConfiguration(_ configuration: AppConfiguration) throws {}
     func importLegacyAppConfiguration(_ configuration: AppConfiguration) throws {}
     func hasLegacyMigrationMarker() throws -> Bool { false }
+    func loadBindingOverrides() throws -> [BindingOverride] { [] }
+    func saveBindingOverrides(_ overrides: [BindingOverride]) throws {}
 }
 
 private final class RuntimeRecordingJournal: OperationJournaling, @unchecked Sendable {

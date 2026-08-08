@@ -91,6 +91,34 @@ final class GestureSessionCoordinatorTests: XCTestCase {
         XCTAssertEqual(actions, [.browserTabActivateNext])
     }
 
+    func testCenterDoubleTapComposesWithinWindow() {
+        let clock = TestClock(now: 100)
+        var actions: [(String, StandardActionID)] = []
+        var coordinator: GestureSessionCoordinator!
+        coordinator = GestureSessionCoordinator(
+            contextRouter: { id, deadline in
+                coordinator.receiveContext(
+                    ProviderContextSnapshot(contextId: "ctx", targetKind: .noTarget, targetRef: nil, deadline: deadline),
+                    for: id
+                )
+            },
+            actionRouter: { id, action in actions.append((id, action.actionId)) },
+            monotonicClockMs: { clock.now },
+            sessionID: { "session" }
+        )
+
+        // 第一次 center tap：单次点按不派发关闭。
+        _ = coordinator.handle(.candidateStarted(candidate))
+        _ = coordinator.handle(.primitiveClassified(centerTap))
+        XCTAssertEqual(actions.map(\.1), [])
+
+        // 第二次 center tap，间隔 400ms（100 → 500）：应在双击窗口内组合成 double tap → 关闭当前 tab。
+        clock.now = 500
+        _ = coordinator.handle(.candidateStarted(candidate))
+        _ = coordinator.handle(.primitiveClassified(centerTap))
+        XCTAssertEqual(actions.map(\.1), [.browserTabCloseCurrent])
+    }
+
     func testContextAfterActionBudgetDoesNotDispatchEvenWhenDescriptorDeadlineIsFuture() {
         var now: Int64 = 0
         var actionCount = 0
@@ -101,7 +129,7 @@ final class GestureSessionCoordinatorTests: XCTestCase {
         )
         let id = coordinator.handle(.candidateStarted(candidate))!
         _ = coordinator.handle(.primitiveClassified(swipeLeft))
-        now = 151
+        now = 301
 
         coordinator.receiveContext(ProviderContextSnapshot(contextId: "ctx", targetKind: .noTarget, targetRef: nil, deadline: .max), for: id)
 
@@ -112,7 +140,7 @@ final class GestureSessionCoordinatorTests: XCTestCase {
         let clock = TestClock(now: 0)
         var actionCount = 0
         let coordinator = GestureSessionCoordinator(
-            ruleEngine: AdvancingRuleResolver(clock: clock, resolvedAtMs: 151),
+            ruleEngine: AdvancingRuleResolver(clock: clock, resolvedAtMs: 301),
             actionRouter: { _, _ in actionCount += 1 },
             monotonicClockMs: { clock.now },
             sessionID: { "session" }
@@ -163,4 +191,8 @@ private let swipeLeft = RecognizedGesture(
 private let rejected = RecognizedGesture(
     gesture: nil, status: .gestureUnstable, reason: .distanceTooShort,
     durationMs: 120, dx: 0, dy: 0, thresholds: .standard, centroidX: 0.5, centroidY: 0.5
+)
+private let centerTap = RecognizedGesture(
+    gesture: .threeFingerTap, status: .success, reason: .success,
+    durationMs: 60, dx: 0, dy: 0, thresholds: .standard, centroidX: 0.5, centroidY: 0.5
 )

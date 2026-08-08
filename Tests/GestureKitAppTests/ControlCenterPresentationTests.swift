@@ -123,12 +123,117 @@ final class ControlCenterPresentationTests: XCTestCase {
         let source = RuntimeControlCenterDataSource(
             journal: StubJournal(timelines: []),
             configurationStore: StubConfigurationStore(configuration: configuration),
-            health: { .connected(capabilities: [.browserPageReload], configurationApplied: false) }
+            health: { .connected(capabilities: [.browserPageReload], configurationApplied: false) },
+            loadUserBindings: { [] },
+            systemGestureResolver: { _ in false }
         )
 
         XCTAssertEqual(source.presetPage().cards.first?.detail, "版本 1")
-        XCTAssertEqual(source.presetPage().bindings.count, 3)
+        // Task 4：绑定页展示全量预设手势（6 个三指 + 2 个二指 + 3 个四指）。
+        XCTAssertEqual(source.presetPage().bindings.count, 11)
         XCTAssertTrue(source.providerPage().cards.contains { $0.detail == "当前预设正在同步" })
+    }
+
+    func testRuntimeDataSourcePresetPageListsAllGesturesWithChineseNames() {
+        let configuration = AppConfiguration.initial(storeEpoch: "epoch")
+        let source = RuntimeControlCenterDataSource(
+            journal: StubJournal(timelines: []),
+            configurationStore: StubConfigurationStore(configuration: configuration),
+            health: { .disconnected },
+            loadUserBindings: { [] },
+            systemGestureResolver: { _ in false }
+        )
+
+        let page = source.presetPage()
+        let twoFinger = try? XCTUnwrap(page.bindings.first { $0.gestureDefinitionID == "two-finger-swipe-left" })
+        XCTAssertEqual(twoFinger?.gesture, "二指左滑")
+        XCTAssertNil(twoFinger?.actionID)
+        // 未绑定新手势默认"启用"：用户选动作即视为启用意图（否则保存 enabled=false 会不生效）。
+        XCTAssertEqual(twoFinger?.enabled, true)
+        XCTAssertEqual(twoFinger?.statusText, "未绑定")
+        let fourTap = try? XCTUnwrap(page.bindings.first { $0.gestureDefinitionID == "four-finger-tap" })
+        XCTAssertEqual(fourTap?.gesture, "四指点按")
+    }
+
+    func testRuntimeDataSourcePresetPageShowsDefaultAndOverrideState() {
+        let configuration = AppConfiguration.initial(storeEpoch: "epoch")
+        let source = RuntimeControlCenterDataSource(
+            journal: StubJournal(timelines: []),
+            configurationStore: StubConfigurationStore(configuration: configuration),
+            health: { .disconnected },
+            loadUserBindings: {
+                [BindingOverride(id: "swipe-left-next-tab", gestureDefinitionId: nil, enabled: true, actionId: .browserPageReload)]
+            },
+            systemGestureResolver: { _ in false }
+        )
+
+        let page = source.presetPage()
+        let defaultRow = try? XCTUnwrap(page.bindings.first { $0.gestureDefinitionID == "three-finger-tap" })
+        XCTAssertEqual(defaultRow?.statusText, "默认绑定")
+        let overridden = try? XCTUnwrap(page.bindings.first { $0.gestureDefinitionID == "three-finger-swipe-left" })
+        XCTAssertEqual(overridden?.actionID, .browserPageReload)
+        XCTAssertEqual(overridden?.hasUserOverride, true)
+        XCTAssertEqual(overridden?.statusText, "用户覆盖")
+    }
+
+    func testRuntimeDataSourcePresetPageReportsTwoFingerSystemGestureConflict() {
+        let configuration = AppConfiguration.initial(storeEpoch: "epoch")
+        let source = RuntimeControlCenterDataSource(
+            journal: StubJournal(timelines: []),
+            configurationStore: StubConfigurationStore(configuration: configuration),
+            health: { .disconnected },
+            loadUserBindings: {
+                [BindingOverride(
+                    id: "user-two-finger-swipe-left",
+                    gestureDefinitionId: "two-finger-swipe-left",
+                    enabled: true,
+                    actionId: .browserTabActivateNext
+                )]
+            },
+            systemGestureResolver: { $0 == .twoFingerPageSwipe }
+        )
+
+        let page = source.presetPage()
+        XCTAssertEqual(page.conflicts.count, 1)
+        XCTAssertEqual(page.conflicts.first?.id, "two-finger-page-swipe")
+        XCTAssertEqual(page.conflicts.first?.gesture, "二指左/右滑")
+    }
+
+    func testRuntimeDataSourcePresetPageIgnoresConflictWhenBindingDisabledOrSystemOff() {
+        let configuration = AppConfiguration.initial(storeEpoch: "epoch")
+        // 绑定存在但 enabled=false：即使系统开启也不提示。
+        let disabledSource = RuntimeControlCenterDataSource(
+            journal: StubJournal(timelines: []),
+            configurationStore: StubConfigurationStore(configuration: configuration),
+            health: { .disconnected },
+            loadUserBindings: {
+                [BindingOverride(
+                    id: "user-two-finger-swipe-left",
+                    gestureDefinitionId: "two-finger-swipe-left",
+                    enabled: false,
+                    actionId: .browserTabActivateNext
+                )]
+            },
+            systemGestureResolver: { _ in true }
+        )
+        XCTAssertTrue(disabledSource.presetPage().conflicts.isEmpty)
+
+        // 绑定启用但系统关闭：也不提示。
+        let systemOffSource = RuntimeControlCenterDataSource(
+            journal: StubJournal(timelines: []),
+            configurationStore: StubConfigurationStore(configuration: configuration),
+            health: { .disconnected },
+            loadUserBindings: {
+                [BindingOverride(
+                    id: "user-two-finger-swipe-left",
+                    gestureDefinitionId: "two-finger-swipe-left",
+                    enabled: true,
+                    actionId: .browserTabActivateNext
+                )]
+            },
+            systemGestureResolver: { _ in false }
+        )
+        XCTAssertTrue(systemOffSource.presetPage().conflicts.isEmpty)
     }
 
     func testRuntimeDataSourceForwardsEvidenceExportToJournal() throws {
