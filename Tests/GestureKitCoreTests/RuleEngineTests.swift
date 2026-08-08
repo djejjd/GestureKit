@@ -85,6 +85,74 @@ final class RuleEngineTests: XCTestCase {
         XCTAssertNil(engine.match(gesture: .threeFingerTap, context: context))
     }
 
+    func testRuleEngineWithNoOverridesResolvesDefaultBindings() {
+        let engine = RuleEngine(overrides: [])
+        let context = ProviderContextSnapshot(
+            contextId: "context-link",
+            targetKind: .standardLink,
+            targetRef: "opaque-link",
+            deadline: 1_000
+        )
+
+        XCTAssertEqual(
+            engine.resolve(gesture: .threeFingerTap, context: context)?.actionId,
+            .browserLinkOpenAdjacent
+        )
+    }
+
+    func testRuleEngineWithActionOverrideResolvesOverriddenAction() {
+        let engine = RuleEngine(overrides: [
+            BindingOverride(id: "swipe-left-next-tab", enabled: nil, actionId: .browserPageReload)
+        ])
+        let context = ProviderContextSnapshot(
+            contextId: "context-generic",
+            targetKind: .noTarget,
+            targetRef: nil,
+            deadline: 1_000
+        )
+
+        XCTAssertEqual(
+            engine.resolve(gesture: .threeFingerSwipeLeft, context: context)?.actionId,
+            .browserPageReload
+        )
+    }
+
+    func testRuleEngineWithDisabledOverrideRemovesBinding() {
+        let engine = RuleEngine(overrides: [
+            BindingOverride(id: "swipe-left-next-tab", enabled: false, actionId: nil)
+        ])
+        let context = ProviderContextSnapshot(
+            contextId: "context-generic",
+            targetKind: .noTarget,
+            targetRef: nil,
+            deadline: 1_000
+        )
+
+        XCTAssertNil(engine.resolve(gesture: .threeFingerSwipeLeft, context: context))
+    }
+
+    func testRuleEngineFallsBackToDefaultWhenOverrideRemoved() {
+        let overridden = RuleEngine(overrides: [
+            BindingOverride(id: "swipe-left-next-tab", enabled: nil, actionId: .browserPageReload)
+        ])
+        let context = ProviderContextSnapshot(
+            contextId: "context-generic",
+            targetKind: .noTarget,
+            targetRef: nil,
+            deadline: 1_000
+        )
+        XCTAssertEqual(
+            overridden.resolve(gesture: .threeFingerSwipeLeft, context: context)?.actionId,
+            .browserPageReload
+        )
+
+        let restored = RuleEngine(overrides: [])
+        XCTAssertEqual(
+            restored.resolve(gesture: .threeFingerSwipeLeft, context: context)?.actionId,
+            .browserTabActivateNext
+        )
+    }
+
     func testHigherPriorityWinsBeforeStableIdTieBreaker() {
         let low = Rule(
             id: "b-low",

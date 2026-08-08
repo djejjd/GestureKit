@@ -21,4 +21,26 @@ final class SettingsStoreTests: XCTestCase {
 
         XCTAssertEqual(try store.loadRules(), rules)
     }
+
+    func testEmptyStoreReturnsNoBindingOverrides() throws {
+        let defaults = UserDefaults(suiteName: "GestureKitTests.bindingOverridesEmpty")!
+        defaults.removePersistentDomain(forName: "GestureKitTests.bindingOverridesEmpty")
+        let store = UserDefaultsSettingsStore(defaults: defaults)
+
+        XCTAssertEqual(try store.loadBindingOverrides(), [])
+    }
+
+    func testSaveAndLoadBindingOverridesRoundTrip() throws {
+        let defaults = UserDefaults(suiteName: "GestureKitTests.bindingOverridesRoundTrip")!
+        defaults.removePersistentDomain(forName: "GestureKitTests.bindingOverridesRoundTrip")
+        let store = UserDefaultsSettingsStore(defaults: defaults)
+        let overrides = [
+            BindingOverride(id: "swipe-left-next-tab", enabled: false, actionId: nil),
+            BindingOverride(id: "link-open-adjacent", enabled: nil, actionId: .browserPageReload)
+        ]
+
+        try store.saveBindingOverrides(overrides)
+
+        XCTAssertEqual(try store.loadBindingOverrides(), overrides)
+    }
 }

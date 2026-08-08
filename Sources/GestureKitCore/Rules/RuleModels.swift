@@ -8,6 +8,12 @@ public enum ComposedGesture: String, Codable, Equatable, Sendable, CaseIterable 
     case threeFingerDoubleTapCenter = "three_finger_double_tap_center"
     case threeFingerSwipeLeft = "three_finger_swipe_left"
     case threeFingerSwipeRight = "three_finger_swipe_right"
+    // V2.5 预设手势集：二指滑动、四指轻点/滑动（向后兼容 case）
+    case twoFingerSwipeLeft = "two_finger_swipe_left"
+    case twoFingerSwipeRight = "two_finger_swipe_right"
+    case fourFingerTap = "four_finger_tap"
+    case fourFingerSwipeLeft = "four_finger_swipe_left"
+    case fourFingerSwipeRight = "four_finger_swipe_right"
 
     public var gestureDefinitionID: String {
         switch self {
@@ -17,6 +23,11 @@ public enum ComposedGesture: String, Codable, Equatable, Sendable, CaseIterable 
         case .threeFingerDoubleTapCenter: "three-finger-double-tap-center"
         case .threeFingerSwipeLeft: "three-finger-swipe-left"
         case .threeFingerSwipeRight: "three-finger-swipe-right"
+        case .twoFingerSwipeLeft: "two-finger-swipe-left"
+        case .twoFingerSwipeRight: "two-finger-swipe-right"
+        case .fourFingerTap: "four-finger-tap"
+        case .fourFingerSwipeLeft: "four-finger-swipe-left"
+        case .fourFingerSwipeRight: "four-finger-swipe-right"
         }
     }
 }

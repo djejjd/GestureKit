@@ -77,7 +77,8 @@ public struct ProviderError: Codable, Sendable, Equatable {
 
 // MARK: - 标准动作 ID
 
-/// Provider Protocol v2 的标准动作 ID（7 个）。
+/// Provider Protocol v2 的标准动作 ID（16 个）。
+/// 均为向后兼容 case：旧 Provider 不解读新 case 即忽略，旧消息解码不受影响。
 public enum StandardActionID: String, Codable, Sendable, Equatable, CaseIterable {
     case browserLinkOpenAdjacent = "browser.link.open_adjacent"
     case browserTabActivatePrevious = "browser.tab.activate_previous"
@@ -86,6 +87,17 @@ public enum StandardActionID: String, Codable, Sendable, Equatable, CaseIterable
     case browserHistoryBack = "browser.history.back"
     case browserHistoryForward = "browser.history.forward"
     case browserPageReload = "browser.page.reload"
+    // V2.5 新增 — Tab 管理类
+    case browserTabOpenNew = "browser.tab.open_new"
+    case browserTabPin = "browser.tab.pin"
+    case browserTabUnpin = "browser.tab.unpin"
+    case browserTabToggleMute = "browser.tab.toggle_mute"
+    case browserTabCloseOthers = "browser.tab.close_others"
+    case browserTabRestore = "browser.tab.restore"
+    // V2.5 新增 — 链接页面类
+    case browserLinkCopy = "browser.link.copy"
+    case browserPageCopyURL = "browser.page.copy_url"
+    case browserPageScrollTopBottom = "browser.page.scroll_top_bottom"
 }
 
 // MARK: - 动作结果

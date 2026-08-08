@@ -7,7 +7,21 @@ public struct RuleEngine: RuleResolving, Sendable {
         self.bindings = []
     }
 
-    public init() { self.init(rules: DefaultRules.v1) }
+    public init() {
+        self.rules = DefaultRules.v1
+        self.bindings = DefaultRules.v1Bindings
+    }
+
+    /// 用户可配绑定入口：默认绑定 + 用户覆盖合并后参与决策。
+    /// 覆盖为空时完全回退默认绑定。
+    public init(
+        overrides: [BindingOverride] = [],
+        defaultBindings: [BindingRule] = DefaultRules.v1Bindings
+    ) {
+        self.rules = DefaultRules.v1
+        self.bindings = UserBindingConfiguration(overrides: overrides)
+            .effectiveBindings(defaults: defaultBindings)
+    }
 
     public init(configuration: AppConfiguration) {
         self.rules = []
@@ -92,6 +106,9 @@ private enum BindingResolver {
         case .threeFingerDoubleTapCenter: actionId = .browserTabCloseCurrent; targetRef = nil
         case .threeFingerSwipeLeft: actionId = .browserTabActivateNext; targetRef = nil
         case .threeFingerSwipeRight: actionId = .browserTabActivatePrevious; targetRef = nil
+        // V2.5 预设手势集：无硬编码默认动作，仅经绑定解析；legacy fallback 不产出动作。
+        case .twoFingerSwipeLeft, .twoFingerSwipeRight, .fourFingerTap, .fourFingerSwipeLeft, .fourFingerSwipeRight:
+            return nil
         }
         return ActionDescriptor(actionId: actionId, contextId: context.contextId, targetRef: targetRef, parameters: [:], deadline: context.deadline)
     }

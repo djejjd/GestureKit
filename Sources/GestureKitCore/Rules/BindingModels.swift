@@ -107,6 +107,104 @@ public struct GestureDefinition: Codable, Sendable, Equatable {
     }
 }
 
+// MARK: - 用户绑定覆盖
+
+/// 用户对默认绑定的增量覆盖。`id` 引用默认绑定（`DefaultRules.v1Bindings`）的稳定标识；
+/// `nil` 字段表示保持默认值。
+///
+/// - `enabled`：`false` 表示禁用该条（合并时移除）；`true`/`nil` 保持默认。
+/// - `actionId`：非 `nil` 表示把默认动作覆盖为指定标准动作。
+/// - `gestureDefinitionId`：非 `nil` 且无同手势默认绑定时，表示「新增绑定」——
+///   为无默认绑定的预设手势（二指/四指）创建一条有效绑定规则。
+public struct BindingOverride: Codable, Sendable, Equatable {
+    public let id: String
+    /// 非 `nil` 表示新增绑定（针对无默认绑定的手势），而不是覆盖默认绑定。
+    public let gestureDefinitionId: String?
+    public let enabled: Bool?
+    public let actionId: StandardActionID?
+
+    public init(id: String, gestureDefinitionId: String? = nil, enabled: Bool?, actionId: StandardActionID?) {
+        self.id = id
+        self.gestureDefinitionId = gestureDefinitionId
+        self.enabled = enabled
+        self.actionId = actionId
+    }
+}
+
+/// 用户绑定配置：默认绑定 + 增量覆盖。
+///
+/// 缺省（空覆盖）时完全回退默认绑定；对某条 `removing` 即恢复该条默认。
+/// 合并规则：
+/// - 无覆盖的默认绑定原样保留；
+/// - `enabled == false` 的覆盖 → 移除该条；
+/// - `actionId != nil` 的覆盖 → 以覆盖动作替换默认动作；
+/// - 其余字段（priority/contextConstraints/actionParameters）一律保留默认。
+/// - 携带 `gestureDefinitionId` 且未被默认绑定覆盖的覆盖 → 新增一条绑定规则
+///   （动作必填、启用开关生效）。
+public struct UserBindingConfiguration: Codable, Sendable, Equatable {
+    public let overrides: [BindingOverride]
+
+    public init(overrides: [BindingOverride] = []) {
+        self.overrides = overrides
+    }
+
+    /// 合并默认绑定与用户覆盖，返回生效绑定列表（优先级保留）。
+    /// 同 id 的重复覆盖取后者（持久化数据防脏：不因重复 id 崩溃）。
+    public func effectiveBindings(defaults: [BindingRule]) -> [BindingRule] {
+        let overridesByID = Dictionary(overrides.map { ($0.id, $0) }, uniquingKeysWith: { _, new in new })
+        var result = defaults.compactMap { rule in
+            guard let override = overridesByID[rule.id] else { return rule }
+            if override.enabled == false { return nil }
+            return BindingRule(
+                id: rule.id,
+                gestureDefinitionId: rule.gestureDefinitionId,
+                // 用户显式改动作（actionId 非 nil）时清空默认上下文约束，让动作在任意处触发；
+                // 仅改启用态（actionId 为 nil）时保留默认约束（如三指点按仅在链接上）。
+                contextConstraints: override.actionId == nil ? rule.contextConstraints : [:],
+                actionId: override.actionId ?? rule.actionId,
+                actionParameters: rule.actionParameters,
+                priority: rule.priority,
+                enabled: override.enabled ?? rule.enabled
+            )
+        }
+        // 用户新增绑定：为无默认绑定的预设手势创建规则。
+        // 动作是绑定的必要条件；禁用态（enabled == false）表示不生效。
+        for override in overrides {
+            guard let gestureDefinitionId = override.gestureDefinitionId,
+                  override.enabled != false,
+                  let actionId = override.actionId else { continue }
+            // 已被默认绑定覆盖的手势不重复新增（默认绑定优先）。
+            guard !result.contains(where: { $0.gestureDefinitionId == gestureDefinitionId }) else { continue }
+            result.append(BindingRule(
+                id: override.id,
+                gestureDefinitionId: gestureDefinitionId,
+                contextConstraints: [:],
+                actionId: actionId,
+                actionParameters: [:],
+                priority: 100,
+                enabled: override.enabled ?? true
+            ))
+        }
+        return result
+    }
+
+    /// 写入/替换一条覆盖；覆盖记录按 id 幂等更新。
+    public func updating(_ override: BindingOverride) -> UserBindingConfiguration {
+        var merged = overrides
+        if let index = merged.firstIndex(where: { $0.id == override.id }) {
+            merged[index] = override
+        } else {
+            merged.append(override)
+        }
+        return UserBindingConfiguration(overrides: merged)
+    }
+
+    /// 移除某条覆盖，使该绑定回退默认。
+    public func removing(id: String) -> UserBindingConfiguration {
+        UserBindingConfiguration(overrides: overrides.filter { $0.id != id })
+    }
+}
+
 // MARK: - Binding Rule
 
 /// 动作绑定规则，将手势定义 + 上下文约束映射为标准动作。
