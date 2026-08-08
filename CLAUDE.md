@@ -83,9 +83,9 @@ The project is mid-refactoring from v1 to v2. Key shifts in authority:
 
 Implementation order: `Task 1/2/2A (spikes) → Task 3 (protocol) → Task 4 (journal) → Task 5 (auth IPC) → Task 10A (UI scaffold) → Task 6/7 (ledger/sessions) → Task 8 (Chrome guard/action) → Task 9 (config migration) → Task 10B (UI data wiring) → Task 11 (E2E/cleanup)`.
 
-Full plan: `docs/plans/gesturekit-reliability-platform-implementation-plan.md`
-UI contract: `docs/architecture/gesturekit-v2-ui-information-architecture.md`
-Architecture decisions: `docs/adr/0001-use-native-host-shim.md` through `0003`
+Full plan: `docs/plans/v2/可靠性平台-实施计划.md`
+UI contract: `docs/architecture/v2-UI信息架构.md`
+Architecture decisions: `docs/adr/0001-使用原生宿主中间层.md` through `0003`
 
 ## Key Conventions
 

@@ -141,7 +141,7 @@ device_status=listener_stopped stopped=true
 
 稳定性验证记录位置：
 
-- `docs/research/trackpad-gesture-stability-matrix.md`
+- `docs/research/触控板手势稳定性矩阵.md`
 
 当前结论：OpenMultitouchSupport backend 可以在本机启动并接收触控板事件，Chrome 普通窗口前台三类主手势在明确物理方向后均能达到 10/10 有效识别。稳定性矩阵当前结论为 `passed_with_notes`：可以进入正式设计阶段，但后续文档和 UI 必须明确三指右滑的物理方向映射，并记录当前只覆盖内置触控板和内置单屏。
 

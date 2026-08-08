@@ -56,7 +56,7 @@ GestureKit 让你用触控板手势完成 Chrome 常用操作：三指点按打�
 ./scripts/dev/install-local.sh
 ```
 
-该脚本构建 host 与扩展，并安装 Native Messaging manifest。然后在 `chrome://extensions` 开启 Developer Mode，选择 **Load unpacked** 并选中 `extensions/chrome` 目录。详细步骤见[本地安装说明](docs/operations/local-install.md)。
+该脚本构建 host 与扩展，并安装 Native Messaging manifest。然后在 `chrome://extensions` 开启 Developer Mode，选择 **Load unpacked** 并选中 `extensions/chrome` 目录。详细步骤见[本地安装说明](docs/operations/本地安装.md)。
 
 ## 使用
 
@@ -107,17 +107,17 @@ zsh scripts/dev/test-link-reliability.sh
 真实 Chrome 验收只在 GitHub Actions 的 `workflow_dispatch` 显式传入 `run_real_chrome=true`
 时执行，默认 `false`，不会在通用 CI 自动运行。**通用 CI 不等于真实触控板验证**：它只验证
 自动化测试、构建产物与干跑；真实手势→链接链路仍是人工验收关口。已知边界与缺口见
-[端到端验收清单](docs/operations/e2e-checklist.md) 与[排障说明](docs/operations/troubleshooting.md)。
+[端到端验收清单](docs/operations/端到端检查清单.md) 与[排障说明](docs/operations/排障手册.md)。
 
 ## 文档
 
-- [V1 产品契约](docs/product/gesturekit-v1-contract.md)
-- [V2 UI 信息架构](docs/architecture/gesturekit-v2-ui-information-architecture.md)
-- [可靠性、可观测性与可扩展动作平台架构](docs/architecture/gesturekit-reliability-observability-platform-architecture.md)
+- [V1 产品契约](docs/product/v1/v1-产品契约.md)
+- [V2 UI 信息架构](docs/architecture/v2-UI信息架构.md)
+- [可靠性、可观测性与可扩展动作平台架构](docs/architecture/可靠性可观测平台-架构.md)
 - [架构决策记录](docs/adr/)
-- [本地安装说明](docs/operations/local-install.md)
-- [端到端验收清单](docs/operations/e2e-checklist.md)
-- [排障说明](docs/operations/troubleshooting.md)
+- [本地安装说明](docs/operations/本地安装.md)
+- [端到端验收清单](docs/operations/端到端检查清单.md)
+- [排障说明](docs/operations/排障手册.md)
 
 ## 贡献
 
@@ -176,7 +176,7 @@ Tab switching applies only within the current Chrome window and wraps at the edg
 ./scripts/dev/install-local.sh
 ```
 
-Then enable Developer Mode at `chrome://extensions`, choose **Load unpacked**, and select `extensions/chrome`. See the [local install guide](docs/operations/local-install.md).
+Then enable Developer Mode at `chrome://extensions`, choose **Load unpacked**, and select `extensions/chrome`. See the [local install guide](docs/operations/本地安装.md).
 
 ### Run
 
@@ -208,8 +208,8 @@ printing one redacted `LinkReliabilitySummary` JSON line per scenario.
 
 The real-Chrome runner only runs via `workflow_dispatch` with `run_real_chrome=true`
 (default `false`); it never runs in general CI. General CI is not a substitute for real
-trackpad validation. See [e2e-checklist](docs/operations/e2e-checklist.md) and
-[troubleshooting](docs/operations/troubleshooting.md) for boundaries and known gaps.
+trackpad validation. See [端到端检查清单](docs/operations/端到端检查清单.md) and
+[排障手册](docs/operations/排障手册.md) for boundaries and known gaps.
 
 ### Contributing
 

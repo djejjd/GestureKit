@@ -2,7 +2,7 @@
 
 > 本文档是已执行的 spike 计划，用于验证触控板输入、Chrome Native Messaging 和 Chrome 链接命中三条高风险链路。它不是后续正式产品实现计划。
 >
-> 后续正式产品实现计划应单独创建，建议路径为 `docs/plans/gesturekit-v1-product-implementation-plan.md`。正式计划必须中文优先，并以 `docs/product/gesturekit-v1-contract.md` 和 `docs/product/gesturekit-v1-requirements.md` 为上游契约。
+> 后续正式产品实现计划应单独创建，建议路径为 `docs/plans/v1/v1-产品实现计划.md`。正式计划必须中文优先，并以 `docs/product/v1/v1-产品契约.md` 和 `docs/product/v1/v1-需求.md` 为上游契约。
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -18,13 +18,13 @@
 
 Implementation must comply with:
 
-- `docs/product/gesturekit-v1-contract.md`
-- `docs/product/gesturekit-v1-requirements.md`
-- `docs/architecture/gesturekit-v1-technical-design.md`
-- `docs/plans/gesturekit-v1-predevelopment-plan.md`
-- `docs/adr/0001-use-native-host-shim.md`
-- `docs/adr/0002-use-extension-last-pointer-position.md`
-- `docs/adr/0003-use-rules-engine-from-v1.md`
+- `docs/product/v1/v1-产品契约.md`
+- `docs/product/v1/v1-需求.md`
+- `docs/architecture/v1-技术设计.md`
+- `docs/plans/v1/v1-开发前路线图.md`
+- `docs/adr/0001-使用原生宿主中间层.md`
+- `docs/adr/0002-使用扩展记录末次指针位置.md`
+- `docs/adr/0003-沿用V1规则引擎.md`
 
 If a spike finds evidence that contradicts the contract, stop the affected task, write the evidence into `docs/research/`, and update the contract only after user approval.
 
@@ -127,10 +127,10 @@ Current status: V1 predevelopment spikes.
 
 Primary documents:
 
-- `docs/product/gesturekit-v1-contract.md`
-- `docs/architecture/gesturekit-v1-technical-design.md`
-- `docs/plans/gesturekit-v1-predevelopment-plan.md`
-- `docs/plans/gesturekit-v1-implementation-plan.md`
+- `docs/product/v1/v1-产品契约.md`
+- `docs/architecture/v1-技术设计.md`
+- `docs/plans/v1/v1-开发前路线图.md`
+- `docs/plans/v1/v1-Spike实施计划.md`
 ```
 
 - [ ] **Step 3: Create initial Swift package**
@@ -906,7 +906,7 @@ Expected: commit succeeds.
 - Modify: `Package.swift`
 - Modify: `spikes/trackpad-input/Sources/TrackpadInputProbe/main.swift`
 - Create: `spikes/trackpad-input/README.md`
-- Create: `docs/research/macos-trackpad-input-options.md`
+- Create: `docs/research/macOS触控板输入方案-调研.md`
 
 - [ ] **Step 1: Inspect OpenMultitouchSupport package API**
 
@@ -930,7 +930,7 @@ Then inspect the package API from the current upstream source and record:
 - finger data fields needed for tap and swipe
 - macOS version requirement
 
-Write the result into `docs/research/macos-trackpad-input-options.md`.
+Write the result into `docs/research/macOS触控板输入方案-调研.md`.
 
 If network access is blocked, request escalation and retry the same command.
 
@@ -972,7 +972,7 @@ Manual checks:
 2. Perform three-finger tap 10 times.
 3. Perform three-finger left swipe 10 times.
 4. Perform three-finger right swipe 10 times.
-5. Record recognition stability in `docs/research/macos-trackpad-input-options.md`.
+5. Record recognition stability in `docs/research/macOS触控板输入方案-调研.md`.
 6. Test with Chrome foreground and non-Chrome foreground.
 7. Test once with conflicting macOS three-finger system gestures enabled if available.
 
@@ -1003,7 +1003,7 @@ The probe starts and prints input events or a clear backend unavailable error.
 Run:
 
 ```bash
-git add Package.swift spikes/trackpad-input docs/research/macos-trackpad-input-options.md
+git add Package.swift spikes/trackpad-input docs/research/macOS触控板输入方案-调研.md
 git commit -m "feat: add trackpad input spike"
 ```
 
@@ -1015,9 +1015,9 @@ Expected: commit succeeds.
 
 - Modify: `docs/research/chrome-native-messaging-notes.md`
 - Modify: `docs/research/chrome-link-hit-test-notes.md`
-- Modify: `docs/research/macos-trackpad-input-options.md`
-- Modify if evidence requires: `docs/product/gesturekit-v1-contract.md`
-- Modify if evidence requires: `docs/architecture/gesturekit-v1-technical-design.md`
+- Modify: `docs/research/macOS触控板输入方案-调研.md`
+- Modify if evidence requires: `docs/product/v1/v1-产品契约.md`
+- Modify if evidence requires: `docs/architecture/v1-技术设计.md`
 
 - [ ] **Step 1: Write native messaging evidence note**
 
@@ -1074,7 +1074,7 @@ If the spike fails, set `Status: failed` and include the exact failing command a
 
 - [ ] **Step 3: Review trackpad evidence note**
 
-Ensure `docs/research/macos-trackpad-input-options.md` contains:
+Ensure `docs/research/macOS触控板输入方案-调研.md` contains:
 
 ```markdown
 # macOS Trackpad Input Options
@@ -1102,7 +1102,7 @@ If the spike fails, set `Status: failed` and document the fallback design recomm
 
 - [ ] **Step 4: Update design documents only if evidence requires it**
 
-If all spikes pass, do not expand V1 scope. Add a short "Spike Evidence" section to `docs/architecture/gesturekit-v1-technical-design.md` linking the three research notes.
+If all spikes pass, do not expand V1 scope. Add a short "Spike Evidence" section to `docs/architecture/v1-技术设计.md` linking the three research notes.
 
 If a spike fails, update the contract and technical design to reflect the revised architecture before any product implementation begins.
 
@@ -1142,5 +1142,5 @@ Unfinished-entry scan:
 
 Type consistency:
 
-- Protocol message fields match `docs/product/gesturekit-v1-contract.md`.
+- Protocol message fields match `docs/product/v1/v1-产品契约.md`.
 - Action and status names match the V1 contract and technical design.
