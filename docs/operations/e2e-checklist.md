@@ -130,7 +130,7 @@ zsh scripts/dev/test-link-reliability.sh             # 真实 Chrome 验收（�
 | 场景 | E2E 命令 | 终态 terminalStatus | 说明 |
 |---|---|---|---|
 | success | e2e success | `succeeded` | guard + action 打开相邻新 tab；断言 source tab URL 不变 + 恰好一个相邻 tab 激活且 URL 为固定目标 `https://example.test/e2e-target` |
-| leaseExpiry | e2e leaseExpiry | `lease_released` | lease 过期后普通点击不被 guard 拦截（不打开新 tab，source tab 原地导航离开 fixture） |
+| leaseExpiry | e2e leaseExpiry | `lease_released` | guard 曾被 arm（guard trace `forwarded:guard_armed`，2026-08-08 Task 4 补）且 release/lease 过期后普通点击不被拦截（无新 tab，source 原地导航到固定目标 `https://example.test/e2e-target`） |
 | providerUnavailable | e2e providerUnavailable | `provider_unavailable_guard_released` | 关闭 App 走终态路径；绕过真实手势链路（已知缺口，无真实断言） |
 | resultUnknown | e2e resultUnknown | `result_unknown` | 无回执走恢复路径；仅断言下一次 success 未被拒绝 |
 
@@ -156,28 +156,29 @@ runner 会在系统临时目录创建一次性目录：`gesturekit-e2e-chrome-*`
 
 - 缺口 I1：`providerUnavailable` 与 `resultUnknown` 两个场景走 dispatch 与终态路径，但绕过真实
   三指手势→链接链路（通过杀掉并重启 App 模拟 provider 不可用，而不是合成真实手势）。
-- 缺口 I2：runner **不**断言 guard trace（guard-armed-before-click 时序）。success 只断言
-  source tab URL 不变 + 恰好一个相邻 tab 打开、激活且 URL 等于固定目标
-  `https://example.test/e2e-target`；leaseExpiry 只断言 lease 过期后普通点击不被 guard 拦截
-  （不打开新 tab）；providerUnavailable/resultUnknown 无真实断言。这些都是完整断言列表的子集，
-  不是原计划的全部六条。
-- 缺口 I3（2026-08 真实 Chrome 首次试跑发现）：**扩展→Host→App 的 provider 连通性在
-  `--load-extension` 加载方式下无法建立**。Chrome 对未打包扩展分配路径推导的扩展 ID
-  （实测如 `fignfifoniblkonapihmkfakmlgkbkcf`），与 manifest `key` 推导的
-  `allowed_origins`（`pdegbjhgibenmgaaplhnpbnhaaipndoh`）不匹配，`connectNative` 被
-  Chrome 以 allowed_origins 校验拒绝，Host 进程不拉起，测试 App 收不到 provider 连接
-  （日志 `authenticated_provider_unavailable`）。因此依赖该链路的 `success`/`leaseExpiry`
-  两个场景**未能通过**；只有不依赖链路的 `providerUnavailable`/`resultUnknown` 通过。
-  修复方向：让 runner 使用与 Chrome 实际分配的扩展 ID 一致的 `allowed_origins`
-  （按加载路径计算，而非 manifest key），并把 native messaging manifest 写到 Chrome 实际
-  读取的位置。此项为后续修复任务，本分支不阻塞合并。
+- 缺口 I2（2026-08-08 Task 4 部分关闭）：leaseExpiry 已补 guard trace 断言——时间窗口内 guard
+  trace 含 `forwarding` + `forwarded:guard_armed`（guard 链路存活、guard 确实被 arm），且不含
+  `click_blocked`/`lease_expired`（点击未被拦截），详见 `docs/operations/troubleshooting.md`
+  "leaseExpiry 语义"。success 只断言 source tab URL 不变 + 恰好一个相邻 tab 打开、激活且 URL
+  等于固定目标 `https://example.test/e2e-target`；providerUnavailable/resultUnknown 无真实断言。
+  这些是完整断言列表的子集，不是原计划的全部六条。
+- 缺口 I3（2026-08-08 v2.4.1 已关闭）：**原诊断为"扩展→Host→App provider 连通性在
+  `--load-extension` 加载方式下无法建立（allowed_origins 不匹配）"是误读**。Task 1 探针
+  （`scripts/dev/probe-link-reliability.mjs`）实测确认：真因是品牌 Chrome 142+ 完全移除
+  `--load-extension`（`fignfifoniblkonapihmkfakmlgkbkcf` 实为内置组件 Google Network Speech
+  的 ID，并非扩展 ID）。v2.4.1 修复为：CDP `Extensions.loadUnpacked` 加载完整扩展副本
+  （ID 即 manifest key 推导 `pdegbjhgibenmgaaplhnpbnhaaipndoh`，`allowed_origins` 本就正确）、
+  独立 host 名 `com.gesturekit.host.e2e` 写入 `<profile>/NativeMessagingHosts/`。2026-08-08
+  Task 6 本机 headless 实测四场景全过（见下），缺口关闭。详见
+  `docs/plans/gesturekit-v2.4.1-link-reliability-connectivity-plan.md` 探针结论。
 
-**尚未验证 / 已知失败**：真实 Chrome runner（`zsh scripts/dev/test-link-reliability.sh`）在
-2026-08-01 首次本机试跑时，环境预检（Chrome/App/扩展构建、控制端口、CDP、fixture 页面）
-已通过，四个场景均执行并输出摘要；其中 `providerUnavailable`/`resultUnknown` 通过，
-`success`/`leaseExpiry` 因缺口 I3 失败。真实硬件、权限与系统手势冲突仍须手动触控板验收。
-通用 CI 的 `swift`/`extension`/`scripts` job 只跑自动化测试与 `--dry-run`，不运行真实 Chrome，
-不能作为验证证据。
+**2026-08-08（Task 6）验证状态**：真实 Chrome runner（headless，本机 Chrome 151.0.7922.76 /
+node v23.11.0）单次运行四场景全过，`terminalStatus` 全部符合契约、`failureStage:null`：
+`success`→`succeeded`、`leaseExpiry`→`lease_released`、`providerUnavailable`→
+`provider_unavailable_guard_released`、`resultUnknown`→`result_unknown`。通用 CI 的
+`swift`/`extension`/`scripts` job 仍只跑自动化测试与 `--dry-run`，不运行真实 Chrome。
+**尚未验证**：CI（GitHub hosted runner）上的行为未在本机验证；真实硬件、权限与系统手势
+冲突仍须手动触控板验收（本自动化门不替代）。
 
 这些缺口意味着真实 Chrome runner 是**部分回归门**，不是完整替代手动触控板验收。通用 CI
 （quality-gate）甚至不运行真实 Chrome；两个自动化层的边界和复用手动清单，见
