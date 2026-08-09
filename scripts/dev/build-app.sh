@@ -15,6 +15,11 @@ dist_dir="$repo_root/dist"
 build_config="${BUILD_CONFIG:-release}"
 install_dir="$HOME/Applications"
 
+# 版本号以 git tag 为唯一来源：v2.5.1 → 市场版本 2.5.1；构建版本含提交数（如 2.5.1-3-gxxxx）。无 tag 时回退 0.0.0。
+short_version=$(git -C "$repo_root" describe --tags --abbrev=0 2>/dev/null | sed 's/^v//')
+short_version="${short_version:-0.0.0}"
+build_version=$(git -C "$repo_root" describe --tags 2>/dev/null || echo "$short_version")
+
 default_developer_dir=/Applications/Xcode.app/Contents/Developer
 developer_dir="${DEVELOPER_DIR:-}"
 if [[ -z "$developer_dir" && -d "$default_developer_dir" ]]; then
@@ -50,7 +55,7 @@ else
   echo "警告：未在 $bin_dir 找到 $framework_name，跳过框架打包" >&2
 fi
 
-cat > "$dist_dir/$app_name/Contents/Info.plist" <<'PLIST'
+cat > "$dist_dir/$app_name/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -68,9 +73,9 @@ cat > "$dist_dir/$app_name/Contents/Info.plist" <<'PLIST'
     <key>CFBundleDisplayName</key>
     <string>GestureKit</string>
     <key>CFBundleShortVersionString</key>
-    <string>2.5.0</string>
+    <string>${short_version}</string>
     <key>CFBundleVersion</key>
-    <string>2.5.0</string>
+    <string>${build_version}</string>
     <key>CFBundleDevelopmentRegion</key>
     <string>zh_CN</string>
     <key>LSMinimumSystemVersion</key>
