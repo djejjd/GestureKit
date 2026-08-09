@@ -35,8 +35,7 @@ let package = Package(
                 "GestureKitCore",
                 .product(name: "OpenMultitouchSupport", package: "OpenMultiTouchSupport")
             ],
-            path: "apps/macos/GestureKitApp/Sources/GestureKitApp",
-            resources: [.process("menu_icon.svg")]
+            path: "apps/macos/GestureKitApp/Sources/GestureKitApp"
         ),
         .executableTarget(
             name: "GestureKitHost",

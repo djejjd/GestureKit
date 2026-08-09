@@ -17,9 +17,8 @@ final class MenuBarController {
         self.openControlCenter = openControlCenter
 
         item = NSStatusBar.system.statusItem(withLength: NSStatusItem.squareLength)
-        if let icon = NSImage(contentsOf: Bundle.module.url(forResource: "menu_icon", withExtension: "svg")!) {
+        if let icon = MenuBarIcon.image() {
             icon.isTemplate = true
-            icon.size = NSSize(width: 18, height: 18)
             baseIcon = icon
             item.button?.image = icon
         }
@@ -193,6 +192,12 @@ final class MenuBarController {
     @objc private func quit() {
         cancelPauseTimer()
         control.quitApplication()
+    }
+
+    /// 激活策略(.regular↔.accessory)切换后重设图标与菜单，避免 status item 冻结或菜单不弹。
+    func refreshForPolicySwitch() {
+        item.button?.image = baseIcon
+        item.menu = menu
     }
 
     func isPauseTimerActiveForTesting() -> Bool { pauseTimer != nil }

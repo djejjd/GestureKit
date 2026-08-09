@@ -171,8 +171,11 @@ func evidenceExportStatusMessage(for error: Error) -> String {
 
 /// 承载 SwiftUI 控制中心的 AppKit 窗口控制器。
 @MainActor
-final class ControlCenterWindowController: NSWindowController {
-    init(control: any RuntimeControlling, dataSource: any ControlCenterDataSource) {
+final class ControlCenterWindowController: NSWindowController, NSWindowDelegate {
+    private let onWindowClose: (() -> Void)?
+
+    init(control: any RuntimeControlling, dataSource: any ControlCenterDataSource, onWindowClose: (() -> Void)? = nil) {
+        self.onWindowClose = onWindowClose
         let view = ControlCenterView(control: control, dataSource: dataSource)
         let window = NSWindow(contentViewController: NSHostingController(rootView: view))
         window.title = "GestureKit 控制中心"
@@ -180,6 +183,12 @@ final class ControlCenterWindowController: NSWindowController {
         window.center()
         window.setFrameAutosaveName("GestureKit.ControlCenter")
         super.init(window: window)
+        window.delegate = self
+    }
+
+    func windowWillClose(_ notification: Notification) {
+        // 窗口关闭后由 AppDelegate 切回菜单栏 accessory 形态。
+        onWindowClose?()
     }
 
     @available(*, unavailable) required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
