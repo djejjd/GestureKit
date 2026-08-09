@@ -39,7 +39,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.showControlCenter()
         }
         self.menuBar = menuBar
-        controlCenter = ControlCenterWindowController(control: control, dataSource: makeControlCenterDataSource(journal: journal))
+        controlCenter = ControlCenterWindowController(
+            control: control,
+            dataSource: makeControlCenterDataSource(journal: journal),
+            onWindowClose: { [weak self] in self?.controlCenterWindowDidClose() }
+        )
+
+        installMainMenu()
 
         runtime?.start()
 
@@ -50,8 +56,48 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func showControlCenter() {
+        // 打开窗口时切到 .regular，让控制中心成为行为正常的应用窗口：可被切走、能退到其它窗口后面。
+        NSApp.setActivationPolicy(.regular)
         controlCenter?.showWindow(nil)
+        controlCenter?.window?.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
+    }
+
+    /// 窗口处于 .regular 期间点击 Dock 图标时重新打开控制中心。
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        showControlCenter()
+        return true
+    }
+
+    private func controlCenterWindowDidClose() {
+        // 控制中心是唯一窗口，关闭后回到菜单栏 accessory 形态并归还焦点。
+        DispatchQueue.main.async { [weak self] in
+            guard let self else { return }
+            NSApp.setActivationPolicy(.accessory)
+            NSApp.deactivate()
+            self.menuBar?.refreshForPolicySwitch()
+        }
+    }
+
+    /// 提供最小 App 菜单：切到 .regular 后 App 会成为活跃应用，避免空菜单占顶栏。
+    private func installMainMenu() {
+        let mainMenu = NSMenu()
+        let appMenuItem = NSMenuItem()
+        mainMenu.addItem(appMenuItem)
+        let appMenu = NSMenu()
+        appMenu.addItem(
+            withTitle: "关于 GestureKit",
+            action: #selector(NSApplication.orderFrontStandardAboutPanel(_:)),
+            keyEquivalent: ""
+        )
+        appMenu.addItem(.separator())
+        appMenu.addItem(withTitle: "退出 GestureKit", action: #selector(quitFromMenu), keyEquivalent: "q")
+        appMenuItem.submenu = appMenu
+        NSApp.mainMenu = mainMenu
+    }
+
+    @objc private func quitFromMenu() {
+        control?.quitApplication()
     }
 
     private func makeControlCenterDataSource(journal: (any OperationJournaling)?) -> any ControlCenterDataSource {
