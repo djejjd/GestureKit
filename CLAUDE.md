@@ -97,6 +97,8 @@ Architecture decisions: `docs/adr/0001-使用原生宿主中间层.md` through `
 
 ## Workflow Rules
 
+**Step 0: Branch & PR.** All feature, fix, and doc changes must be done on a dedicated branch and merged to `main` via Pull Request (see AGENTS.md). Never commit or push directly to `main`. Create the branch before starting implementation: `git checkout -b <type>/<short-topic>` (e.g. `fix/`, `feat/`, `docs/`).
+
 **Step 1: Problem Analysis.** When asked about a bug, feature, or architectural question — always first trace the relevant code paths and present the root cause. No implementation, no fix proposals, no code changes at this stage.
 
 **Step 2: Solution Plan.** After confirming the root cause with the user, propose a concrete plan: which files to change, what to change in each, and why. For complex changes (spanning 3+ files, or touching a protocol boundary), spawn an agent to review the plan's feasibility and edge cases before presenting it.
@@ -110,6 +112,7 @@ Architecture decisions: `docs/adr/0001-使用原生宿主中间层.md` through `
 | Date | Pattern | Fix |
 |---|---|---|
 | 2026-07-14 | Skipped root-cause presentation and plan confirmation, jumped directly into editing code. | Added Workflow Rules section above (Step 1-4). Code reverted. |
+| 2026-08-10 | Pushed a fix directly to `main` without a branch/PR — the rule existed in AGENTS.md but CLAUDE.md Workflow Rules did not surface it. | Added Step 0 (Branch & PR) above, referencing AGENTS.md; branch/PR required for all future changes. |
 
 ## Logging Conventions
 
