@@ -21,6 +21,8 @@ public struct GestureRecognizer: Sendable {
     /// A higher touch count belongs to another gesture. After a terminal count
     /// drop, do not reenter until the remaining touches lift.
     private var requiresAllTouchesLift = false
+    /// 与 classify 的点按判定一致：位移未超过该阈值视为仍处于「落地窗口」。
+    private static let landingMaxDistance: Float = 0.06
 
     public init(
         settings: GestureRecognitionSettings = .standard,
@@ -57,6 +59,18 @@ public struct GestureRecognizer: Sendable {
             return []
         }
         if let activeSession = session, fingerCount > activeSession.fingerCount {
+            // 手指数升高：若新计数是活跃手势且当前会话仍在落地窗口（未越过点按位移阈值），
+            // 视为分帧落地——拒绝旧候选并立即以新手指数重建候选，让 guard 按新手指数重新 armed；
+            // 否则视为「更高手指数=另一手势」，拒绝并禁止重新入场，直到全部抬起。
+            if activeFingerCounts.contains(fingerCount),
+               let centroid = Self.centroid(of: frame.activeTouches),
+               isInLandingWindow(activeSession) {
+                session = Session(startedAt: frame.time, startCentroid: centroid, fingerCount: fingerCount, latestCentroid: centroid)
+                return [
+                    .primitiveRejected(rejected(activeSession, endedAt: frame.time)),
+                    .candidateStarted(GestureCandidate(startedAt: frame.time, centroidX: centroid.x, centroidY: centroid.y, fingerCount: fingerCount))
+                ]
+            }
             session = nil
             requiresAllTouchesLift = true
             // 通知协调器结束已启动的候选，避免后续手势复用陈旧 session。
@@ -100,7 +114,7 @@ public struct GestureRecognizer: Sendable {
             && abs(dx) >= abs(dy) * settings.swipeHorizontalRatio
 
         let gesture: GestureType?
-        if duration <= 0.45 && distance <= 0.06 {
+        if duration <= 0.45 && distance <= Self.landingMaxDistance {
             gesture = outputGesture(fingerCount: session.fingerCount, primitive: .tap, direction: nil)
         } else if isQuickFlick && horizontalEnough {
             gesture = outputGesture(fingerCount: session.fingerCount, primitive: .swipe, direction: dx < 0 ? .left : .right)
@@ -174,6 +188,14 @@ public struct GestureRecognizer: Sendable {
             centroidX: session.startCentroid.x,
             centroidY: session.startCentroid.y
         )
+    }
+
+    /// 会话是否仍处于「落地窗口」：手指分帧落下时尚未开始移动（未越过点按位移阈值）。
+    /// 用于区分「分帧落地」（可升级手指数）与「手势中途加指」（应拒绝）。
+    private func isInLandingWindow(_ session: Session) -> Bool {
+        let dx = session.latestCentroid.x - session.startCentroid.x
+        let dy = session.latestCentroid.y - session.startCentroid.y
+        return hypotf(dx, dy) <= Self.landingMaxDistance
     }
 
     private func failureReason(duration: TimeInterval, dx: Float, dy: Float) -> GestureFailureReason {

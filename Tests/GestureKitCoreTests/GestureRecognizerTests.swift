@@ -120,21 +120,41 @@ final class GestureRecognizerTests: XCTestCase {
         XCTAssertEqual(event?.status, .gestureUnstable)
     }
 
-    func testFourFingerInterruptionInvalidatesThreeFingerSessionUntilAllTouchesLift() {
+    func testStaggeredThreeToFourLandingRecognizesFourFingerTap() {
         var recognizer = GestureRecognizer()
 
+        // 四指分帧落地：先 3 指启动候选，随后第 4 指落地（仍在落地窗口、未移动）。
         XCTAssertEqual(recognizer.observe(threeTouches(time: 0.00)).count, 1)
-        let interruption = recognizer.observe(fourTouches(time: 0.05))
+        let upgrade = recognizer.observe(fourTouches(time: 0.05))
+        guard case .primitiveRejected? = upgrade.first else {
+            return XCTFail("升级时必须先拒绝旧候选")
+        }
+        guard case .candidateStarted(let upgraded)? = upgrade.dropFirst().first else {
+            return XCTFail("落地窗口内手指数升高应以新手指数重建候选")
+        }
+        XCTAssertEqual(upgraded.fingerCount, 4)
+
+        XCTAssertEqual(completed(&recognizer, .frame(time: 0.18, activeTouches: []))?.gesture, .fourFingerTap)
+    }
+
+    func testMidGestureThreeFingerSwipeFourthFingerStillRejectsUntilAllLift() {
+        var recognizer = GestureRecognizer()
+
+        // 三指滑动已移动（越过落地窗口），第 4 指加入视为另一手势 → 拒绝 + 禁止重新入场。
+        XCTAssertEqual(recognizer.observe(threeTouches(time: 0.00)).count, 1)
+        _ = recognizer.observe(.frame(time: 0.20, activeTouches: [.touch(1, 0.38, 0.40), .touch(2, 0.40, 0.40), .touch(3, 0.42, 0.40)]))
+        let interruption = recognizer.observe(fourTouches(time: 0.34))
         guard case .primitiveRejected(let rejected)? = interruption.first else {
-            return XCTFail("四指接管时必须终止三指候选，避免协调器保留陈旧 session")
+            return XCTFail("已移动的三指会话在第 4 指加入时应保持拒绝，避免意外加指触发四指动作")
         }
         XCTAssertEqual(rejected.status, .gestureUnstable)
-        XCTAssertEqual(rejected.reason, .unknown)
-        XCTAssertTrue(recognizer.observe(threeTouches(time: 0.10)).isEmpty)
-        XCTAssertTrue(recognizer.observe(.frame(time: 0.15, activeTouches: [])).isEmpty)
+        XCTAssertEqual(interruption.count, 1, "已移动会话不应重建候选")
+        XCTAssertTrue(recognizer.observe(threeTouches(time: 0.40)).isEmpty)
+        XCTAssertTrue(recognizer.observe(.frame(time: 0.45, activeTouches: [])).isEmpty)
 
-        XCTAssertEqual(recognizer.observe(threeTouches(time: 0.20)).count, 1)
-        XCTAssertEqual(completed(&recognizer, .frame(time: 0.30, activeTouches: []))?.gesture, .threeFingerTap)
+        // 全部抬起后可正常重新入场。
+        XCTAssertEqual(recognizer.observe(threeTouches(time: 0.50)).count, 1)
+        XCTAssertEqual(completed(&recognizer, .frame(time: 0.60, activeTouches: []))?.gesture, .threeFingerTap)
     }
 
     func testFewerTouchesCompleteSessionButDoNotReenterUntilAllTouchesLift() {
@@ -230,21 +250,44 @@ final class GestureRecognizerTests: XCTestCase {
         XCTAssertEqual(event?.gesture, .fourFingerSwipeRight)
     }
 
-    func testFingerCountIncreaseInterruptsTwoFingerSessionUntilAllTouchesLift() {
+    func testStaggeredTwoToThreeLandingRecognizesThreeFingerTap() {
         var recognizer = GestureRecognizer()
 
+        // 三指分帧落地：先 2 指启动候选，随后第 3 指落地（仍在落地窗口、未移动）。
         XCTAssertEqual(recognizer.observe(twoTouches(time: 0.00)).count, 1)
-        let interruption = recognizer.observe(threeTouches(time: 0.05))
-        guard case .primitiveRejected(let rejected)? = interruption.first else {
-            return XCTFail("三指接管时必须终止二指候选，避免协调器保留陈旧 session")
+        let upgrade = recognizer.observe(threeTouches(time: 0.05))
+        guard case .primitiveRejected(let rejected)? = upgrade.first else {
+            return XCTFail("升级时必须先拒绝旧候选，避免协调器保留陈旧 session")
         }
         XCTAssertEqual(rejected.status, .gestureUnstable)
-        XCTAssertTrue(recognizer.observe(twoTouches(time: 0.10)).isEmpty)
-        XCTAssertTrue(recognizer.observe(.frame(time: 0.15, activeTouches: [])).isEmpty)
+        guard case .candidateStarted(let upgraded)? = upgrade.dropFirst().first else {
+            return XCTFail("落地窗口内手指数升高应以新手指数重建候选")
+        }
+        XCTAssertEqual(upgraded.fingerCount, 3)
 
-        XCTAssertEqual(recognizer.observe(twoTouches(time: 0.20)).count, 1)
-        _ = recognizer.observe(.frame(time: 0.24, activeTouches: [.touch(1, 0.50, 0.40), .touch(2, 0.52, 0.40)]))
-        XCTAssertEqual(completed(&recognizer, .frame(time: 0.30, activeTouches: []))?.gesture, .twoFingerSwipeRight)
+        // 轻点完成 → 三指轻点识别成功（guard 在候选阶段按 3 指重新 armed）。
+        XCTAssertEqual(completed(&recognizer, .frame(time: 0.18, activeTouches: []))?.gesture, .threeFingerTap)
+    }
+
+    func testMidGestureFingerIncreaseStillRejectsUntilAllLift() {
+        var recognizer = GestureRecognizer()
+
+        // 二指滑动已越过落地窗口（产生位移），此时第 3 指加入视为另一手势 → 拒绝 + 禁止重新入场。
+        XCTAssertEqual(recognizer.observe(.frame(time: 0.00, activeTouches: [.touch(1, 0.60, 0.40), .touch(2, 0.62, 0.40)])).count, 1)
+        _ = recognizer.observe(.frame(time: 0.20, activeTouches: [.touch(1, 0.38, 0.40), .touch(2, 0.40, 0.40)]))
+        let interruption = recognizer.observe(threeTouches(time: 0.34))
+        guard case .primitiveRejected(let rejected)? = interruption.first else {
+            return XCTFail("已移动的会话在手指数升高时应保持拒绝，避免意外加指被当作另一手势执行")
+        }
+        XCTAssertEqual(rejected.status, .gestureUnstable)
+        XCTAssertEqual(interruption.count, 1, "已移动会话不应重建候选")
+        XCTAssertTrue(recognizer.observe(twoTouches(time: 0.40)).isEmpty)
+        XCTAssertTrue(recognizer.observe(.frame(time: 0.45, activeTouches: [])).isEmpty)
+
+        // 全部抬起后可正常重新入场。
+        XCTAssertEqual(recognizer.observe(twoTouches(time: 0.50)).count, 1)
+        _ = recognizer.observe(.frame(time: 0.54, activeTouches: [.touch(1, 0.50, 0.40), .touch(2, 0.52, 0.40)]))
+        XCTAssertEqual(completed(&recognizer, .frame(time: 0.60, activeTouches: []))?.gesture, .twoFingerSwipeRight)
     }
 
     func testRecognizerUsesActiveDefinitionSetForFingerCountMatching() {
