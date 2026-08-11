@@ -72,7 +72,7 @@ func runStdioBridge() {
         }
         return 17653
     }()
-    let bridge = ProviderBridge(connection: AppIPCClient(port: ipcPort).connect())
+    let bridge = ProviderBridge(port: ipcPort)
     bridge.start()
     bridge.wait()
 }
@@ -93,58 +93,108 @@ func makeHostUnavailableResponse() throws -> Data {
 }
 
 /// 透明桥接层：只处理 Native Messaging 帧与 App 字节流，不解释动作或 telemetry。
+/// 自愈：App 掉线时不退出进程，自己重建 TCP 连接；仅当 stdin 关闭（Chrome 关端口/SW 死）才退出。
 private final class ProviderBridge: @unchecked Sendable {
-    private let connection: NWConnection
+    private let ipcPort: NWEndpoint.Port
+    private var connection: NWConnection
+    /// 连接代际：每次重建连接递增；旧连接的迟到回调据此识别并丢弃。
+    private var connectionGeneration = 0
+    /// 是否已调度一次重连（防 .failed 与 receive error 对同一事件双重调度）。
+    private var reconnectScheduled = false
+    /// App 是否已连通：断连期间 stdin 消息回 app_unavailable，不转发。
+    private var connectedToApp = false
+    /// 重连间隔（秒）：掉线后快速重试接住 App 重启，之后保持低频。
+    private let reconnectIntervalSeconds: Double = 2
     private let done = DispatchSemaphore(value: 0)
     private let lock = NSLock()
     private var buffer = Data()
-    private var hasWrittenFrame = false
     private let installID = "chrome-native-host"
 
-    init(connection: NWConnection) {
-        self.connection = connection
+    init(port: NWEndpoint.Port) {
+        self.ipcPort = port
+        self.connection = AppIPCClient(port: port).connect()
     }
 
     func start() {
-        connection.stateUpdateHandler = { state in
-            if case .ready = state {
-                self.sendHello()
-            } else if case .failed = state {
-                self.writeUnavailableFrame()
-                self.done.signal()
-            } else if case .cancelled = state {
-                self.done.signal()
-            }
-        }
-
-        receiveNext()
+        startConnection(connection, generation: connectionGeneration)
         startStdinReader()
-        connection.start(queue: .global(qos: .userInitiated))
     }
 
     func wait() {
         _ = done.wait(timeout: .distantFuture)
     }
 
-    private func receiveNext() {
-        connection.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { data, _, isComplete, error in
+    // MARK: - App 连接管理（自愈）
+
+    private func startConnection(_ conn: NWConnection, generation: Int) {
+        conn.stateUpdateHandler = { [weak self] state in
+            guard let self else { return }
+            switch state {
+            case .ready:
+                self.lock.lock()
+                guard generation == self.connectionGeneration else { self.lock.unlock(); return }
+                self.connectedToApp = true
+                self.reconnectScheduled = false
+                self.lock.unlock()
+                self.sendHello(generation: generation)
+            case .failed, .cancelled:
+                self.handleAppDisconnected(generation: generation)
+            case .waiting:
+                break // 未就绪（如无路由），等待系统重试
+            default:
+                break
+            }
+        }
+        receiveNext(on: conn, generation: generation)
+        conn.start(queue: .global(qos: .userInitiated))
+    }
+
+    /// App 掉线：不退出，调度一次重连（代际与调度双 guard）。
+    private func handleAppDisconnected(generation: Int) {
+        lock.lock()
+        guard generation == connectionGeneration else { lock.unlock(); return }
+        connectedToApp = false
+        if reconnectScheduled { lock.unlock(); return }
+        reconnectScheduled = true
+        lock.unlock()
+
+        DispatchQueue.global().asyncAfter(deadline: .now() + reconnectIntervalSeconds) { [weak self] in
+            self?.reconnectToApp()
+        }
+    }
+
+    private func reconnectToApp() {
+        lock.lock()
+        connectionGeneration += 1
+        reconnectScheduled = false
+        let generation = connectionGeneration
+        let newConnection = AppIPCClient(port: ipcPort).connect()
+        connection = newConnection
+        lock.unlock()
+        startConnection(newConnection, generation: generation)
+    }
+
+    private func receiveNext(on conn: NWConnection, generation: Int) {
+        conn.receive(minimumIncompleteLength: 1, maximumLength: 64 * 1024) { [weak self] data, _, isComplete, error in
+            guard let self else { return }
+            // 连接已被重建：丢弃旧连接的迟到回调，避免递归到新连接。
+            self.lock.lock()
+            let stale = generation != self.connectionGeneration
+            self.lock.unlock()
+            if stale { return }
+
             if let data, !data.isEmpty {
                 self.consume(data)
             }
-            if error != nil {
-                if !self.hasWrittenFrame {
-                    self.writeUnavailableFrame()
-                }
-                self.done.signal()
+            if error != nil || isComplete {
+                self.handleAppDisconnected(generation: generation)
                 return
             }
-            if isComplete {
-                self.done.signal()
-                return
-            }
-            self.receiveNext()
+            self.receiveNext(on: conn, generation: generation)
         }
     }
+
+    // MARK: - 数据转发
 
     private func consume(_ data: Data) {
         lock.lock()
@@ -172,10 +222,6 @@ private final class ProviderBridge: @unchecked Sendable {
     }
 
     private func writeFrame(_ payload: Data) {
-        lock.lock()
-        hasWrittenFrame = true
-        lock.unlock()
-
         FileHandle.standardOutput.write(NativeMessageCodec.encode(payload))
     }
 
@@ -184,7 +230,11 @@ private final class ProviderBridge: @unchecked Sendable {
     }
 
     /// host 是 App 认证的 Provider 身份；只截获 challenge，业务 envelope 保持透明转发。
-    private func sendHello() {
+    private func sendHello(generation: Int) {
+        lock.lock()
+        let current = generation == connectionGeneration && connectedToApp
+        lock.unlock()
+        guard current else { return }
         let envelope = ProviderEnvelope(protocolVersion: 2, messageId: UUID().uuidString, providerSessionId: "host-bridge", gestureSessionId: nil, operationId: nil, type: .providerHello, timestamp: currentTimestamp(), payload: .providerHello(ProviderHelloPayload(installId: installID, protocolVersions: [2], environment: "chrome-native-host")), error: nil)
         sendEnvelope(envelope)
     }
@@ -209,11 +259,24 @@ private final class ProviderBridge: @unchecked Sendable {
         DispatchQueue.global(qos: .userInitiated).async {
             while true {
                 guard let payload = self.readNativeMessagePayload() else {
+                    // stdin 关闭 = Chrome 关端口 / SW 死，唯一合法退出点。
                     self.done.signal()
                     return
                 }
-                self.sendToApp(payload)
+                self.forwardStdinMessage(payload)
             }
+        }
+    }
+
+    /// stdin（扩展）消息：App 已连通 → 转发；未连通 → 回 app_unavailable（失败即关闭，不缓冲）。
+    private func forwardStdinMessage(_ payload: Data) {
+        lock.lock()
+        let connected = connectedToApp
+        lock.unlock()
+        if connected {
+            sendToApp(payload)
+        } else {
+            writeUnavailableFrame()
         }
     }
 
@@ -239,9 +302,12 @@ private final class ProviderBridge: @unchecked Sendable {
     }
 
     private func sendToApp(_ payload: Data) {
+        lock.lock()
+        let conn = connection
+        lock.unlock()
         var line = payload
         line.append(10)
-        connection.send(content: line, completion: .contentProcessed { error in
+        conn.send(content: line, completion: .contentProcessed { error in
             if let error {
                 fputs("GestureKitHost app send failed: \(error)\n", stderr)
             }

@@ -3,6 +3,7 @@ import type {
   ProbeRequestMessage,
   ProbeResponseMessage
 } from "../protocol/messages";
+import type { ProviderEnvelope } from "../provider/protocol";
 
 export type ConnectionProbeResult = {
   hostConnected: boolean;
@@ -42,6 +43,22 @@ export async function runConnectionProbe(port: chrome.runtime.Port): Promise<Con
     };
 
     const onMessage = (message: ProbeResponseMessage | ActionResultMessage) => {
+      // Host 自愈后断连期回包：v2 health_response + error.code == "app_unavailable"。
+      // 需显式识别，否则 probe 会等满超时误报 timeout。用 cast 保持 v1 分支的窄类型。
+      const v2Envelope = message as unknown as ProviderEnvelope;
+      if (
+        v2Envelope.protocolVersion === 2 &&
+        v2Envelope.type === "health_response" &&
+        v2Envelope.error?.code === "app_unavailable"
+      ) {
+        finish({
+          hostConnected: true,
+          appConnected: false,
+          status: "app_unavailable",
+          message: "app_unavailable"
+        });
+        return;
+      }
       if (message.type === "probe_response") {
         finish({
           hostConnected: true,
