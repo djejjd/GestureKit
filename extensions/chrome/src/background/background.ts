@@ -2,7 +2,6 @@ import { executeGestureAction, executeStandardAction } from "./actionExecutor";
 import { chromeApi } from "./chromeApi";
 import { createNativePortManager } from "./nativePortManager";
 import { runConnectionProbe } from "./connectionProbe";
-import { createReconnectableNativePort, type PortLike } from "./reconnectableNativePort";
 import {
   decodeProviderEnvelope,
   type ConfigurationSnapshotPayload,
@@ -37,6 +36,10 @@ import { diagnosticLoggingEnabledFromSnapshot } from "../settings/appConfigurati
 // 生产构建不注入 define；typeof 守卫对未声明全局安全，回退到默认名。
 declare const __GESTUREKIT_HOST_NAME__: string | undefined;
 const HOST_NAME = typeof __GESTUREKIT_HOST_NAME__ !== "undefined" ? __GESTUREKIT_HOST_NAME__ : "com.gesturekit.host";
+
+// Native messaging 端口的最小接口。Host 自愈后端口在 SW 存活期间稳定，
+// 扩展只需在 SW 启动时连接一次，不再需要重连调度。
+type PortLike = chrome.runtime.Port;
 const STATUS_STORAGE_KEY = "gesturekitStatus";
 
 let manager: ReturnType<typeof createNativePortManager>;
@@ -176,64 +179,62 @@ function handlePortDisconnect() {
   });
 }
 
-const reconnectablePort = createReconnectableNativePort({
-  connect: () => chrome.runtime.connectNative(HOST_NAME),
-  attach: (port) => {
-    manager = createManager(port);
-    authenticatedProviderSessionId = null;
-    controlCenterRequestForwarder = createControlCenterRequestForwarder(
-      () => port,
-      () => authenticatedProviderSessionId
-    );
-    const v2Dispatcher = providerLedger.then((ledger) => createV2Dispatcher(port, ledger));
-    const telemetryConnection = providerLedger.then((store) => new TelemetryConnection(store, producerSessionId, (message) => port.postMessage(message)));
-    port.onMessage.addListener((message) => {
-      try {
-        const envelope = decodeProviderEnvelope(message) as ProviderEnvelope;
-        if (controlCenterRequestForwarder.handle(envelope)) return;
-        if (envelope.type === "health_probe") {
-          // App 保活心跳：回声响应确认链路；消息本身已唤醒 SW。
-          port.postMessage({
-            protocolVersion: 2,
-            messageId: crypto.randomUUID(),
-            providerSessionId: envelope.providerSessionId,
-            type: "health_probe",
-            timestamp: Date.now(),
-            payload: {
-              probeSequence: (envelope.payload as { probeSequence: number }).probeSequence,
-              sentAt: Date.now()
-            }
-          });
-          return;
+// Host 自愈后端口在 SW 存活期间稳定：SW 启动时连接一次，断链由 Host 内部重建，
+// 扩展无需重连调度（仅当 Host 真退出/Chrome 关端口时 onDisconnect 记录，SW 重启再连）。
+const port = chrome.runtime.connectNative(HOST_NAME);
+manager = createManager(port);
+authenticatedProviderSessionId = null;
+controlCenterRequestForwarder = createControlCenterRequestForwarder(
+  () => port,
+  () => authenticatedProviderSessionId
+);
+const v2Dispatcher = providerLedger.then((ledger) => createV2Dispatcher(port, ledger));
+const telemetryConnection = providerLedger.then((store) => new TelemetryConnection(store, producerSessionId, (message) => port.postMessage(message)));
+port.onMessage.addListener((message) => {
+  try {
+    const envelope = decodeProviderEnvelope(message) as ProviderEnvelope;
+    if (controlCenterRequestForwarder.handle(envelope)) return;
+    if (envelope.type === "health_probe") {
+      // App 保活心跳：回声响应确认链路；消息本身已唤醒 SW。
+      port.postMessage({
+        protocolVersion: 2,
+        messageId: crypto.randomUUID(),
+        providerSessionId: envelope.providerSessionId,
+        type: "health_probe",
+        timestamp: Date.now(),
+        payload: {
+          probeSequence: (envelope.payload as { probeSequence: number }).probeSequence,
+          sentAt: Date.now()
         }
-        if (envelope.type === "configuration_snapshot") {
-          authenticatedProviderSessionId = envelope.providerSessionId;
-          void handleConfigurationSnapshot(
-            port,
-            envelope,
-            envelope.payload as ConfigurationSnapshotPayload
-          );
-          return;
-        }
-        if (envelope.type === "interaction_guard_arm" || envelope.type === "interaction_guard_release") {
-          void routeInteractionGuard(envelope);
-          return;
-        }
-        void telemetryConnection.then((connection) => connection.handle(envelope));
-        void v2Dispatcher.then((dispatcher) => dispatcher.handle(envelope));
-        return;
-      } catch {
-        // 旧消息仅在迁移窗口进入 V1 manager；v2 边界不会宽松降级。
-      }
-      if (isDiagnosticEventMessage(message)) {
-        void appendDiagnostic(chrome.storage.local, diagnosticEntryFromMessage(message));
-        return;
-      }
-      void manager.handleNativeMessage(message);
-    });
-  },
-  onDisconnect: handlePortDisconnect
+      });
+      return;
+    }
+    if (envelope.type === "configuration_snapshot") {
+      authenticatedProviderSessionId = envelope.providerSessionId;
+      void handleConfigurationSnapshot(
+        port,
+        envelope,
+        envelope.payload as ConfigurationSnapshotPayload
+      );
+      return;
+    }
+    if (envelope.type === "interaction_guard_arm" || envelope.type === "interaction_guard_release") {
+      void routeInteractionGuard(envelope);
+      return;
+    }
+    void telemetryConnection.then((connection) => connection.handle(envelope));
+    void v2Dispatcher.then((dispatcher) => dispatcher.handle(envelope));
+    return;
+  } catch {
+    // 旧消息仅在迁移窗口进入 V1 manager；v2 边界不会宽松降级。
+  }
+  if (isDiagnosticEventMessage(message)) {
+    void appendDiagnostic(chrome.storage.local, diagnosticEntryFromMessage(message));
+    return;
+  }
+  void manager.handleNativeMessage(message);
 });
+port.onDisconnect.addListener(handlePortDisconnect);
 
 async function routeInteractionGuard(envelope: ProviderEnvelope): Promise<void> {
   const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
@@ -280,7 +281,7 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return false;
   }
 
-  runConnectionProbe(reconnectablePort.ensureConnected() as chrome.runtime.Port)
+  runConnectionProbe(port)
     .then((probe) => {
       sendResponse(probe);
       void chrome.storage.local.set({
