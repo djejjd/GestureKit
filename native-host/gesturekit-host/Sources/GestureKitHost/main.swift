@@ -137,10 +137,10 @@ private final class ProviderBridge: @unchecked Sendable {
                 self.reconnectScheduled = false
                 self.lock.unlock()
                 self.sendHello(generation: generation)
-            case .failed, .cancelled:
+            // App 尚未启动时，NWConnection 通常先进入 waiting；不能等它自行
+            // 转为 failed，否则已打开的 Chrome 端口会一直无法完成认证。
+            case .waiting, .failed, .cancelled:
                 self.handleAppDisconnected(generation: generation)
-            case .waiting:
-                break // 未就绪（如无路由），等待系统重试
             default:
                 break
             }
@@ -159,18 +159,26 @@ private final class ProviderBridge: @unchecked Sendable {
         lock.unlock()
 
         DispatchQueue.global().asyncAfter(deadline: .now() + reconnectIntervalSeconds) { [weak self] in
-            self?.reconnectToApp()
+            self?.reconnectToApp(afterDisconnecting: generation)
         }
     }
 
-    private func reconnectToApp() {
+    private func reconnectToApp(afterDisconnecting disconnectedGeneration: Int) {
         lock.lock()
+        // .ready 可能在退避期内到达。此时旧的重连任务必须无副作用，
+        // 不能中断已恢复的会话或重复发起认证。
+        guard disconnectedGeneration == connectionGeneration, reconnectScheduled else {
+            lock.unlock()
+            return
+        }
+        let oldConnection = connection
         connectionGeneration += 1
         reconnectScheduled = false
         let generation = connectionGeneration
         let newConnection = AppIPCClient(port: ipcPort).connect()
         connection = newConnection
         lock.unlock()
+        oldConnection.cancel()
         startConnection(newConnection, generation: generation)
     }
 
