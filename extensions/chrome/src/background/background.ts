@@ -260,7 +260,9 @@ async function routeInteractionGuard(envelope: ProviderEnvelope): Promise<void> 
   const payload = envelope.payload;
   if (!("gestureSessionId" in payload)) return;
   await chrome.tabs.sendMessage(tab.id, {
-    type: "gesturekit.linkGuardRelease",
+    type: payload.disposition === "discard"
+      ? "gesturekit.linkGuardDiscard"
+      : "gesturekit.linkGuardRelease",
     gestureSessionId: payload.gestureSessionId
   }).catch(() => {});
 }

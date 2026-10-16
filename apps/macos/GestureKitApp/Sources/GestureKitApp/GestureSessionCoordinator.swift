@@ -7,7 +7,7 @@ import GestureKitCore
 final class GestureSessionCoordinator {
     static let contextBudgetMs: Int64 = 250
     static let actionBudgetMs: Int64 = 300
-    static let centerDoubleTapWindowMs: Int64 = 500
+    static let centerDoubleTapWindowMs: Int64 = 300
 
     private struct PendingTap {
         let sessionID: String
@@ -19,16 +19,20 @@ final class GestureSessionCoordinator {
         let startedAtMs: Int64
         var classifiedAtMs: Int64?
         var composedGesture: ComposedGesture?
+        var bufferedContext: ProviderContextSnapshot?
+        var isAwaitingDoubleTap = false
     }
 
     private var ruleEngine: any RuleResolving
     private let guardJournal: (String) -> Void
     private let guardRouter: (String, GestureCandidate) -> Void
     private let guardReleaseRouter: (String) -> Void
+    private let guardDiscardRouter: (String) -> Void
     private let contextRouter: (String, Int64) -> Void
     private let actionRouter: (String, ActionDescriptor) -> Void
     private let monotonicClockMs: () -> Int64
     private let sessionID: () -> String
+    private let pendingTapScheduler: (Int64, @escaping @MainActor () -> Void) -> Void
     private let logger: GestureKitLogger
     private var activeSessions: [String: SessionState] = [:]
     /// `GestureSessionEvent` 尚未携带 ID；因此按候选实际到达顺序关联其终态事件，
@@ -41,20 +45,30 @@ final class GestureSessionCoordinator {
         guardJournal: @escaping (String) -> Void = { _ in },
         guardRouter: @escaping (String, GestureCandidate) -> Void = { _, _ in },
         guardReleaseRouter: @escaping (String) -> Void = { _ in },
+        guardDiscardRouter: @escaping (String) -> Void = { _ in },
         contextRouter: @escaping (String, Int64) -> Void = { _, _ in },
         actionRouter: @escaping (String, ActionDescriptor) -> Void = { _, _ in },
         monotonicClockMs: @escaping () -> Int64 = { Int64(DispatchTime.now().uptimeNanoseconds / 1_000_000) },
         sessionID: @escaping () -> String = { UUID().uuidString },
+        pendingTapScheduler: @escaping (Int64, @escaping @MainActor () -> Void) -> Void = { delayMs, operation in
+            Task { @MainActor in
+                try? await Task.sleep(for: .milliseconds(delayMs))
+                guard !Task.isCancelled else { return }
+                operation()
+            }
+        },
         logger: GestureKitLogger = GestureKitLogger()
     ) {
         self.ruleEngine = ruleEngine
         self.guardJournal = guardJournal
         self.guardRouter = guardRouter
         self.guardReleaseRouter = guardReleaseRouter
+        self.guardDiscardRouter = guardDiscardRouter
         self.contextRouter = contextRouter
         self.actionRouter = actionRouter
         self.monotonicClockMs = monotonicClockMs
         self.sessionID = sessionID
+        self.pendingTapScheduler = pendingTapScheduler
         self.logger = logger
     }
 
@@ -66,7 +80,7 @@ final class GestureSessionCoordinator {
         switch event {
         case .candidateStarted(let candidate):
             let id = sessionID()
-            activeSessions[id] = SessionState(startedAtMs: monotonicClockMs(), classifiedAtMs: nil, composedGesture: nil)
+            activeSessions[id] = SessionState(startedAtMs: monotonicClockMs(), classifiedAtMs: nil, composedGesture: nil, bufferedContext: nil)
             candidateOrder.append(id)
             guardJournal(id)
             guardRouter(id, candidate)
@@ -86,7 +100,7 @@ final class GestureSessionCoordinator {
 
     /// context response 与组合仲裁并行：分类时已发出 context 请求；事实返回后立即决策。
     func receiveContext(_ context: ProviderContextSnapshot, for sessionID: String) {
-        guard let session = activeSessions[sessionID],
+        guard var session = activeSessions[sessionID],
               let classifiedAt = session.classifiedAtMs,
               let gesture = session.composedGesture else { return }
         let elapsed = monotonicClockMs() - classifiedAt
@@ -95,13 +109,23 @@ final class GestureSessionCoordinator {
             logger.warn("context_dropped elapsed=\(elapsed)ms budget=\(Self.contextBudgetMs)ms sessionId=\(sessionID)")
             return
         }
-        guard let action = ruleEngine.resolve(gesture: gesture, context: context) else { return }
-        guard monotonicClockMs() - classifiedAt <= Self.actionBudgetMs else { return }
-        actionRouter(sessionID, action)
+        if session.isAwaitingDoubleTap {
+            session.bufferedContext = context
+            activeSessions[sessionID] = session
+            return
+        }
+        resolveAndDispatch(gesture: gesture, context: context, sessionID: sessionID, classifiedAt: classifiedAt)
     }
 
     private func primitiveClassified(_ recognized: RecognizedGesture, sessionID: String) {
         let now = monotonicClockMs()
+        if recognized.gesture == .threeFingerTap,
+           let centroidX = recognized.centroidX,
+           centroidX > 0.20,
+           centroidX < 0.80 {
+            handleCenterTap(recognized, now: now, sessionID: sessionID)
+            return
+        }
         guard let gesture = compose(recognized, now: now, sessionID: sessionID) else {
             contextRouter(sessionID, now + Self.contextBudgetMs)
             return
@@ -114,6 +138,77 @@ final class GestureSessionCoordinator {
         // 边缘点按与滑动的组合在这里立即完成，不等待中间双击窗口。
         // action 实际等 context 事实返回后由 receiveContext 发出。
         _ = gesture
+    }
+
+    private func handleCenterTap(_ recognized: RecognizedGesture, now: Int64, sessionID: String) {
+        if let pending = pendingCenterTap {
+            let elapsed = now - pending.classifiedAtMs
+            if elapsed <= Self.centerDoubleTapWindowMs {
+                pendingCenterTap = nil
+                activeSessions.removeValue(forKey: pending.sessionID)
+                guardDiscardRouter(pending.sessionID)
+                guardDiscardRouter(sessionID)
+                guard var session = activeSessions[sessionID] else { return }
+                session.classifiedAtMs = now
+                session.composedGesture = .threeFingerDoubleTapCenter
+                session.isAwaitingDoubleTap = false
+                activeSessions[sessionID] = session
+                logger.info("compose double_tap sessionId=\(sessionID)")
+                contextRouter(sessionID, now + Self.contextBudgetMs)
+                return
+            }
+            commitPendingCenterTap(sessionID: pending.sessionID)
+        }
+
+        guard var session = activeSessions[sessionID] else { return }
+        session.classifiedAtMs = now
+        session.composedGesture = .threeFingerTap
+        session.isAwaitingDoubleTap = true
+        activeSessions[sessionID] = session
+        pendingCenterTap = PendingTap(sessionID: sessionID, recognized: recognized, classifiedAtMs: now)
+        logger.debug("compose pending_stored centroidX=\(recognized.centroidX ?? -1) sessionId=\(sessionID)")
+        contextRouter(sessionID, now + Self.contextBudgetMs)
+        pendingTapScheduler(Self.centerDoubleTapWindowMs) { [weak self] in
+            self?.commitPendingCenterTap(sessionID: sessionID)
+        }
+    }
+
+    private func commitPendingCenterTap(sessionID: String) {
+        guard pendingCenterTap?.sessionID == sessionID,
+              var session = activeSessions[sessionID],
+              let classifiedAt = session.classifiedAtMs else { return }
+        pendingCenterTap = nil
+        session.isAwaitingDoubleTap = false
+        let bufferedContext = session.bufferedContext
+        session.bufferedContext = nil
+        activeSessions[sessionID] = session
+        guard let gesture = session.composedGesture, let bufferedContext else {
+            activeSessions.removeValue(forKey: sessionID)
+            guardReleaseRouter(sessionID)
+            return
+        }
+        resolveAndDispatch(
+            gesture: gesture,
+            context: bufferedContext,
+            sessionID: sessionID,
+            classifiedAt: classifiedAt,
+            enforceActionBudget: false
+        )
+    }
+
+    private func resolveAndDispatch(
+        gesture: ComposedGesture,
+        context: ProviderContextSnapshot,
+        sessionID: String,
+        classifiedAt: Int64,
+        enforceActionBudget: Bool = true
+    ) {
+        guard let action = ruleEngine.resolve(gesture: gesture, context: context) else { return }
+        if enforceActionBudget {
+            guard monotonicClockMs() - classifiedAt <= Self.actionBudgetMs else { return }
+        }
+        actionRouter(sessionID, action)
+        activeSessions.removeValue(forKey: sessionID)
     }
 
     private func compose(_ recognized: RecognizedGesture, now: Int64, sessionID: String) -> ComposedGesture? {
@@ -139,18 +234,6 @@ final class GestureSessionCoordinator {
                 logger.info("compose edge=right centroidX=\(centroidX) sessionId=\(sessionID)")
                 return .threeFingerTapRightEdge
             }
-            if let pending = pendingCenterTap {
-                let elapsed = now - pending.classifiedAtMs
-                logger.debug("compose pending_tap elapsed=\(elapsed)ms window=\(Self.centerDoubleTapWindowMs)ms sessionId=\(sessionID) pendingSessionId=\(pending.sessionID)")
-                if elapsed <= Self.centerDoubleTapWindowMs {
-                    self.pendingCenterTap = nil
-                    logger.info("compose double_tap sessionId=\(sessionID)")
-                    return .threeFingerDoubleTapCenter
-                }
-                self.pendingCenterTap = nil
-            }
-            pendingCenterTap = PendingTap(sessionID: sessionID, recognized: recognized, classifiedAtMs: now)
-            logger.debug("compose pending_stored centroidX=\(centroidX) sessionId=\(sessionID)")
             return .threeFingerTap
         }
     }

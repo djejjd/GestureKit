@@ -143,6 +143,7 @@ export interface InteractionGuardPayload {
   gestureSessionId: string;
   features: string[];
   deadline: number;
+  disposition?: "restore" | "discard";
 }
 
 // ---------- 配置 ----------
@@ -254,7 +255,7 @@ export type ProviderPayload =
  * 消息类型到 payload 类型的映射表。
  * 所有 19 种消息类型必须有对应条目，type-payload 不匹配直接拒绝。
  */
-type PayloadFieldKind = "string" | "integer" | "boolean" | "stringArray" | "integerArray" | "object" | "stringMap" | "actionId" | "targetKind" | "outcome" | "reason" | "eventArray";
+type PayloadFieldKind = "string" | "integer" | "boolean" | "stringArray" | "integerArray" | "object" | "stringMap" | "actionId" | "targetKind" | "outcome" | "reason" | "eventArray" | "guardDisposition";
 
 interface PayloadShape {
   required: Record<string, PayloadFieldKind>;
@@ -270,7 +271,7 @@ const PAYLOAD_TYPE_MAP: Record<ProviderMessageType, PayloadShape> = {
   context_request: { required: { gestureSessionId: "string", requiresTargetRef: "boolean", deadline: "integer" } },
   context_snapshot: { required: { contextId: "string", pageIdentity: "string", expiresAt: "integer", targetKind: "targetKind" }, optional: { targetRef: "string" } },
   interaction_guard_arm: { required: { gestureSessionId: "string", features: "stringArray", deadline: "integer" } },
-  interaction_guard_release: { required: { gestureSessionId: "string", features: "stringArray", deadline: "integer" } },
+  interaction_guard_release: { required: { gestureSessionId: "string", features: "stringArray", deadline: "integer" }, optional: { disposition: "guardDisposition" } },
   configuration_snapshot: { required: { storeEpoch: "string", schemaVersion: "integer", configurationVersion: "integer", configJSON: "string" }, optional: { diagnosticLoggingEnabled: "boolean" } },
   configuration_ack: { required: { appliedVersion: "integer", applied: "boolean" } },
   action_request: { required: { actionId: "actionId", contextId: "string", parameters: "stringMap", deadline: "integer" }, optional: { targetRef: "string" } },
@@ -430,6 +431,7 @@ function validatePayloadField(type: ProviderMessageType, key: string, value: unk
       case "outcome": return typeof value === "string" && VALID_OUTCOMES.has(value);
       case "reason": return typeof value === "string";
       case "eventArray": return Array.isArray(value) && value.every((item) => typeof item === "object" && item !== null);
+      case "guardDisposition": return value === "restore" || value === "discard";
     }
   })();
   if (!valid) {

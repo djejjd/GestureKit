@@ -32,6 +32,27 @@ function loadFixture(name: string): unknown {
 }
 
 describe("Provider Protocol v2 — TypeScript", () => {
+  it("decodes interaction guard discard disposition", () => {
+    const envelope = decodeProviderEnvelope({
+      protocolVersion: 2,
+      messageId: "guard-discard-1",
+      providerSessionId: "provider-session-1",
+      gestureSessionId: "first-tap",
+      operationId: null,
+      type: "interaction_guard_release",
+      timestamp: 1000,
+      payload: {
+        gestureSessionId: "first-tap",
+        features: [],
+        deadline: 1000,
+        disposition: "discard"
+      },
+      error: null
+    });
+
+    expect(envelope.payload).toMatchObject({ disposition: "discard" });
+  });
+
   // --------------------------------------------------------
   // Legacy v1 rejection
   // --------------------------------------------------------
