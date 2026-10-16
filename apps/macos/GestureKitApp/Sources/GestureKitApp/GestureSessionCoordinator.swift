@@ -175,38 +175,32 @@ final class GestureSessionCoordinator {
 
     private func commitPendingCenterTap(sessionID: String) {
         guard pendingCenterTap?.sessionID == sessionID,
-              var session = activeSessions[sessionID],
-              let classifiedAt = session.classifiedAtMs else { return }
+              var session = activeSessions[sessionID] else { return }
         pendingCenterTap = nil
         session.isAwaitingDoubleTap = false
         let bufferedContext = session.bufferedContext
         session.bufferedContext = nil
-        activeSessions[sessionID] = session
-        guard let gesture = session.composedGesture, let bufferedContext else {
+        guard session.composedGesture != nil, bufferedContext != nil else {
             activeSessions.removeValue(forKey: sessionID)
             guardReleaseRouter(sessionID)
             return
         }
-        resolveAndDispatch(
-            gesture: gesture,
-            context: bufferedContext,
-            sessionID: sessionID,
-            classifiedAt: classifiedAt,
-            enforceActionBudget: false
-        )
+        // 第一次 context 只用于确认目标并覆盖双击窗口；它的 250ms lease
+        // 在 300ms 仲裁结束时已不再可安全执行，因此用同一会话重新取上下文。
+        let refreshedAt = monotonicClockMs()
+        session.classifiedAtMs = refreshedAt
+        activeSessions[sessionID] = session
+        contextRouter(sessionID, refreshedAt + Self.contextBudgetMs)
     }
 
     private func resolveAndDispatch(
         gesture: ComposedGesture,
         context: ProviderContextSnapshot,
         sessionID: String,
-        classifiedAt: Int64,
-        enforceActionBudget: Bool = true
+        classifiedAt: Int64
     ) {
         guard let action = ruleEngine.resolve(gesture: gesture, context: context) else { return }
-        if enforceActionBudget {
-            guard monotonicClockMs() - classifiedAt <= Self.actionBudgetMs else { return }
-        }
+        guard monotonicClockMs() - classifiedAt <= Self.actionBudgetMs else { return }
         actionRouter(sessionID, action)
         activeSessions.removeValue(forKey: sessionID)
     }

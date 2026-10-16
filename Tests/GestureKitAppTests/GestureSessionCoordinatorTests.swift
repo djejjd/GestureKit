@@ -149,6 +149,42 @@ final class GestureSessionCoordinatorTests: XCTestCase {
         clock.now = 400
         scheduled[0]()
 
+        XCTAssertEqual(actions, [])
+    }
+
+    func testCenterSingleTapRefreshesContextAfterDoubleTapArbitration() {
+        let clock = TestClock(now: 100)
+        var scheduled: [@MainActor () -> Void] = []
+        var requested: [(String, Int64)] = []
+        var actions: [StandardActionID] = []
+        var coordinator: GestureSessionCoordinator!
+        coordinator = GestureSessionCoordinator(
+            contextRouter: { id, deadline in
+                requested.append((id, deadline))
+                coordinator.receiveContext(
+                    ProviderContextSnapshot(
+                        contextId: requested.count == 1 ? "stale-context" : "fresh-context",
+                        targetKind: .standardLink,
+                        targetRef: "link-ref",
+                        deadline: deadline
+                    ),
+                    for: id
+                )
+            },
+            actionRouter: { _, action in actions.append(action.actionId) },
+            monotonicClockMs: { clock.now },
+            sessionID: { "single-tap" },
+            pendingTapScheduler: { _, operation in scheduled.append(operation) }
+        )
+
+        _ = coordinator.handle(.candidateStarted(candidate))
+        _ = coordinator.handle(.primitiveClassified(centerTap))
+
+        clock.now = 400
+        scheduled[0]()
+
+        XCTAssertEqual(requested.map(\.0), ["single-tap", "single-tap"])
+        XCTAssertEqual(requested.map(\.1), [350, 650])
         XCTAssertEqual(actions, [.browserLinkOpenAdjacent])
     }
 
