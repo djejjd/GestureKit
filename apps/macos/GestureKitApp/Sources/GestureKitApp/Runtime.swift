@@ -47,6 +47,9 @@ final class GestureKitRuntime {
         guardReleaseRouter: { [weak self] id in
             self?.handleCandidateGuardRelease(sessionID: id)
         },
+        guardDiscardRouter: { [weak self] id in
+            self?.handleCandidateGuardDiscard(sessionID: id)
+        },
         contextRouter: { [weak self] sessionID, deadline in
             self?.handleCoordinatorContextRequest(sessionID: sessionID, deadline: deadline)
         },
@@ -886,6 +889,24 @@ final class GestureKitRuntime {
             operationId: nil, type: .interactionGuardRelease, timestamp: currentTimestampMs(),
             payload: .interactionGuardRelease(InteractionGuardPayload(
                 gestureSessionId: sessionID, features: [], deadline: currentTimestampMs()
+            )), error: nil
+        )
+        try? providerSessions.send(message, to: session.providerSessionID)
+    }
+
+    private func handleCandidateGuardDiscard(sessionID: String) {
+        pendingCoordinatorSessions.removeValue(forKey: sessionID)
+        pendingCoordinatorGestureInfo.removeValue(forKey: sessionID)
+        guard let session = providerSessions.activeSession() else { return }
+        let message = ProviderEnvelope(
+            protocolVersion: 2, messageId: UUID().uuidString,
+            providerSessionId: session.providerSessionID, gestureSessionId: sessionID,
+            operationId: nil, type: .interactionGuardRelease, timestamp: currentTimestampMs(),
+            payload: .interactionGuardRelease(InteractionGuardPayload(
+                gestureSessionId: sessionID,
+                features: [],
+                deadline: currentTimestampMs(),
+                disposition: .discard
             )), error: nil
         )
         try? providerSessions.send(message, to: session.providerSessionID)

@@ -93,6 +93,7 @@ final class GestureSessionCoordinatorTests: XCTestCase {
 
     func testCenterDoubleTapComposesWithinWindow() {
         let clock = TestClock(now: 100)
+        var ids = ["first", "second"]
         var actions: [(String, StandardActionID)] = []
         var coordinator: GestureSessionCoordinator!
         coordinator = GestureSessionCoordinator(
@@ -104,7 +105,7 @@ final class GestureSessionCoordinatorTests: XCTestCase {
             },
             actionRouter: { id, action in actions.append((id, action.actionId)) },
             monotonicClockMs: { clock.now },
-            sessionID: { "session" }
+            sessionID: { ids.removeFirst() }
         )
 
         // 第一次 center tap：单次点按不派发关闭。
@@ -112,11 +113,139 @@ final class GestureSessionCoordinatorTests: XCTestCase {
         _ = coordinator.handle(.primitiveClassified(centerTap))
         XCTAssertEqual(actions.map(\.1), [])
 
-        // 第二次 center tap，间隔 400ms（100 → 500）：应在双击窗口内组合成 double tap → 关闭当前 tab。
-        clock.now = 500
+        // 第二次 center tap，间隔 250ms（100 → 350）：应在定义的 300ms 窗口内组合成 double tap → 关闭当前 tab。
+        clock.now = 350
         _ = coordinator.handle(.candidateStarted(candidate))
         _ = coordinator.handle(.primitiveClassified(centerTap))
         XCTAssertEqual(actions.map(\.1), [.browserTabCloseCurrent])
+    }
+
+    func testCenterSingleTapOverLinkWaitsForArbitrationBeforeOpening() {
+        let clock = TestClock(now: 100)
+        var scheduled: [@MainActor () -> Void] = []
+        var actions: [StandardActionID] = []
+        let coordinator = GestureSessionCoordinator(
+            actionRouter: { _, action in actions.append(action.actionId) },
+            monotonicClockMs: { clock.now },
+            sessionID: { "single-tap" },
+            pendingTapScheduler: { _, operation in scheduled.append(operation) }
+        )
+
+        let sessionID = coordinator.handle(.candidateStarted(candidate))!
+        _ = coordinator.handle(.primitiveClassified(centerTap))
+        coordinator.receiveContext(
+            ProviderContextSnapshot(
+                contextId: "link-context",
+                targetKind: .standardLink,
+                targetRef: "link-ref",
+                deadline: .max
+            ),
+            for: sessionID
+        )
+
+        XCTAssertEqual(actions, [])
+        XCTAssertEqual(scheduled.count, 1)
+
+        clock.now = 400
+        scheduled[0]()
+
+        XCTAssertEqual(actions, [])
+    }
+
+    func testCenterSingleTapRefreshesContextAfterDoubleTapArbitration() {
+        let clock = TestClock(now: 100)
+        var scheduled: [@MainActor () -> Void] = []
+        var requested: [(String, Int64)] = []
+        var actions: [StandardActionID] = []
+        var coordinator: GestureSessionCoordinator!
+        coordinator = GestureSessionCoordinator(
+            contextRouter: { id, deadline in
+                requested.append((id, deadline))
+                coordinator.receiveContext(
+                    ProviderContextSnapshot(
+                        contextId: requested.count == 1 ? "stale-context" : "fresh-context",
+                        targetKind: .standardLink,
+                        targetRef: "link-ref",
+                        deadline: deadline
+                    ),
+                    for: id
+                )
+            },
+            actionRouter: { _, action in actions.append(action.actionId) },
+            monotonicClockMs: { clock.now },
+            sessionID: { "single-tap" },
+            pendingTapScheduler: { _, operation in scheduled.append(operation) }
+        )
+
+        _ = coordinator.handle(.candidateStarted(candidate))
+        _ = coordinator.handle(.primitiveClassified(centerTap))
+
+        clock.now = 400
+        scheduled[0]()
+
+        XCTAssertEqual(requested.map(\.0), ["single-tap", "single-tap"])
+        XCTAssertEqual(requested.map(\.1), [350, 650])
+        XCTAssertEqual(actions, [.browserLinkOpenAdjacent])
+    }
+
+    func testCenterSingleTapWithoutContextReleasesGuardAfterArbitration() {
+        var scheduled: [@MainActor () -> Void] = []
+        var released: [String] = []
+        let coordinator = GestureSessionCoordinator(
+            guardReleaseRouter: { released.append($0) },
+            sessionID: { "missing-context" },
+            pendingTapScheduler: { _, operation in scheduled.append(operation) }
+        )
+
+        let sessionID = coordinator.handle(.candidateStarted(candidate))!
+        _ = coordinator.handle(.primitiveClassified(centerTap))
+
+        XCTAssertEqual(scheduled.count, 1)
+        scheduled[0]()
+
+        XCTAssertEqual(released, [sessionID])
+    }
+
+    func testCenterDoubleTapOverLinkDoesNotDispatchFirstTapLinkAction() {
+        let clock = TestClock(now: 100)
+        var ids = ["first-tap", "second-tap"]
+        var actions: [(String, StandardActionID)] = []
+        var discarded: [String] = []
+        let coordinator = GestureSessionCoordinator(
+            guardDiscardRouter: { discarded.append($0) },
+            actionRouter: { id, action in actions.append((id, action.actionId)) },
+            monotonicClockMs: { clock.now },
+            sessionID: { ids.removeFirst() }
+        )
+
+        let firstSessionID = coordinator.handle(.candidateStarted(candidate))!
+        _ = coordinator.handle(.primitiveClassified(centerTap))
+        coordinator.receiveContext(
+            ProviderContextSnapshot(
+                contextId: "link-context",
+                targetKind: .standardLink,
+                targetRef: "link-ref",
+                deadline: .max
+            ),
+            for: firstSessionID
+        )
+
+        clock.now = 300
+        let secondSessionID = coordinator.handle(.candidateStarted(candidate))!
+        _ = coordinator.handle(.primitiveClassified(centerTap))
+        coordinator.receiveContext(
+            ProviderContextSnapshot(
+                contextId: "page-context",
+                targetKind: .noTarget,
+                targetRef: nil,
+                deadline: .max
+            ),
+            for: secondSessionID
+        )
+
+        XCTAssertEqual(actions.map(\.0), ["second-tap"])
+        XCTAssertEqual(actions.map(\.1), [.browserTabCloseCurrent])
+        XCTAssertEqual(discarded, ["first-tap", "second-tap"])
     }
 
     func testContextAfterActionBudgetDoesNotDispatchEvenWhenDescriptorDeadlineIsFuture() {

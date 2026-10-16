@@ -254,6 +254,21 @@ function releaseProtectedClick(gestureSessionId: string): { status: "guard_relea
   return { status: "guard_released" };
 }
 
+function discardProtectedClick(gestureSessionId: string): { status: "guard_discarded" | "guard_unavailable" } {
+  const protectedClick = state.protectedLinkClick;
+  if (protectedClick?.gestureSessionId === gestureSessionId) {
+    clearTimeout(protectedClick.timeout);
+    state.protectedLinkClick = null;
+    traceGuard(gestureSessionId, "discarded", "superseded_by_double_tap");
+    return { status: "guard_discarded" };
+  }
+  const consumed = state.consumedProtectedClick;
+  if (consumed?.gestureSessionId !== gestureSessionId) return { status: "guard_unavailable" };
+  state.consumedProtectedClick = null;
+  traceGuard(gestureSessionId, "discarded", "superseded_by_double_tap");
+  return { status: "guard_discarded" };
+}
+
 export function setPointerSnapshotForTesting(snapshot: PointerSnapshot | null) {
   state.lastPointer = snapshot;
 }
@@ -291,6 +306,18 @@ if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
       const released = releaseProtectedClick(message.gestureSessionId);
       const guard = interactionGuard.release({ gestureSessionId: message.gestureSessionId, nowMonotonicMs: performance.now() });
       sendResponse(released.status === "guard_released" ? released : guard);
+      return false;
+    }
+    if (message.type === "gesturekit.linkGuardDiscard") {
+      const discarded = discardProtectedClick(message.gestureSessionId);
+      const guard = interactionGuard.release({ gestureSessionId: message.gestureSessionId, nowMonotonicMs: performance.now() });
+      // 即使原始 click 尚未来得及写入本地暂存，匹配的 guard 也已被安全丢弃；
+      // 对调用方保持一致的终态，且绝不能在这里恢复导航。
+      sendResponse(
+        discarded.status === "guard_discarded" || guard.status === "guard_released"
+          ? { status: "guard_discarded" }
+          : guard
+      );
       return false;
     }
     if (message.type === "gesturekit.guardArm") {
