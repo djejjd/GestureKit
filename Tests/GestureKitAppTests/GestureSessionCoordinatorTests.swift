@@ -248,6 +248,36 @@ final class GestureSessionCoordinatorTests: XCTestCase {
         XCTAssertEqual(discarded, ["first-tap", "second-tap"])
     }
 
+    func testCancelAllClosesPendingTapAndCandidateAndIgnoresLateCallbacks() {
+        var ids = ["pending-tap", "candidate", "next"]
+        var released: [String] = []
+        var scheduled: [@MainActor () -> Void] = []
+        var actions: [String] = []
+        let coordinator = GestureSessionCoordinator(
+            guardReleaseRouter: { released.append($0) },
+            actionRouter: { id, _ in actions.append(id) },
+            monotonicClockMs: { 0 },
+            sessionID: { ids.removeFirst() },
+            pendingTapScheduler: { _, callback in scheduled.append(callback) }
+        )
+        _ = coordinator.handle(.candidateStarted(candidate))
+        _ = coordinator.handle(.primitiveClassified(centerTap))
+        _ = coordinator.handle(.candidateStarted(candidate))
+        coordinator.cancelAll()
+        coordinator.cancelAll()
+        scheduled[0]()
+        let context = ProviderContextSnapshot(contextId: "ctx", targetKind: .noTarget, targetRef: nil, deadline: .max)
+        coordinator.receiveContext(context, for: "pending-tap")
+        coordinator.receiveContext(context, for: "candidate")
+        XCTAssertEqual(Set(released), ["pending-tap", "candidate"])
+        XCTAssertEqual(released.count, 2)
+        XCTAssertTrue(actions.isEmpty)
+        XCTAssertEqual(coordinator.handle(.candidateStarted(candidate)), "next")
+        XCTAssertEqual(coordinator.handle(.primitiveClassified(swipeLeft)), "next")
+        coordinator.receiveContext(context, for: "next")
+        XCTAssertEqual(actions, ["next"])
+    }
+
     func testContextAfterActionBudgetDoesNotDispatchEvenWhenDescriptorDeadlineIsFuture() {
         var now: Int64 = 0
         var actionCount = 0

@@ -74,6 +74,15 @@ final class GestureSessionCoordinator {
 
     func updateRuleEngine(_ ruleEngine: any RuleResolving) { self.ruleEngine = ruleEngine }
 
+    /// 暂停、配置变化及跨组件失联统一关闭所有候选，旧回调不可复活会话。
+    func cancelAll() {
+        let ids = Array(activeSessions.keys)
+        activeSessions.removeAll()
+        candidateOrder.removeAll()
+        pendingCenterTap = nil
+        for id in ids { guardReleaseRouter(id) }
+    }
+
     /// 候选一出现即先持久化/路由 guard；绝不等待分类或上下文。
     @discardableResult
     func handle(_ event: GestureSessionEvent) -> String? {

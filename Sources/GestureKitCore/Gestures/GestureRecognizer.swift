@@ -101,6 +101,14 @@ public struct GestureRecognizer: Sendable {
         return gesture.gesture == nil ? [.primitiveRejected(gesture)] : [.primitiveClassified(gesture)]
     }
 
+    /// 外部中断必须发布候选终态，且余指全部抬起前禁止重新入场。
+    public mutating func cancel(at time: TimeInterval) -> [GestureSessionEvent] {
+        let previous = session
+        session = nil
+        requiresAllTouchesLift = true
+        return previous.map { [.primitiveRejected(rejected($0, endedAt: time))] } ?? []
+    }
+
     private func classify(_ session: Session, endedAt: TimeInterval) -> RecognizedGesture {
         let duration = endedAt - session.startedAt
         let dx = session.latestCentroid.x - session.startCentroid.x
