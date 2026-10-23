@@ -26,7 +26,7 @@ final class E2ERuntimeScenarioTests: XCTestCase {
         XCTAssertNotNil(contextRequest?.gestureSessionId)
     }
 
-    func testE2ESuccessScenarioSendsActionAfterContext() throws {
+    func testE2ESuccessScenarioSendsActionAfterRefreshedContext() async throws {
         let (runtime, sessionID, connectionID, outbound, _) = try makeAuthenticatedRuntime()
         let command = E2ELinkOperationCommand(
             token: "test-token", gestureSessionId: "gs-a", operationId: "op-a", scenario: .success
@@ -48,8 +48,21 @@ final class E2ERuntimeScenarioTests: XCTestCase {
             )), error: nil
         )), connectionID: connectionID)
 
+        // 单击必须先跨过 300ms 双击仲裁窗口，再用同一 gestureSessionId
+        // 刷新 context，避免第一次快照在动作派发前过期。
+        try await Task.sleep(for: .milliseconds(350))
+        XCTAssertEqual(outbound.all(of: .contextRequest).count, 2)
+        runtime.handleProviderEnvelopeForTesting(try JSONEncoder().encode(ProviderEnvelope(
+            protocolVersion: 2, messageId: "ctx-2", providerSessionId: sessionID,
+            gestureSessionId: gsid, operationId: nil, type: .contextSnapshot,
+            timestamp: 2, payload: .contextSnapshot(ContextSnapshotPayload(
+                contextId: "ctx-2", pageIdentity: "p1", expiresAt: currentTimestampMs() + 10_000,
+                targetKind: .standardLink, targetRef: "https://example.com/page"
+            )), error: nil
+        )), connectionID: connectionID)
+
         let actionRequest = outbound.latest(of: .actionRequest)
-        XCTAssertNotNil(actionRequest, "context 返回后应触发 action_request")
+        XCTAssertNotNil(actionRequest, "刷新后的 context 返回后应触发 action_request")
         XCTAssertEqual(actionRequest?.gestureSessionId, gsid)
     }
 
@@ -113,7 +126,7 @@ final class E2ERuntimeScenarioTests: XCTestCase {
 
     // MARK: - Result unknown scenario
 
-    func testResultUnknownScenarioDispatchesActionThenConverges() throws {
+    func testResultUnknownScenarioDispatchesActionThenConverges() async throws {
         let (runtime, sessionID, connectionID, outbound, _) = try makeAuthenticatedRuntime()
         let command = E2ELinkOperationCommand(
             token: "test-token", gestureSessionId: "gs-r", operationId: "op-r",
@@ -132,6 +145,17 @@ final class E2ERuntimeScenarioTests: XCTestCase {
             gestureSessionId: gsid, operationId: nil, type: .contextSnapshot,
             timestamp: 1, payload: .contextSnapshot(ContextSnapshotPayload(
                 contextId: "ctx-r", pageIdentity: "p1", expiresAt: currentTimestampMs() + 10_000,
+                targetKind: .standardLink, targetRef: "https://example.com/page"
+            )), error: nil
+        )), connectionID: connectionID)
+
+        try await Task.sleep(for: .milliseconds(350))
+        XCTAssertEqual(outbound.all(of: .contextRequest).count, 2)
+        runtime.handleProviderEnvelopeForTesting(try JSONEncoder().encode(ProviderEnvelope(
+            protocolVersion: 2, messageId: "ctx-r2", providerSessionId: sessionID,
+            gestureSessionId: gsid, operationId: nil, type: .contextSnapshot,
+            timestamp: 2, payload: .contextSnapshot(ContextSnapshotPayload(
+                contextId: "ctx-r2", pageIdentity: "p1", expiresAt: currentTimestampMs() + 10_000,
                 targetKind: .standardLink, targetRef: "https://example.com/page"
             )), error: nil
         )), connectionID: connectionID)

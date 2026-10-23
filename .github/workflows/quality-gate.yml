@@ -42,6 +42,15 @@ jobs:
         run: swift test --skip MenuBarControllerTests
       - name: swift build
         run: swift build
+      - name: Backtrace failed runtime test
+        if: failure()
+        shell: bash
+        run: |
+          test_binary=".build/debug/GestureKitPackageTests.xctest/Contents/MacOS/GestureKitPackageTests"
+          if [[ -x "$test_binary" ]]; then
+            xcrun lldb --batch -o 'settings set target.process.stop-on-exec false' -o run -o 'thread backtrace' -- "$test_binary" \
+              GestureKitAppTests.RuntimeLifecycleTests/testRuntimeHandshakeActionRequestAndAuthenticatedTelemetryShareOperationTimeline || true
+          fi
 
   extension:
     name: extension
@@ -84,6 +93,15 @@ jobs:
       # （test-link-reliability.sh 先跑 node --test 再 dry-run），不再单独跑一遍。
       - name: link reliability dry-run
         run: zsh scripts/dev/test-link-reliability.sh --dry-run
+      - name: Backtrace failed runtime test
+        if: failure()
+        shell: bash
+        run: |
+          test_binary=".build/debug/GestureKitPackageTests.xctest/Contents/MacOS/GestureKitPackageTests"
+          if [[ -x "$test_binary" ]]; then
+            xcrun lldb --batch -o 'settings set target.process.stop-on-exec false' -o run -o 'thread backtrace' -- "$test_binary" \
+              GestureKitAppTests.RuntimeLifecycleTests/testRuntimeHandshakeActionRequestAndAuthenticatedTelemetryShareOperationTimeline || true
+          fi
 
   # ─────────────────────────────────────────────────────────────────
   # 真实 Chrome 验收（人工关口）。

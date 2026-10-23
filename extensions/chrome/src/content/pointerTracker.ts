@@ -9,10 +9,9 @@ export type PointerSnapshot = {
 
 const MAX_POINTER_AGE_MS = 1500;
 const CONSUME_CLICK_WINDOW_MS = 2000;
-// 保护窗口必须覆盖 guard deadline（App 侧 candidate guard 为 750ms）。
-// 若窗口短于 deadline，手势在 500~750ms 之间到达时会被 content script 抢先
-// 原地导航（window.location.href），导致"原地打开"。取值与 guard deadline 对齐。
-const LINK_CLICK_PROTECTION_WINDOW_MS = 750;
+// 页面链接 lease 覆盖合法长点按、双击仲裁和上下文刷新；原生输入屏蔽仍上限 800ms。
+const LINK_CLICK_PROTECTION_WINDOW_MS = 1200;
+const LEGACY_CLICK_PROTECTION_WINDOW_MS = 750;
 
 type PointerTrackerState = {
   lastPointer: PointerSnapshot | null;
@@ -27,6 +26,17 @@ type PointerTrackerState = {
 
 const state = sharedState();
 const interactionGuard = createInteractionGuard();
+const documentToken = crypto.randomUUID();
+
+for (const eventType of ["dragstart", "selectstart"] as const) {
+  window.addEventListener(eventType, (event) => {
+    const guard = interactionGuard.active(performance.now());
+    if (!guard?.features?.includes("drag_selection") || !event.cancelable) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    traceGuard(guard.gestureSessionId, "dom_blocked", eventType);
+  }, { capture: true });
+}
 
 type ResolveOptions = {
   consumeNextClick?: boolean;
@@ -47,6 +57,13 @@ window.addEventListener(
 window.addEventListener(
   "click",
   (event) => {
+    const discarded = interactionGuard.discarded(performance.now());
+    if (discarded && event.cancelable && event.button === 0) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      traceGuard(discarded.gestureSessionId, "click_blocked", "classified_swipe_discard");
+      return;
+    }
     const anchor = linkAnchorForEvent(event);
     const activeGuard = interactionGuard.active(performance.now());
     traceGuard(activeGuard?.gestureSessionId, "click_observed", anchor ? "anchor_resolved" : "anchor_missing");
@@ -65,8 +82,11 @@ window.addEventListener(
       return;
     }
 
-    if (shouldProtectLinkClick(event, anchor) && (state.linkClickProtectionEnabled || activeGuard)) {
-      protectLinkClick(event, anchor.href, activeGuard?.gestureSessionId ?? null);
+    if (shouldProtectLinkClick(event, anchor) && (state.linkClickProtectionEnabled || activeGuard?.features?.some(feature => feature === "link_click" || feature === "drag_selection"))) {
+      const remainingLeaseMs = activeGuard
+        ? Math.max(0, activeGuard.armedAtMonotonicMs + activeGuard.leaseMs - performance.now())
+        : LEGACY_CLICK_PROTECTION_WINDOW_MS;
+      protectLinkClick(event, anchor.href, activeGuard?.gestureSessionId ?? null, remainingLeaseMs);
       traceGuard(activeGuard?.gestureSessionId, "click_blocked", "active_guard");
       return;
     }
@@ -195,7 +215,7 @@ function isHttpLink(urlValue: string): boolean {
   }
 }
 
-function protectLinkClick(event: MouseEvent, url: string, gestureSessionId: string | null) {
+function protectLinkClick(event: MouseEvent, url: string, gestureSessionId: string | null, remainingLeaseMs: number) {
   if (state.protectedLinkClick) {
     clearTimeout(state.protectedLinkClick.timeout);
   }
@@ -214,7 +234,7 @@ function protectLinkClick(event: MouseEvent, url: string, gestureSessionId: stri
       state.timedOutAndNavigated = true;
       traceGuard(gestureSessionId, "lease_expired", "original_navigation_restored");
       window.location.href = url;
-    }, LINK_CLICK_PROTECTION_WINDOW_MS)
+    }, Math.min(LINK_CLICK_PROTECTION_WINDOW_MS, remainingLeaseMs))
   };
 }
 
@@ -254,6 +274,21 @@ function releaseProtectedClick(gestureSessionId: string): { status: "guard_relea
   return { status: "guard_released" };
 }
 
+function discardProtectedClick(gestureSessionId: string): { status: "guard_discarded" | "guard_unavailable" } {
+  const protectedClick = state.protectedLinkClick;
+  if (protectedClick?.gestureSessionId === gestureSessionId) {
+    clearTimeout(protectedClick.timeout);
+    state.protectedLinkClick = null;
+    traceGuard(gestureSessionId, "discarded", "superseded_by_double_tap");
+    return { status: "guard_discarded" };
+  }
+  const consumed = state.consumedProtectedClick;
+  if (consumed?.gestureSessionId !== gestureSessionId) return { status: "guard_unavailable" };
+  state.consumedProtectedClick = null;
+  traceGuard(gestureSessionId, "discarded", "superseded_by_double_tap");
+  return { status: "guard_discarded" };
+}
+
 export function setPointerSnapshotForTesting(snapshot: PointerSnapshot | null) {
   state.lastPointer = snapshot;
 }
@@ -276,15 +311,20 @@ function sharedState(): PointerTrackerState {
 
 if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message.documentToken && message.documentToken !== documentToken) {
+      sendResponse({ status: "guard_unavailable" });
+      return false;
+    }
     if (message.type === "gesturekit.linkGuardArm") {
       const command: GuardCommand = {
         gestureSessionId: message.gestureSessionId,
         issuedAtMonotonicMs: performance.now(),
-        leaseMs: message.leaseMs
+        leaseMs: Math.min((message.features ?? ["link_click"]).includes("link_click") ? 1200 : 800, Math.max(0, message.leaseMs)),
+        features: message.features ?? ["link_click"]
       };
       interactionGuard.arm(command, performance.now());
       traceGuard(command.gestureSessionId, "armed", "content_script_ack");
-      sendResponse({ status: "guard_armed", gestureSessionId: command.gestureSessionId });
+      sendResponse({ status: "guard_armed", gestureSessionId: command.gestureSessionId, documentToken });
       return false;
     }
     if (message.type === "gesturekit.linkGuardRelease") {
@@ -293,10 +333,22 @@ if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
       sendResponse(released.status === "guard_released" ? released : guard);
       return false;
     }
+    if (message.type === "gesturekit.linkGuardDiscard") {
+      const discarded = discardProtectedClick(message.gestureSessionId);
+      const guard = interactionGuard.discard({ gestureSessionId: message.gestureSessionId, nowMonotonicMs: performance.now() });
+      // 即使原始 click 尚未来得及写入本地暂存，匹配的 guard 也已被安全丢弃；
+      // 对调用方保持一致的终态，且绝不能在这里恢复导航。
+      sendResponse(
+        discarded.status === "guard_discarded" || guard.status === "guard_released"
+          ? { status: "guard_discarded" }
+          : guard
+      );
+      return false;
+    }
     if (message.type === "gesturekit.guardArm") {
       const command = message as GuardCommand & { type: "gesturekit.guardArm" };
       interactionGuard.arm(command, performance.now());
-      sendResponse({ status: "guard_armed", gestureSessionId: command.gestureSessionId });
+      sendResponse({ status: "guard_armed", gestureSessionId: command.gestureSessionId, documentToken });
       return false;
     }
     if (message.type === "gesturekit.guardRelease") {
@@ -307,7 +359,7 @@ if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
     }
     if (message.type === "gesturekit.guardConsume") {
       const protectedClick = state.protectedLinkClick;
-      if (protectedClick?.gestureSessionId === message.gestureSessionId) {
+      if (protectedClick && protectedClick.gestureSessionId === message.gestureSessionId) {
         clearTimeout(protectedClick.timeout);
         state.protectedLinkClick = null;
         state.consumedProtectedClick = {

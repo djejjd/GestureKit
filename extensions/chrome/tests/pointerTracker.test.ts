@@ -284,6 +284,53 @@ describe("pointerTracker", () => {
     vi.useRealTimers();
   });
 
+  it("discards a protected link click superseded by a double tap without restoring navigation", async () => {
+    vi.useFakeTimers();
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    let runtimeListener: ((message: Record<string, unknown>, sender: unknown, sendResponse: (response: unknown) => void) => boolean) | null = null;
+    vi.stubGlobal("chrome", {
+      runtime: {
+        onMessage: {
+          addListener: vi.fn((listener) => { runtimeListener = listener; })
+        }
+      }
+    });
+    await import("../src/content/pointerTracker");
+    // 直接构造已被点击处理器暂存的链接，避免 jsdom 中历次模块导入留下的
+    // document 事件监听器互相影响；这里验证的是 discard 消息对真实暂存状态的终态。
+    const trackerState = (window as unknown as {
+      __gestureKitPointerTrackerState: {
+        protectedLinkClick: {
+          url: string;
+          gestureSessionId: string;
+          timestamp: number;
+          timeout: ReturnType<typeof setTimeout>;
+        } | null;
+      };
+    }).__gestureKitPointerTrackerState;
+    trackerState.protectedLinkClick = {
+      url: "http://localhost:3000/docs",
+      gestureSessionId: "first-tap",
+      timestamp: Date.now(),
+      timeout: setTimeout(() => {
+        window.location.href = "http://localhost:3000/docs";
+      }, 750)
+    };
+
+    let discardResponse: unknown = null;
+    runtimeListener?.({
+      type: "gesturekit.linkGuardDiscard",
+      gestureSessionId: "first-tap"
+    }, {}, (response) => { discardResponse = response; });
+    expect(discardResponse).toEqual({ status: "guard_discarded" });
+    consoleError.mockClear();
+    await vi.advanceTimersByTimeAsync(751);
+
+    expect(consoleError).not.toHaveBeenCalledWith("Not implemented: navigation to another Document");
+    consoleError.mockRestore();
+    vi.useRealTimers();
+  });
+
   it("returns non_anchor_navigation for card-style targets", async () => {
     vi.resetModules();
     document.body.innerHTML = `

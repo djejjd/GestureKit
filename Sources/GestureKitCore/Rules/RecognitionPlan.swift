@@ -3,6 +3,7 @@ import Foundation
 /// 候选期需要的交互保护能力，由 App 的启用绑定编译得出。
 public enum InteractionGuardFeature: String, Codable, Sendable, Equatable, Hashable {
     case linkClick = "link_click"
+    case dragSelection = "drag_selection"
 }
 
 /// 配置驱动的识别计划。Provider 不消费该类型，也不需要了解手势绑定。
@@ -22,6 +23,11 @@ public struct RecognitionPlan: Sendable, Equatable {
         var features: [String: Set<InteractionGuardFeature>] = [:]
         for rule in configuration.rules where rule.enabled && rule.actionId == .browserLinkOpenAdjacent {
             features[rule.gestureDefinitionId, default: []].insert(.linkClick)
+        }
+        for definition in configuration.gestureDefinitions where definition.primitive == .swipe && definition.fingers >= 3 {
+            if configuration.rules.contains(where: { $0.enabled && $0.gestureDefinitionId == definition.id }) {
+                features[definition.id, default: []].insert(.dragSelection)
+            }
         }
         self.featuresByDefinitionID = features
     }

@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import GestureKitCore
 
 private enum AppConfigurationUnavailable: Error {
@@ -9,6 +10,12 @@ private enum AppConfigurationUnavailable: Error {
 final class GestureKitRuntime {
     private let menuBarHandler: (AppMenuBarEvent) -> Void
     private var recognizer = GestureRecognizer()
+    private let dragInputShield: any DragInputShield
+    private var recognitionPlan: RecognitionPlan?
+    private var shieldSessionID: String?
+    private var latestTouchCount = 0
+    private var latestFrameTime: TimeInterval = 0
+    private var inputObservers: [NSObjectProtocol] = []
     private var ruleEngine: RuleEngine
     private let appContextResolver: AppContextResolver
     private let touchBackend: any TouchBackend
@@ -47,6 +54,9 @@ final class GestureKitRuntime {
         guardReleaseRouter: { [weak self] id in
             self?.handleCandidateGuardRelease(sessionID: id)
         },
+        guardDiscardRouter: { [weak self] id in
+            self?.handleCandidateGuardDiscard(sessionID: id)
+        },
         contextRouter: { [weak self] sessionID, deadline in
             self?.handleCoordinatorContextRequest(sessionID: sessionID, deadline: deadline)
         },
@@ -76,6 +86,7 @@ final class GestureKitRuntime {
         providerOutboundSink: ProviderSessionSink? = nil,
         controlCenterOpenHandler: @escaping () -> Void = {},
         diagnosticSink: @escaping (LocalIPCEnvelope) -> Void = { _ in },
+        dragInputShield: (any DragInputShield)? = nil,
         e2eControlToken: String? = nil
     ) {
         self.menuBarHandler = menuBarHandler
@@ -90,6 +101,8 @@ final class GestureKitRuntime {
             definitions: configuration?.gestureDefinitions ?? DefaultRules.defaultGestureDefinitions
         )
         self.logger = logger
+        self.dragInputShield = dragInputShield ?? NativeDragInputShield(logger: logger)
+        self.recognitionPlan = configuration.flatMap { try? RecognitionPlan(configuration: $0) }
         self.operationJournal = operationJournal
         self.providerSessions = providerSessions
         self.appContextResolver = appContextResolver
@@ -146,6 +159,7 @@ final class GestureKitRuntime {
                     guard let self else { return }
                     self.providerSessions.invalidateSession(for: connectionID)
                     let dropped = self.pendingCoordinatorSessions.count
+                    self.cancelGestureInput(reason: "provider_disconnected")
                     self.pendingCoordinatorSessions.removeAll()
                     if dropped > 0 {
                         self.logger.warn("provider_session_invalidated connection_lost dropped_pending_contexts=\(dropped)")
@@ -166,11 +180,17 @@ final class GestureKitRuntime {
             "app_started log_file=\"\(loggerFilePathHint())\" debug=\(ProcessInfo.processInfo.environment["GESTUREKIT_DEBUG"] == "1")",
             terminal: true
         )
+        dragInputShield.start()
+        observeInputInterruptions()
         startTouchListening()
         startProviderKeepAlive()
     }
 
     func stop() {
+        cancelGestureInput(reason: "stopped")
+        dragInputShield.stop()
+        for observer in inputObservers { NSWorkspace.shared.notificationCenter.removeObserver(observer) }
+        inputObservers.removeAll()
         guard listeningTask != nil || eventServer != nil else {
             internalState.listeningState = .stopped
             return
@@ -187,6 +207,7 @@ final class GestureKitRuntime {
     }
 
     func pause() {
+        cancelGestureInput(reason: "paused")
         isPaused = true
         emit(event: AppMenuBarEvent(type: .paused))
         logger.info("paused")
@@ -198,6 +219,34 @@ final class GestureKitRuntime {
         logger.info("resumed")
     }
 
+    private func cancelGestureInput(reason: String) {
+        for event in recognizer.cancel(at: latestFrameTime) { gestureCoordinator.handle(event) }
+        gestureCoordinator.cancelAll()
+        pendingCoordinatorSessions.removeAll()
+        pendingCoordinatorGestureInfo.removeAll()
+        lastCandidateSessionID = nil
+        shieldSessionID = nil
+        dragInputShield.cancel(reason: reason)
+        // 没有物理触点时允许下一次正常候选；有余指时保留 cancel 的禁止重入锁。
+        if latestTouchCount == 0 { _ = recognizer.observe(TouchFrame(time: latestFrameTime, activeTouches: [])) }
+    }
+
+    private func observeInputInterruptions() {
+        guard inputObservers.isEmpty else { return }
+        let center = NSWorkspace.shared.notificationCenter
+        for name in [NSWorkspace.didActivateApplicationNotification, NSWorkspace.willSleepNotification] {
+            inputObservers.append(center.addObserver(forName: name, object: nil, queue: .main) { [weak self] notification in
+                let sleeping = notification.name == NSWorkspace.willSleepNotification
+                MainActor.assumeIsolated {
+                    guard let self else { return }
+                    if sleeping || self.appContextResolver.currentContext(elementType: .any).browserKind != .chrome {
+                        self.cancelGestureInput(reason: sleeping ? "sleep" : "frontmost_changed")
+                    }
+                }
+            })
+        }
+    }
+
     private func emit(event: AppMenuBarEvent) {
         menuBarHandler(event)
     }
@@ -206,7 +255,6 @@ final class GestureKitRuntime {
         listeningTask = Task { @MainActor in
             for await frame in touchBackend.frames {
                 guard !Task.isCancelled else { return }
-                guard !isPaused else { continue }
                 _ = processFrame(frame)
             }
         }
@@ -218,6 +266,7 @@ final class GestureKitRuntime {
             eventServer = nil
             internalState.listeningState = .inputError
             emit(event: AppMenuBarEvent(type: .appError(reason: AppErrorReason.listenerStopped.rawValue)))
+            dragInputShield.stop()
             logger.error("touch_backend_start_failed")
             return
         }
@@ -226,7 +275,13 @@ final class GestureKitRuntime {
 
     @discardableResult
     private func processFrame(_ frame: TouchFrame) -> RecognizedGesture? {
-        guard !isPaused else { return nil }
+        latestTouchCount = frame.activeTouches.count
+        latestFrameTime = frame.time
+        guard !isPaused else {
+            _ = recognizer.cancel(at: frame.time)
+            if frame.activeTouches.isEmpty { _ = recognizer.observe(frame) }
+            return nil
+        }
         let sessionEvents = recognizer.observe(frame)
         // 所有事件（candidateStarted、primitiveClassified、primitiveRejected）先送 coordinator
         // 由它完成区域分类、双击仲裁，再通过 contextRouter/actionRouter 回调驱动后续流程。
@@ -235,6 +290,10 @@ final class GestureKitRuntime {
             case .candidateStarted:
                 lastCandidateSessionID = gestureCoordinator.handle(sessionEvent)
             case .primitiveClassified(let recognized):
+                if let gesture = recognized.gesture, gesture.rawValue.contains("swipe"), let id = lastCandidateSessionID {
+                    // 滑动不恢复同次暂存点击；在动作切换标签之前发给原页面。
+                    handleCandidateGuardDiscard(sessionID: id)
+                }
                 if let sessionID = lastCandidateSessionID {
                     pendingCoordinatorGestureInfo[sessionID] = recognized.gesture
                 }
@@ -246,6 +305,15 @@ final class GestureKitRuntime {
                 gestureCoordinator.handle(sessionEvent)
                 lastCandidateSessionID = nil
             }
+        }
+        let rejectedWithoutReplacement = sessionEvents.contains {
+            if case .primitiveRejected = $0 { return true }; return false
+        } && !sessionEvents.contains {
+            if case .candidateStarted = $0 { return true }; return false
+        }
+        if frame.activeTouches.isEmpty || rejectedWithoutReplacement, let id = shieldSessionID {
+            dragInputShield.finish(sessionID: id)
+            shieldSessionID = nil
         }
         // 降级诊断和菜单栏事件仍从原始 RecognizedGesture 发出
         guard let event = sessionEvents.compactMap(\.recognizedGesture).first else { return nil }
@@ -273,7 +341,9 @@ final class GestureKitRuntime {
     }
 
     func applySettingsUpdate(_ payload: SettingsUpdatePayload) -> SettingsAckPayload {
+        cancelGestureInput(reason: "configuration_changed")
         recognizer.updateSettings(payload.recognitionSettings)
+        if latestTouchCount > 0 { _ = recognizer.cancel(at: latestFrameTime) }
         logger.info(
             "settings_applied swipeSensitivity=\(payload.swipeSensitivity.rawValue) swipeMinDistance=\(payload.swipeMinDistance)",
             rateLimitKey: "settings_applied"
@@ -303,8 +373,11 @@ final class GestureKitRuntime {
     }
 
     func apply(configuration: AppConfiguration) {
+        cancelGestureInput(reason: "configuration_changed")
+        recognitionPlan = try? RecognitionPlan(configuration: configuration)
         recognizer.updateSettings(configuration.recognition)
         recognizer.updateDefinitions(configuration.gestureDefinitions)
+        if latestTouchCount > 0 { _ = recognizer.cancel(at: latestFrameTime) }
         ruleEngine = RuleEngine(configuration: configuration)
         gestureCoordinator.updateRuleEngine(ruleEngine)
         refreshConfigurationSnapshot()
@@ -365,6 +438,8 @@ final class GestureKitRuntime {
             recognition: configuration.recognition
         )
         try (settingsStore as? any AppConfigurationStore)?.saveAppConfiguration(updated)
+        cancelGestureInput(reason: "configuration_changed")
+        recognitionPlan = try? RecognitionPlan(configuration: updated)
         ruleEngine = RuleEngine(overrides: userBindings.overrides, defaultBindings: DefaultRules.v1Bindings)
         gestureCoordinator.updateRuleEngine(ruleEngine)
         refreshConfigurationSnapshot()
@@ -407,7 +482,9 @@ final class GestureKitRuntime {
         }
         do {
             _ = try configurationMigration.importLegacy(recognition: payload.recognitionSettings)
+            cancelGestureInput(reason: "configuration_changed")
             recognizer.updateSettings(payload.recognitionSettings)
+            if latestTouchCount > 0 { _ = recognizer.cancel(at: latestFrameTime) }
             return SettingsAckPayload(
                 applied: true,
                 swipeSensitivity: payload.swipeSensitivity,
@@ -856,16 +933,23 @@ final class GestureKitRuntime {
     /// 候选刚出现便把由绑定配置导出的 guard 特征交给 Provider。这里不传手势名，
     /// 避免 Chrome 端依赖手指数或任何本地识别规则。
     private func handleCandidateGuardArm(sessionID: String, fingerCount: Int) {
-        guard let session = providerSessions.activeSession(),
-              let configuration = try? configurationMigration?.authoritativeConfiguration(),
-              let plan = try? RecognitionPlan(configuration: configuration) else { return }
-        let features = plan.candidateFeatures(fingerCount: fingerCount).map(\.rawValue).sorted()
+        let candidateFeatures = recognitionPlan?.candidateFeatures(fingerCount: fingerCount) ?? []
+        if candidateFeatures.contains(.dragSelection), appContextResolver.currentContext(elementType: .any).browserKind == .chrome {
+            dragInputShield.arm(sessionID: sessionID)
+            shieldSessionID = sessionID
+        }
+        guard let session = providerSessions.activeSession() else { return }
+        let features = candidateFeatures.map(\.rawValue).sorted()
         guard !features.isEmpty else { return }
-        let deadline = currentTimestampMs() + 750
+        // 450ms 合法点按 + 300ms 双击仲裁 + 300ms context/action 预算 + 150ms Provider 余量。
+        // 仅延长页面链接保护；本地输入屏蔽与纯滑动页面 lease 仍上限 800ms。
+        let leaseMs: Int64 = candidateFeatures.contains(.linkClick) ? 1200 : 800
+        let issuedAt = currentTimestampMs()
+        let deadline = issuedAt + leaseMs
         let message = ProviderEnvelope(
             protocolVersion: 2, messageId: UUID().uuidString,
             providerSessionId: session.providerSessionID, gestureSessionId: sessionID,
-            operationId: nil, type: .interactionGuardArm, timestamp: currentTimestampMs(),
+            operationId: nil, type: .interactionGuardArm, timestamp: issuedAt,
             payload: .interactionGuardArm(InteractionGuardPayload(
                 gestureSessionId: sessionID, features: features, deadline: deadline
             )), error: nil
@@ -886,6 +970,24 @@ final class GestureKitRuntime {
             operationId: nil, type: .interactionGuardRelease, timestamp: currentTimestampMs(),
             payload: .interactionGuardRelease(InteractionGuardPayload(
                 gestureSessionId: sessionID, features: [], deadline: currentTimestampMs()
+            )), error: nil
+        )
+        try? providerSessions.send(message, to: session.providerSessionID)
+    }
+
+    private func handleCandidateGuardDiscard(sessionID: String) {
+        pendingCoordinatorSessions.removeValue(forKey: sessionID)
+        pendingCoordinatorGestureInfo.removeValue(forKey: sessionID)
+        guard let session = providerSessions.activeSession() else { return }
+        let message = ProviderEnvelope(
+            protocolVersion: 2, messageId: UUID().uuidString,
+            providerSessionId: session.providerSessionID, gestureSessionId: sessionID,
+            operationId: nil, type: .interactionGuardRelease, timestamp: currentTimestampMs(),
+            payload: .interactionGuardRelease(InteractionGuardPayload(
+                gestureSessionId: sessionID,
+                features: [],
+                deadline: currentTimestampMs(),
+                disposition: .discard
             )), error: nil
         )
         try? providerSessions.send(message, to: session.providerSessionID)

@@ -1,3 +1,4 @@
+import { createInteractionGuardRouter } from "./interactionGuardRouter";
 import { executeGestureAction, executeStandardAction } from "./actionExecutor";
 import { chromeApi } from "./chromeApi";
 import { createNativePortManager } from "./nativePortManager";
@@ -219,7 +220,8 @@ port.onMessage.addListener((message) => {
       return;
     }
     if (envelope.type === "interaction_guard_arm" || envelope.type === "interaction_guard_release") {
-      void routeInteractionGuard(envelope);
+      const payload = envelope.payload;
+      if ("gestureSessionId" in payload) void routeInteractionGuard({ type: envelope.type, payload });
       return;
     }
     void telemetryConnection.then((connection) => connection.handle(envelope));
@@ -236,34 +238,11 @@ port.onMessage.addListener((message) => {
 });
 port.onDisconnect.addListener(handlePortDisconnect);
 
-async function routeInteractionGuard(envelope: ProviderEnvelope): Promise<void> {
-  const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
-  if (!tab?.id) {
-    recordGuardTrace(envelope.gestureSessionId, "forward_failed", "active_tab_unavailable");
-    return;
-  }
-  if (envelope.type === "interaction_guard_arm") {
-    const payload = envelope.payload;
-    if (!("features" in payload) || !payload.features.includes("link_click")) {
-      recordGuardTrace(envelope.gestureSessionId, "forward_skipped", "link_click_not_requested");
-      return;
-    }
-    recordGuardTrace(payload.gestureSessionId, "forwarding", "content_script");
-    const response = await chrome.tabs.sendMessage(tab.id, {
-      type: "gesturekit.linkGuardArm",
-      gestureSessionId: payload.gestureSessionId,
-      leaseMs: Math.max(0, payload.deadline - Date.now())
-    }).catch(() => null) as { status?: string } | null;
-    recordGuardTrace(payload.gestureSessionId, response?.status === "guard_armed" ? "forwarded" : "forward_failed", response?.status ?? "content_script_unavailable");
-    return;
-  }
-  const payload = envelope.payload;
-  if (!("gestureSessionId" in payload)) return;
-  await chrome.tabs.sendMessage(tab.id, {
-    type: "gesturekit.linkGuardRelease",
-    gestureSessionId: payload.gestureSessionId
-  }).catch(() => {});
-}
+const routeInteractionGuard = createInteractionGuardRouter({
+  query: () => chrome.tabs.query({ active: true, lastFocusedWindow: true }),
+  send: (tabId, message) => chrome.tabs.sendMessage(tabId, message, { frameId: 0 }).catch(() => null),
+  trace: recordGuardTrace
+});
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   if (message?.type === "gesturekit.guardTrace") {
@@ -339,7 +318,7 @@ function recordGuardTrace(gestureSessionId: unknown, stage: unknown, detail: unk
     source: "extension",
     kind: "action",
     reason: failed ? "chrome_action_failed" : "success",
-    message: `guard_summary terminal=${stage}:${detail} stages=${summary}`
+    message: `guard_summary session=${gestureSessionId} terminal=${stage}:${detail} stages=${summary}`
   }, GUARD_DIAGNOSTIC_LIMIT);
   if (failed && !diagnosticLoggingEnabled) {
     void persistGuardTraces(gestureSessionId, traces);
@@ -365,11 +344,11 @@ function appendGuardTrace(gestureSessionId: string, trace: GuardTrace, index: nu
 }
 
 function isGuardTerminalStage(stage: string) {
-  return stage === "consume_acknowledged" || stage === "consume_rejected" || stage === "forward_failed" || stage === "lease_expired";
+  return ["consume_acknowledged", "consume_rejected", "forward_failed", "lease_expired", "guard_discarded", "guard_released"].includes(stage);
 }
 
 function isGuardFailureStage(stage: string) {
-  return stage !== "consume_acknowledged";
+  return !["consume_acknowledged", "guard_discarded", "guard_released"].includes(stage);
 }
 
 async function handleConfigurationSnapshot(

@@ -252,12 +252,26 @@ public struct ContextSnapshotPayload: Codable, Sendable, Equatable {
     }
 }
 
+public enum InteractionGuardDisposition: String, Codable, Sendable, Equatable {
+    case restore
+    case discard
+}
+
 public struct InteractionGuardPayload: Codable, Sendable, Equatable {
     public let gestureSessionId: String
     public let features: [String]
     public let deadline: Int64
-    public init(gestureSessionId: String, features: [String], deadline: Int64) {
-        self.gestureSessionId = gestureSessionId; self.features = features; self.deadline = deadline
+    public let disposition: InteractionGuardDisposition?
+    public init(
+        gestureSessionId: String,
+        features: [String],
+        deadline: Int64,
+        disposition: InteractionGuardDisposition? = nil
+    ) {
+        self.gestureSessionId = gestureSessionId
+        self.features = features
+        self.deadline = deadline
+        self.disposition = disposition
     }
 }
 
@@ -878,7 +892,8 @@ public struct ProviderEnvelope: Codable, Sendable, Equatable {
         case .capabilitySnapshot: allowedFields = ["capabilities", "capabilityVersion"]
         case .contextRequest: allowedFields = ["gestureSessionId", "requiresTargetRef", "deadline"]
         case .contextSnapshot: allowedFields = ["contextId", "pageIdentity", "expiresAt", "targetKind", "targetRef"]
-        case .interactionGuardArm, .interactionGuardRelease: allowedFields = ["gestureSessionId", "features", "deadline"]
+        case .interactionGuardArm: allowedFields = ["gestureSessionId", "features", "deadline"]
+        case .interactionGuardRelease: allowedFields = ["gestureSessionId", "features", "deadline", "disposition"]
         case .configurationSnapshot: allowedFields = ["storeEpoch", "schemaVersion", "configurationVersion", "diagnosticLoggingEnabled", "configJSON"]
         case .configurationAck: allowedFields = ["appliedVersion", "applied"]
         case .actionRequest: allowedFields = ["actionId", "contextId", "targetRef", "parameters", "deadline"]

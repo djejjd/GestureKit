@@ -162,6 +162,31 @@ final class ProviderProtocolV2Tests: XCTestCase {
         XCTAssertEqual(payload.features, ["link_click"])
     }
 
+    func testRoundTripInteractionGuardDiscardDisposition() throws {
+        let original = ProviderEnvelope(
+            protocolVersion: 2,
+            messageId: "guard-discard-001",
+            providerSessionId: "session-test",
+            gestureSessionId: "gesture-001",
+            operationId: nil,
+            type: .interactionGuardRelease,
+            timestamp: 1782200001000,
+            payload: .interactionGuardRelease(InteractionGuardPayload(
+                gestureSessionId: "gesture-001",
+                features: [],
+                deadline: 1782200001000,
+                disposition: .discard
+            )),
+            error: nil
+        )
+
+        let decoded = try roundTrip(original)
+        guard case .interactionGuardRelease(let payload) = decoded.payload else {
+            return XCTFail("Round-trip 后 payload 必须为 interactionGuardRelease")
+        }
+        XCTAssertEqual(payload.disposition, .discard)
+    }
+
     // MARK: - Legacy v1 拒绝
 
     /// Provider v2 边界必须拒绝 legacy v1 envelope。
