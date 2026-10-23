@@ -42,34 +42,15 @@ jobs:
         run: swift test --skip MenuBarControllerTests
       - name: swift build
         run: swift build
-      - name: Report test crash frames
+      - name: Backtrace failed runtime test
         if: failure()
         shell: bash
         run: |
-          python3 - <<'PYCRASH'
-          import json
-          from pathlib import Path
-          reports = sorted((Path.home() / "Library/Logs/DiagnosticReports").glob("*.ips"), key=lambda p: p.stat().st_mtime, reverse=True)
-          matched = 0
-          for report in reports:
-              try:
-                  raw = report.read_text()
-                  _, end = json.JSONDecoder().raw_decode(raw)
-                  data = json.loads(raw[end:])
-              except Exception:
-                  continue
-              if "GestureKit" not in data.get("procName", ""):
-                  continue
-              matched += 1
-              print("test_crash", data.get("procName"), "exception", data.get("exception"), "termination", data.get("termination"))
-              for thread in data.get("threads", []):
-                  if thread.get("triggered"):
-                      for frame in thread.get("frames", [])[:24]:
-                          print("frame", {key: frame[key] for key in ("symbol", "sourceFile", "sourceLine", "imageIndex", "imageOffset") if key in frame})
-              if matched >= 2:
-                  break
-          print("matched_crash_reports", matched)
-          PYCRASH
+          test_binary=".build/debug/GestureKitPackageTests.xctest/Contents/MacOS/GestureKitPackageTests"
+          if [[ -x "$test_binary" ]]; then
+            xcrun lldb --batch -o run -o 'thread backtrace' -- "$test_binary" \
+              GestureKitAppTests.RuntimeLifecycleTests/testRuntimeHandshakeActionRequestAndAuthenticatedTelemetryShareOperationTimeline || true
+          fi
 
   extension:
     name: extension
@@ -112,34 +93,15 @@ jobs:
       # （test-link-reliability.sh 先跑 node --test 再 dry-run），不再单独跑一遍。
       - name: link reliability dry-run
         run: zsh scripts/dev/test-link-reliability.sh --dry-run
-      - name: Report test crash frames
+      - name: Backtrace failed runtime test
         if: failure()
         shell: bash
         run: |
-          python3 - <<'PYCRASH'
-          import json
-          from pathlib import Path
-          reports = sorted((Path.home() / "Library/Logs/DiagnosticReports").glob("*.ips"), key=lambda p: p.stat().st_mtime, reverse=True)
-          matched = 0
-          for report in reports:
-              try:
-                  raw = report.read_text()
-                  _, end = json.JSONDecoder().raw_decode(raw)
-                  data = json.loads(raw[end:])
-              except Exception:
-                  continue
-              if "GestureKit" not in data.get("procName", ""):
-                  continue
-              matched += 1
-              print("test_crash", data.get("procName"), "exception", data.get("exception"), "termination", data.get("termination"))
-              for thread in data.get("threads", []):
-                  if thread.get("triggered"):
-                      for frame in thread.get("frames", [])[:24]:
-                          print("frame", {key: frame[key] for key in ("symbol", "sourceFile", "sourceLine", "imageIndex", "imageOffset") if key in frame})
-              if matched >= 2:
-                  break
-          print("matched_crash_reports", matched)
-          PYCRASH
+          test_binary=".build/debug/GestureKitPackageTests.xctest/Contents/MacOS/GestureKitPackageTests"
+          if [[ -x "$test_binary" ]]; then
+            xcrun lldb --batch -o run -o 'thread backtrace' -- "$test_binary" \
+              GestureKitAppTests.RuntimeLifecycleTests/testRuntimeHandshakeActionRequestAndAuthenticatedTelemetryShareOperationTimeline || true
+          fi
 
   # ─────────────────────────────────────────────────────────────────
   # 真实 Chrome 验收（人工关口）。
