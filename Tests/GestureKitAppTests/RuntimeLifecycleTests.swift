@@ -21,6 +21,20 @@ final class RuntimeLifecycleTests: XCTestCase {
         XCTAssertEqual(outbound.latest(of: .controlCenterOpenResponse)?.messageId, request.messageId)
     }
 
+    func testCandidateLinkGuardCoversLongestLegalTapArbitrationAndDispatch() throws {
+        let (runtime, _, _, outbound) = try makeAuthenticatedRuntime(controlCenterOpenHandler: {})
+        _ = runtime.processFrameForTesting(.frame(time: 0, activeTouches: [
+            .touch(1, 0.4, 0.4), .touch(2, 0.42, 0.4), .touch(3, 0.44, 0.4)
+        ]))
+        let arm = try XCTUnwrap(outbound.latest(of: .interactionGuardArm))
+        guard case .interactionGuardArm(let payload) = arm.payload else { return XCTFail("missing guard payload") }
+        let requiredBudget = 450 + GestureSessionCoordinator.centerDoubleTapWindowMs
+            + GestureSessionCoordinator.actionBudgetMs + 150
+        XCTAssertGreaterThanOrEqual(payload.deadline - arm.timestamp, requiredBudget)
+        let tap = runtime.processFrameForTesting(.frame(time: 0.45, activeTouches: []))
+        XCTAssertEqual(tap?.gesture, .threeFingerTap)
+    }
+
     func testUnauthenticatedControlCenterRequestDoesNotInvokeUI() throws {
         var opened = 0
         let runtime = GestureKitRuntime(

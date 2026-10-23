@@ -941,11 +941,15 @@ final class GestureKitRuntime {
         guard let session = providerSessions.activeSession() else { return }
         let features = candidateFeatures.map(\.rawValue).sorted()
         guard !features.isEmpty else { return }
-        let deadline = currentTimestampMs() + 750
+        // 450ms 合法点按 + 300ms 双击仲裁 + 300ms context/action 预算 + 150ms Provider 余量。
+        // 仅延长页面链接保护；本地输入屏蔽与纯滑动页面 lease 仍上限 800ms。
+        let leaseMs: Int64 = candidateFeatures.contains(.linkClick) ? 1200 : 800
+        let issuedAt = currentTimestampMs()
+        let deadline = issuedAt + leaseMs
         let message = ProviderEnvelope(
             protocolVersion: 2, messageId: UUID().uuidString,
             providerSessionId: session.providerSessionID, gestureSessionId: sessionID,
-            operationId: nil, type: .interactionGuardArm, timestamp: currentTimestampMs(),
+            operationId: nil, type: .interactionGuardArm, timestamp: issuedAt,
             payload: .interactionGuardArm(InteractionGuardPayload(
                 gestureSessionId: sessionID, features: features, deadline: deadline
             )), error: nil

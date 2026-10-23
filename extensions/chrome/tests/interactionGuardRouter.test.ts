@@ -56,5 +56,15 @@ describe("interaction guard source routing", () => {
     expect(active).toBe("new");
     expect(send.mock.calls.map(call => call[1].gestureSessionId)).toEqual(["new"]);
   });
+  it("preserves the bounded link arbitration budget without extending drag-only leases", async () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(1000);
+    const send = vi.fn().mockResolvedValue({ status: "guard_armed", documentToken: "page" });
+    const route = createInteractionGuardRouter({ query: vi.fn().mockResolvedValue([{ id: 1 }]), send, trace: vi.fn() });
+    await route({ type: "interaction_guard_arm", payload: { gestureSessionId: "link", features: ["link_click"], deadline: 2200 } });
+    expect(send.mock.calls[0][1].leaseMs).toBe(1200);
+    await route({ type: "interaction_guard_arm", payload: { gestureSessionId: "drag", features: ["drag_selection"], deadline: 2200 } });
+    expect(send.mock.calls[1][1].leaseMs).toBe(800);
+    now.mockRestore();
+  });
 
 });

@@ -29,7 +29,8 @@ export function createInteractionGuardRouter({ query, send, trace }: Dependencie
     if (message.type === "interaction_guard_arm") {
       if (closed.has(id) || entries.has(id)) return;
       const features = payload.features?.filter(value => value === "link_click" || value === "drag_selection") ?? [];
-      const deadline = Math.min(payload.deadline ?? 0, now + 800);
+      const maxLeaseMs = features.includes("link_click") ? 1200 : 800;
+      const deadline = Math.min(payload.deadline ?? 0, now + maxLeaseMs);
       if (!features.length || deadline <= now || entries.size >= 128) {
         trace(id, "forward_failed", "invalid_or_expired_guard"); return;
       }

@@ -68,6 +68,19 @@ describe("candidate drag protection", () => {
     expect(reachedTarget).toBe(true);
   });
 
+  it("keeps a link guard alive through a 450ms tap, arbitration and delayed preflight, then expires", () => {
+    const now = vi.spyOn(performance, "now").mockReturnValue(0);
+    arm(1200, ["link_click", "drag_selection"]);
+    now.mockReturnValue(450 + 300 + 300);
+    let response: any;
+    receive({ type: "gesturekit.guardConsume", gestureSessionId: "swipe", url: "http://localhost:3000/target" }, {}, value => { response = value; });
+    expect(response.status).toBe("guard_consumed");
+    now.mockReturnValue(2000); arm(1200, ["link_click"]);
+    now.mockReturnValue(3201);
+    receive({ type: "gesturekit.guardConsume", gestureSessionId: "swipe" }, {}, value => { response = value; });
+    expect(response.status).toBe("guard_unavailable");
+  });
+
   it("does not turn link-only guard into a drag blocker", () => {
     arm(800, ["link_click"]);
     expect(eventOn("image", "dragstart").defaultPrevented).toBe(false);
