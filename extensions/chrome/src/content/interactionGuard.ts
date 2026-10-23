@@ -3,6 +3,7 @@ export type GuardCommand = {
   gestureSessionId: string;
   issuedAtMonotonicMs: number;
   leaseMs: number;
+  features?: string[];
 };
 
 /** 会被 guard 观测的 DOM 默认行为入口。 */
@@ -29,9 +30,11 @@ type ActiveGuard = GuardCommand & {
  */
 export function createInteractionGuard() {
   let activeGuard: ActiveGuard | null = null;
+  let discardedClick: { gestureSessionId: string; expiresAt: number } | null = null;
 
   /** 在 content script 收到来自后台的命令时启动一次性 lease。 */
   function arm(command: GuardCommand, receivedAtMonotonicMs: number): void {
+    discardedClick = null;
     activeGuard = {
       ...command,
       armedAtMonotonicMs: receivedAtMonotonicMs
@@ -85,6 +88,23 @@ export function createInteractionGuard() {
     return { status: "guard_released" };
   }
 
+  /** 滑动分类可能早于系统 mouseup/click；只在原 lease 内保留 120ms 丢弃窗口。 */
+  function discard(input: { gestureSessionId: string; nowMonotonicMs: number }) {
+    const guard = matchingActiveGuard(input.gestureSessionId, input.nowMonotonicMs);
+    if (!guard) return { status: "guard_unavailable" as const };
+    discardedClick = {
+      gestureSessionId: guard.gestureSessionId,
+      expiresAt: Math.min(guard.armedAtMonotonicMs + guard.leaseMs, input.nowMonotonicMs + 120)
+    };
+    activeGuard = null;
+    return { status: "guard_released" as const };
+  }
+
+  function discarded(now: number) {
+    if (discardedClick && now >= discardedClick.expiresAt) discardedClick = null;
+    return discardedClick;
+  }
+
   function active(nowMonotonicMs: number): ActiveGuard | null {
     if (!activeGuard) return null;
     if (nowMonotonicMs > activeGuard.armedAtMonotonicMs + activeGuard.leaseMs) {
@@ -104,5 +124,5 @@ export function createInteractionGuard() {
     return activeGuard.gestureSessionId === gestureSessionId ? activeGuard : null;
   }
 
-  return { arm, consume, release, observeDOMEvent, active };
+  return { arm, consume, release, discard, discarded, observeDOMEvent, active };
 }

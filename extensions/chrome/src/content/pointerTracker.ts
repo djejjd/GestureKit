@@ -27,6 +27,17 @@ type PointerTrackerState = {
 
 const state = sharedState();
 const interactionGuard = createInteractionGuard();
+const documentToken = crypto.randomUUID();
+
+for (const eventType of ["dragstart", "selectstart"] as const) {
+  window.addEventListener(eventType, (event) => {
+    const guard = interactionGuard.active(performance.now());
+    if (!guard?.features?.includes("drag_selection") || !event.cancelable) return;
+    event.preventDefault();
+    event.stopImmediatePropagation();
+    traceGuard(guard.gestureSessionId, "dom_blocked", eventType);
+  }, { capture: true });
+}
 
 type ResolveOptions = {
   consumeNextClick?: boolean;
@@ -47,6 +58,13 @@ window.addEventListener(
 window.addEventListener(
   "click",
   (event) => {
+    const discarded = interactionGuard.discarded(performance.now());
+    if (discarded && event.cancelable && event.button === 0) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      traceGuard(discarded.gestureSessionId, "click_blocked", "classified_swipe_discard");
+      return;
+    }
     const anchor = linkAnchorForEvent(event);
     const activeGuard = interactionGuard.active(performance.now());
     traceGuard(activeGuard?.gestureSessionId, "click_observed", anchor ? "anchor_resolved" : "anchor_missing");
@@ -65,7 +83,7 @@ window.addEventListener(
       return;
     }
 
-    if (shouldProtectLinkClick(event, anchor) && (state.linkClickProtectionEnabled || activeGuard)) {
+    if (shouldProtectLinkClick(event, anchor) && (state.linkClickProtectionEnabled || activeGuard?.features?.some(feature => feature === "link_click" || feature === "drag_selection"))) {
       protectLinkClick(event, anchor.href, activeGuard?.gestureSessionId ?? null);
       traceGuard(activeGuard?.gestureSessionId, "click_blocked", "active_guard");
       return;
@@ -291,15 +309,20 @@ function sharedState(): PointerTrackerState {
 
 if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+    if (message.documentToken && message.documentToken !== documentToken) {
+      sendResponse({ status: "guard_unavailable" });
+      return false;
+    }
     if (message.type === "gesturekit.linkGuardArm") {
       const command: GuardCommand = {
         gestureSessionId: message.gestureSessionId,
         issuedAtMonotonicMs: performance.now(),
-        leaseMs: message.leaseMs
+        leaseMs: Math.min(800, Math.max(0, message.leaseMs)),
+        features: message.features ?? ["link_click"]
       };
       interactionGuard.arm(command, performance.now());
       traceGuard(command.gestureSessionId, "armed", "content_script_ack");
-      sendResponse({ status: "guard_armed", gestureSessionId: command.gestureSessionId });
+      sendResponse({ status: "guard_armed", gestureSessionId: command.gestureSessionId, documentToken });
       return false;
     }
     if (message.type === "gesturekit.linkGuardRelease") {
@@ -310,7 +333,7 @@ if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
     }
     if (message.type === "gesturekit.linkGuardDiscard") {
       const discarded = discardProtectedClick(message.gestureSessionId);
-      const guard = interactionGuard.release({ gestureSessionId: message.gestureSessionId, nowMonotonicMs: performance.now() });
+      const guard = interactionGuard.discard({ gestureSessionId: message.gestureSessionId, nowMonotonicMs: performance.now() });
       // 即使原始 click 尚未来得及写入本地暂存，匹配的 guard 也已被安全丢弃；
       // 对调用方保持一致的终态，且绝不能在这里恢复导航。
       sendResponse(
@@ -323,7 +346,7 @@ if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
     if (message.type === "gesturekit.guardArm") {
       const command = message as GuardCommand & { type: "gesturekit.guardArm" };
       interactionGuard.arm(command, performance.now());
-      sendResponse({ status: "guard_armed", gestureSessionId: command.gestureSessionId });
+      sendResponse({ status: "guard_armed", gestureSessionId: command.gestureSessionId, documentToken });
       return false;
     }
     if (message.type === "gesturekit.guardRelease") {
@@ -334,7 +357,7 @@ if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
     }
     if (message.type === "gesturekit.guardConsume") {
       const protectedClick = state.protectedLinkClick;
-      if (protectedClick?.gestureSessionId === message.gestureSessionId) {
+      if (protectedClick && protectedClick.gestureSessionId === message.gestureSessionId) {
         clearTimeout(protectedClick.timeout);
         state.protectedLinkClick = null;
         state.consumedProtectedClick = {
