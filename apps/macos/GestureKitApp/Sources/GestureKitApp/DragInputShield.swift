@@ -11,14 +11,42 @@ protocol DragInputShield: AnyObject {
     func stop()
 }
 
+/// 回调持有稳定的间接引用；护盾析构后，等待主队列清理期间事件只透传。
+@MainActor
+private final class ShieldCallbackContext {
+    weak var owner: NativeDragInputShield?
+}
+
+/// 资源操作均在主队列；对象析构只调度这个 Sendable 生命周期对象，
+/// 不调用 macOS 15 的 isolated-deinit 回部署 thunk，也不留下悬空 userInfo。
+@MainActor
+private final class ShieldTapResources {
+    var tap: CFMachPort?
+    var source: CFRunLoopSource?
+    var timer: Timer?
+    let context = ShieldCallbackContext()
+
+    func invalidate() {
+        timer?.invalidate()
+        timer = nil
+        if let tap { CGEvent.tapEnable(tap: tap, enable: false); CFMachPortInvalidate(tap) }
+        if let source { CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes) }
+        source = nil
+        tap = nil
+    }
+
+    nonisolated func scheduleInvalidation() {
+        // 强持有 resources/context，直到主队列停止 tap；回调的 weak owner 此时可已为 nil。
+        DispatchQueue.main.async { self.invalidate() }
+    }
+}
+
 /// 只注册左键事件，不请求权限、不修改系统偏好。lease 到期后输入始终透传。
 /// event tap 与触控候选都在主 run loop；系统超时会自动禁用 tap，回调不做磁盘 I/O。
 @MainActor
 final class NativeDragInputShield: DragInputShield {
     private var state = DragInputShieldState()
-    private var tap: CFMachPort?
-    private var source: CFRunLoopSource?
-    private var timer: Timer?
+    private let resources = ShieldTapResources()
     private var running = false
     private var unavailableReason = "event_tap_create_failed"
     private let logger: GestureKitLogger
@@ -30,9 +58,10 @@ final class NativeDragInputShield: DragInputShield {
     }) {
         self.logger = logger
         self.isChromeFrontmost = isChromeFrontmost
+        resources.context.owner = self
     }
 
-    isolated deinit { stop() }
+    deinit { resources.scheduleInvalidation() }
 
     func start() {
         running = true
@@ -66,12 +95,7 @@ final class NativeDragInputShield: DragInputShield {
     func stop() {
         running = false
         cancel(reason: "stopped")
-        timer?.invalidate()
-        timer = nil
-        if let tap { CGEvent.tapEnable(tap: tap, enable: false); CFMachPortInvalidate(tap) }
-        if let source { CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes) }
-        source = nil
-        tap = nil
+        resources.invalidate()
     }
 
     private func installIfNeeded() -> Bool {
@@ -79,7 +103,7 @@ final class NativeDragInputShield: DragInputShield {
         guard CGPreflightListenEventAccess() else { unavailableReason = "input_monitoring_not_granted"; return false }
         guard AXIsProcessTrusted() else { unavailableReason = "accessibility_not_granted"; return false }
         unavailableReason = "event_tap_create_failed"
-        if let tap {
+        if let tap = resources.tap {
             let enabled = CGEvent.tapIsEnabled(tap: tap)
             if !enabled { unavailableReason = "event_tap_disabled" }
             return enabled
@@ -89,7 +113,7 @@ final class NativeDragInputShield: DragInputShield {
         guard let created = CGEvent.tapCreate(
             tap: .cghidEventTap, place: .headInsertEventTap, options: .defaultTap,
             eventsOfInterest: mask, callback: Self.callback,
-            userInfo: Unmanaged.passUnretained(self).toOpaque()
+            userInfo: Unmanaged.passUnretained(resources.context).toOpaque()
         ) else { return false }
         guard let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, created, 0) else {
             CFMachPortInvalidate(created)
@@ -98,8 +122,8 @@ final class NativeDragInputShield: DragInputShield {
         if CGEventSource.buttonState(.combinedSessionState, button: .left) {
             _ = state.suppress(.down, now: Self.now())
         }
-        tap = created
-        self.source = source
+        resources.tap = created
+        resources.source = source
         CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
         CGEvent.tapEnable(tap: created, enable: true)
         let timer = Timer(timeInterval: 0.05, repeats: true) { [weak self] _ in
@@ -109,22 +133,22 @@ final class NativeDragInputShield: DragInputShield {
                 self.expire(now: Self.now())
             }
         }
-        self.timer = timer
+        resources.timer = timer
         RunLoop.main.add(timer, forMode: .common)
         return true
     }
 
     private static let callback: CGEventTapCallBack = { _, type, event, userInfo in
         guard let userInfo else { return Unmanaged.passUnretained(event) }
-        let shield = Unmanaged<NativeDragInputShield>.fromOpaque(userInfo).takeUnretainedValue()
-        let suppressed = MainActor.assumeIsolated { shield.handleEvent(type) }
+        let context = Unmanaged<ShieldCallbackContext>.fromOpaque(userInfo).takeUnretainedValue()
+        let suppressed = MainActor.assumeIsolated { context.owner?.handleEvent(type) ?? false }
         return suppressed ? nil : Unmanaged.passUnretained(event)
     }
 
     private func handleEvent(_ type: CGEventType) -> Bool {
         if type == .tapDisabledByTimeout || type == .tapDisabledByUserInput {
             cancel(reason: type == .tapDisabledByTimeout ? "tap_timeout" : "tap_disabled")
-            if type == .tapDisabledByTimeout, CGPreflightListenEventAccess(), AXIsProcessTrusted(), let tap {
+            if type == .tapDisabledByTimeout, CGPreflightListenEventAccess(), AXIsProcessTrusted(), let tap = resources.tap {
                 CGEvent.tapEnable(tap: tap, enable: true)
             }
             return false
