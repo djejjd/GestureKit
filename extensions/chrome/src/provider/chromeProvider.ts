@@ -75,18 +75,19 @@ export class ChromeProvider {
     const tab = await activeTab(this.api);
     if (!tab?.id) return unavailable("page_unavailable", request.deadline);
     const pageIdentityInfo = pageIdentityFromTabURL(tab.url);
-    if (!pageIdentityInfo) return unavailable("page_unavailable", request.deadline);
-    const pageIdentity = request.requiresTargetRef && (pageIdentityInfo.protocol !== "http:" && pageIdentityInfo.protocol !== "https:") ? "" : pageIdentityInfo.identity;
+    const supportsLinkTarget = pageIdentityInfo?.protocol === "http:" || pageIdentityInfo?.protocol === "https:";
+    const pageIdentity = request.requiresTargetRef && !supportsLinkTarget ? "" : pageIdentityInfo?.identity ?? "";
     const contextId = crypto.randomUUID();
     const expiresAt = request.deadline;
-    // 尽早存储 context 使 preflight 能找到它，不受 unavailable 返回路径影响
+    // 标签动作只依赖有效 tab，不依赖导航是否已提交 URL 或 content script 是否就绪。
+    // 即使无法解析页面，也要先登记会话绑定的 context；链接目标仍单独 fail-closed。
     this.contexts.set(contextId, {
       gestureSessionId: request.gestureSessionId,
       tabId: tab.id,
       expiresAt,
       allowedActionIds: request.requiresTargetRef ? undefined : NON_TARGET_ACTION_IDS
     });
-    if (request.requiresTargetRef && pageIdentityInfo.protocol !== "http:" && pageIdentityInfo.protocol !== "https:") {
+    if (request.requiresTargetRef && !supportsLinkTarget) {
       return { contextId, expiresAt, targetKind: "page_unavailable", pageIdentity };
     }
     if (!request.requiresTargetRef) {
