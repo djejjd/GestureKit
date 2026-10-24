@@ -6,6 +6,22 @@ import type { ProviderEnvelope } from "../src/provider/protocol";
 import { createOperationLedgerStore } from "../src/provider/operationLedger";
 
 describe("V2Dispatcher", () => {
+  it("does not start a queued action after its Native connection generation closes", async () => {
+    const contexts = new ContextProvider();
+    const sent: ProviderEnvelope[] = [];
+    const store = await createOperationLedgerStore(`dispatcher-disconnect-${crypto.randomUUID()}`);
+    let active = true;
+    let executions = 0;
+    const accept = store.acceptWithDisposition.bind(store);
+    store.acceptWithDisposition = async (...args) => { const result = await accept(...args); active = false; return result; };
+    const adapter = new ChromeActionAdapter(contexts, async () => { executions++; });
+    const dispatcher = new V2Dispatcher(contexts, adapter, async () => null, message => sent.push(message), store, "producer", undefined, () => active);
+    const snapshot = contexts.snapshot("https://example.test", Date.now(), 2_000);
+    await dispatcher.handle(actionRequest(snapshot.contextId, snapshot.targetRef!, "disconnect-op"));
+    expect(executions).toBe(0);
+    await expect(store.status("disconnect-op")).resolves.toMatchObject({ state: "failed" });
+    expect(sent[0]?.payload).toMatchObject({ outcome: "failed", reason: "provider_disconnected" });
+  });
   it("responds to context_request then executes the matching action_request", async () => {
     const contexts = new ContextProvider();
     const sent: ProviderEnvelope[] = [];

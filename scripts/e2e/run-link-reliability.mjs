@@ -661,7 +661,7 @@ class FixtureHttpServer {
 // CDP 客户端（基于 Node 内置 WebSocket）
 // ═══════════════════════════════════════════════════════════════════
 
-class CDPClient {
+export class CDPClient {
   #ws;
   #callbacks = new Map();
   #msgId = 0;

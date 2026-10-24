@@ -19,7 +19,7 @@ export type ActionRequest = {
   deadline: number;
   parameters?: Record<string, string>;
 };
-export type ActionResult = { status: "success" | "guard_unavailable" | "guard_expired" | "context_expired" | "target_not_found" | "page_unavailable" | "edge_reached" | "chrome_api_error" };
+export type ActionResult = { status: "success" | "guard_unavailable" | "guard_expired" | "context_expired" | "target_not_found" | "page_unavailable" | "edge_reached" | "chrome_api_error" | "provider_disconnected" | "result_unknown" };
 export type OperationStatusResponse = { operationId: string; status: "accepted" | "success" | "failed" | "result_unknown" | "not_found" };
 
 type PointerResolution =
@@ -185,15 +185,45 @@ export class ChromeProvider {
     return { status: "ready", url };
   }
 
-  async executeAccepted(request: ActionRequest, url?: string): Promise<ActionResult> {
+  async executeAccepted(request: ActionRequest, url?: string, isActive: () => boolean = () => true): Promise<ActionResult> {
     this.statuses.set(request.operationId, { operationId: request.operationId, status: "accepted" });
+    let effectStarted = false;
+    const effect = <T>(operation: () => Promise<T>): Promise<T> => {
+      if (!isActive()) throw new Error("provider_disconnected");
+      effectStarted = true;
+      return operation();
+    };
+    // Check immediately at each Chrome side-effect boundary, including after
+    // executor queries and between multi-step operations such as close-current.
+    const api: ChromeApi = {
+      tabs: {
+        query: query => this.api.tabs.query(query),
+        create: args => effect(() => this.api.tabs.create(args)),
+        update: (id, args) => effect(() => this.api.tabs.update(id, args)),
+        remove: ids => effect(() => this.api.tabs.remove(ids)),
+        reload: (...args) => effect(() => this.api.tabs.reload(...args)),
+        goBack: id => effect(() => this.api.tabs.goBack(id)),
+        goForward: id => effect(() => this.api.tabs.goForward(id)),
+        sendMessage: (id, message) => effect(() => this.api.tabs.sendMessage(id, message))
+      }, sessions: { restore: (...args) => effect(() => this.api.sessions.restore(...args)) }
+    };
     try {
-      const result = await executeStandardAction(this.api, request.actionId, url, request.parameters);
+      const result = await executeStandardAction(api, request.actionId, url, request.parameters);
+      if (!isActive() && result.status !== "success") {
+        const status = effectStarted ? "result_unknown" : "provider_disconnected";
+        this.statuses.set(request.operationId, { operationId: request.operationId, status: effectStarted ? "result_unknown" : "failed" });
+        return { status };
+      }
       const status = result.status === "success" ? "success" : result.status;
       this.statuses.set(request.operationId, { operationId: request.operationId, status: status === "success" ? "success" : "failed" });
       if (status !== "success") await this.releaseCurrentGuard(request.gestureSessionId);
       return { status };
     } catch {
+      if (!isActive()) {
+        const status = effectStarted ? "result_unknown" : "provider_disconnected";
+        this.statuses.set(request.operationId, { operationId: request.operationId, status: effectStarted ? "result_unknown" : "failed" });
+        return { status };
+      }
       this.statuses.set(request.operationId, { operationId: request.operationId, status: "failed" });
       await this.releaseCurrentGuard(request.gestureSessionId);
       return { status: "chrome_api_error" };

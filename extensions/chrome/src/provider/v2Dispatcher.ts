@@ -15,7 +15,8 @@ export class V2Dispatcher {
     private readonly send: Send,
     private readonly ledger: OperationLedgerStore,
     private readonly producerSessionId: string,
-    private readonly chromeProvider?: ChromeProvider
+    private readonly chromeProvider?: ChromeProvider,
+    private readonly isActive: (envelope: ProviderEnvelope) => boolean = () => true
   ) {}
 
   async handle(envelope: ProviderEnvelope): Promise<void> {
@@ -37,6 +38,7 @@ export class V2Dispatcher {
       return;
     }
     if (envelope.type === "action_request") {
+      if (!this.isActive(envelope)) { this.sendActionResult(envelope, "failed", "provider_disconnected"); return; }
       const action = envelope.payload as ActionDescriptor;
       const operationId = envelope.operationId!;
       const livePreflight = this.chromeProvider && await this.chromeProvider.preflight({ operationId, actionId: action.actionId, contextId: action.contextId, targetRef: action.targetRef, gestureSessionId: envelope.gestureSessionId!, deadline: action.deadline });
@@ -64,12 +66,18 @@ export class V2Dispatcher {
         this.sendActionResult(envelope, duplicate.outcome, duplicate.reason);
         return;
       }
+      if (!this.isActive(envelope)) {
+        await this.finalizeAndSend(envelope, operationId, "failed", "provider_disconnected", acceptedEvent.eventId);
+        return;
+      }
       try {
         const result = this.chromeProvider
-          ? await this.chromeProvider.executeAccepted({ operationId, actionId: action.actionId, contextId: action.contextId, targetRef: action.targetRef, gestureSessionId: envelope.gestureSessionId!, deadline: action.deadline, parameters: action.parameters }, livePreflight?.url)
+          ? await this.chromeProvider.executeAccepted({ operationId, actionId: action.actionId, contextId: action.contextId, targetRef: action.targetRef, gestureSessionId: envelope.gestureSessionId!, deadline: action.deadline, parameters: action.parameters }, livePreflight?.url, () => this.isActive(envelope))
           : await this.actions.execute(action);
-        const outcome: ActionResultOutcome = ("outcome" in result ? result.outcome === "succeeded" : result.status === "success") ? "succeeded" : "failed";
-        const reason: ActionResultReason = "outcome" in result && result.outcome === "failed" ? result.reason : outcome === "succeeded" ? "completed" : "chrome_api_error";
+        const interrupted = "status" in result && (result.status === "provider_disconnected" || result.status === "result_unknown");
+        const outcome: ActionResultOutcome = "status" in result && result.status === "result_unknown" ? "result_unknown"
+          : ("outcome" in result ? result.outcome === "succeeded" : result.status === "success") ? "succeeded" : "failed";
+        const reason: ActionResultReason = interrupted ? "provider_disconnected" : "outcome" in result && result.outcome === "failed" ? result.reason : outcome === "succeeded" ? "completed" : "chrome_api_error";
         await this.finalizeAndSend(envelope, operationId, outcome, reason, acceptedEvent.eventId);
       } catch {
         await this.finalizeAndSend(envelope, operationId, "failed", "chrome_api_error", acceptedEvent.eventId);
