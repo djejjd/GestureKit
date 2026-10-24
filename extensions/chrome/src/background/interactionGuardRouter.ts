@@ -16,11 +16,13 @@ export function createInteractionGuardRouter({ query, send, trace }: Dependencie
   // 有界墓碑防止 release 先到时迟到 arm 复活旧候选；每次消息顺便过期清理。
   const closed = new Map<string, number>();
   let latestArmSequence = 0;
+  let disposed = false;
   const close = (id: string) => {
     closed.set(id, Date.now() + 1600);
     if (closed.size > 256) closed.delete(closed.keys().next().value!);
   };
-  return async (message: GuardMessage): Promise<void> => {
+  const route = async (message: GuardMessage): Promise<void> => {
+    if (disposed) return;
     const now = Date.now();
     for (const [id, entry] of entries) if (entry.deadline <= now) { entries.delete(id); close(id); }
     for (const [id, deadline] of closed) if (deadline <= now) closed.delete(id);
@@ -37,7 +39,7 @@ export function createInteractionGuardRouter({ query, send, trace }: Dependencie
       const sequence = ++latestArmSequence;
       const ready = (async (): Promise<Source | null> => {
         const [tab] = await query();
-        if (closed.has(id) || sequence !== latestArmSequence) {
+        if (disposed || closed.has(id) || sequence !== latestArmSequence) {
           trace(id, "guard_discarded", "superseded_before_arm"); return null;
         }
         if (tab?.id === undefined || Date.now() >= deadline) {
@@ -63,12 +65,31 @@ export function createInteractionGuardRouter({ query, send, trace }: Dependencie
     try {
       const source = await entry.ready;
       if (!source) return;
+      const discarding = disposed || payload.disposition === "discard";
       const response = await send(source.tabID, {
-        type: payload.disposition === "discard" ? "gesturekit.linkGuardDiscard" : "gesturekit.linkGuardRelease",
+        type: discarding ? "gesturekit.linkGuardDiscard" : "gesturekit.linkGuardRelease",
         gestureSessionId: id, documentToken: source.documentToken
       });
-      trace(id, !response?.status || response.status === "guard_unavailable" ? "forward_failed" : payload.disposition === "discard" ? "guard_discarded" : "guard_released", response?.status ?? "release_unavailable");
+      trace(id, !response?.status || response.status === "guard_unavailable" ? "forward_failed" : discarding ? "guard_discarded" : "guard_released", response?.status ?? "release_unavailable");
     } catch { trace(id, "forward_failed", "release_unavailable"); }
     finally { entries.delete(id); }
   };
+  return Object.assign(route, {
+    async dispose() {
+      if (disposed) return;
+      disposed = true;
+      const pending = [...entries.entries()];
+      entries.clear(); closed.clear();
+      await Promise.all(pending.map(async ([id, entry]) => {
+        if (entry.released) return; // The existing release continuation owns cleanup.
+        entry.released = true;
+        const source = await entry.ready;
+        if (!source) return;
+        try {
+          await send(source.tabID, { type: "gesturekit.linkGuardDiscard", gestureSessionId: id, documentToken: source.documentToken });
+          trace(id, "guard_discarded", "provider_session_closed");
+        } catch { trace(id, "forward_failed", "dispose_unavailable"); }
+      }));
+    }
+  });
 }

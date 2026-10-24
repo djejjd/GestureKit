@@ -1,5 +1,37 @@
 import { describe, expect, it, vi } from "vitest";
 import { createInteractionGuardRouter } from "../src/background/interactionGuardRouter";
+
+it("does not arm after a pending tab query is disposed", async () => {
+  let finish!: (tabs: { id: number }[]) => void;
+  const query = () => new Promise<{ id: number }[]>(resolve => { finish = resolve; });
+  const send = vi.fn(async () => ({ status: "guard_armed" }));
+  const route = createInteractionGuardRouter({ query, send, trace: () => {} });
+  const pending = route({ type: "interaction_guard_arm", payload: { gestureSessionId: "old", features: ["drag_selection"], deadline: Date.now() + 800 } });
+  route.dispose(); finish([{ id: 10 }]); await pending;
+  expect(send).not.toHaveBeenCalled();
+});
+
+it("discards an armed guard exactly once on dispose", async () => {
+  const send = vi.fn(async () => ({ status: "guard_armed", documentToken: "page" }));
+  const route = createInteractionGuardRouter({ query: async () => [{ id: 10 }], send, trace: () => {} });
+  await route({ type: "interaction_guard_arm", payload: { gestureSessionId: "old", features: ["drag_selection"], deadline: Date.now() + 800 } });
+  await route.dispose(); await route.dispose();
+  expect(send.mock.calls).toHaveLength(2);
+  expect(send).toHaveBeenLastCalledWith(10, { type: "gesturekit.linkGuardDiscard", gestureSessionId: "old", documentToken: "page" });
+});
+
+it("discards a late arm acknowledgement on its original page after dispose", async () => {
+  let acknowledge!: (response: { status: string; documentToken: string }) => void;
+  const send = vi.fn().mockImplementationOnce(() => new Promise(resolve => { acknowledge = resolve; }))
+    .mockResolvedValue({ status: "guard_discarded" });
+  const route = createInteractionGuardRouter({ query: async () => [{ id: 10 }], send, trace: () => {} });
+  const arming = route({ type: "interaction_guard_arm", payload: { gestureSessionId: "old", features: ["drag_selection"], deadline: Date.now() + 800 } });
+  await Promise.resolve();
+  const cleanup = route.dispose();
+  acknowledge({ status: "guard_armed", documentToken: "original-page" });
+  await Promise.all([arming, cleanup]);
+  expect(send).toHaveBeenLastCalledWith(10, { type: "gesturekit.linkGuardDiscard", gestureSessionId: "old", documentToken: "original-page" });
+});
 const arm = (id = "session") => ({ type: "interaction_guard_arm", payload: { gestureSessionId: id, features: ["drag_selection"], deadline: Date.now() + 750 } });
 const release = (id = "session") => ({ type: "interaction_guard_release", payload: { gestureSessionId: id, disposition: "discard" } });
 describe("interaction guard source routing", () => {

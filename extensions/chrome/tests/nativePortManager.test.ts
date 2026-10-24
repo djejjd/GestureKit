@@ -18,6 +18,16 @@ function gestureMessage(
 }
 
 describe("createNativePortManager", () => {
+  it("disposes a pending edge tap before it can execute on a closed connection", async () => {
+    vi.useFakeTimers();
+    const executeAction = vi.fn();
+    const manager = createNativePortManager({ port: { postMessage: vi.fn() },
+      resolveLastPointer: async () => ({ status: "no_target" }), executeAction });
+    await manager.handleNativeMessage(gestureMessage("three_finger_tap", { touchX: 0.2, durationMs: 96 }));
+    manager.dispose(); manager.dispose();
+    await vi.advanceTimersByTimeAsync(400);
+    expect(executeAction).not.toHaveBeenCalled();
+  });
   afterEach(() => {
     vi.useRealTimers();
   });

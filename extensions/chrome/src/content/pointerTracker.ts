@@ -1,3 +1,4 @@
+import { beginContentLifecycle } from "./contentLifecycle";
 import { resolveLinkAtPoint } from "./linkResolver";
 import { createInteractionGuard, type GuardCommand } from "./interactionGuard";
 
@@ -27,9 +28,16 @@ type PointerTrackerState = {
 const state = sharedState();
 const interactionGuard = createInteractionGuard();
 const documentToken = crypto.randomUUID();
+declare const __GESTUREKIT_BUILD_ID__: string | undefined;
+const BUILD_ID = typeof __GESTUREKIT_BUILD_ID__ !== "undefined" ? __GESTUREKIT_BUILD_ID__ : "unbuilt";
+const lifecycle = beginContentLifecycle(() => {
+  resetTransientClickState();
+  state.lastPointer = null;
+  state.timedOutAndNavigated = false;
+});
 
 for (const eventType of ["dragstart", "selectstart"] as const) {
-  window.addEventListener(eventType, (event) => {
+  lifecycle.on(eventType, (event) => {
     const guard = interactionGuard.active(performance.now());
     if (!guard?.features?.includes("drag_selection") || !event.cancelable) return;
     event.preventDefault();
@@ -42,7 +50,7 @@ type ResolveOptions = {
   consumeNextClick?: boolean;
 };
 
-window.addEventListener(
+lifecycle.on(
   "pointermove",
   (event) => {
     state.lastPointer = {
@@ -54,7 +62,7 @@ window.addEventListener(
   { passive: true }
 );
 
-window.addEventListener(
+lifecycle.on(
   "click",
   (event) => {
     const discarded = interactionGuard.discarded(performance.now());
@@ -227,6 +235,7 @@ function protectLinkClick(event: MouseEvent, url: string, gestureSessionId: stri
     gestureSessionId,
     timestamp: Date.now(),
     timeout: setTimeout(() => {
+      if (!lifecycle.valid()) return;
       // 保护到期：若 GestureKit 已消费（consumeProtectedLinkClick 会
       // clearTimeout 此定时器），回调不会执行。未消费时直接导航，
       // 标记 timedOutAndNavigated，让晚到的手势跳过重复打开。
@@ -310,7 +319,11 @@ function sharedState(): PointerTrackerState {
 }
 
 if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
-  chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+  lifecycle.onMessage((message, _sender, sendResponse) => {
+    if (message.type === "gesturekit.contentVersion") {
+      sendResponse({ buildId: BUILD_ID, documentToken });
+      return false;
+    }
     if (message.documentToken && message.documentToken !== documentToken) {
       sendResponse({ status: "guard_unavailable" });
       return false;

@@ -26,17 +26,20 @@ const DOUBLE_TAP_WINDOW_MS = 300;
 export function createNativePortManager(deps: Dependencies) {
   let pendingTap: { id: string; timer: ReturnType<typeof setTimeout>; startedAt: number; zone: TapZone; pendingAction: string } | null = null;
   let cooldownUntil = 0;
+  let disposed = false;
 
   async function currentSettings() {
     return deps.getSettings ? deps.getSettings() : GESTURE_SETTINGS_PRESETS.safe;
   }
 
   async function executeAndPost(id: string, intent: GestureIntent) {
+    if (disposed) return;
     postActionResult(actionResultFromExecution(id, await deps.executeAction(intent)));
     cooldownUntil = Date.now() + (await currentSettings()).cooldownMs;
   }
 
   function postActionResult(message: ActionResultMessage) {
+    if (disposed) return;
     deps.port.postMessage(message);
     deps.onActionResult?.(message);
   }
@@ -81,12 +84,18 @@ export function createNativePortManager(deps: Dependencies) {
   }
 
   return {
+    dispose() {
+      if (disposed) return;
+      clearPendingTap("connection_closed");
+      disposed = true;
+    },
     async handleNativeMessage(message: GestureEventMessage) {
-      if (message.version !== 1 || message.type !== "gesture_event") {
+      if (disposed || message.version !== 1 || message.type !== "gesture_event") {
         return;
       }
 
       const settings = await currentSettings();
+      if (disposed) return;
 
       if (message.payload.gesture === "three_finger_tap") {
         if (Date.now() < cooldownUntil) {
@@ -104,6 +113,7 @@ export function createNativePortManager(deps: Dependencies) {
         }
 
         const resolved = await deps.resolveLastPointer();
+        if (disposed) return;
         if (resolved.status !== "success") {
           const tapZone = tapZoneFromTouchX(message.payload.touchX, resolved.status, settings);
           if (tapZone) {

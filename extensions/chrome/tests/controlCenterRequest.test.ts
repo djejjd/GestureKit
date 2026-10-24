@@ -2,6 +2,18 @@ import { describe, expect, it, vi } from "vitest";
 import { createControlCenterRequestForwarder } from "../src/background/controlCenterRequest";
 
 describe("control center open request", () => {
+  it("settles pending requests and releases their timers/listener on dispose", async () => {
+    vi.useFakeTimers();
+    const port = { postMessage: vi.fn(), onMessage: { addListener: vi.fn(), removeListener: vi.fn() } };
+    const forward = createControlCenterRequestForwarder(() => port, () => "session");
+    const pending = forward.open();
+    forward.dispose(); forward.dispose();
+    await expect(pending).resolves.toEqual({ status: "unavailable" });
+    expect(vi.getTimerCount()).toBe(0);
+    expect(port.onMessage.removeListener).toHaveBeenCalledTimes(1);
+    await expect(forward.open()).resolves.toEqual({ status: "unavailable" });
+    vi.useRealTimers();
+  });
   it("forwards through the authenticated Provider v2 session and resolves the App response", async () => {
     let inbound: ((message: unknown) => void) | undefined;
     const port = {
