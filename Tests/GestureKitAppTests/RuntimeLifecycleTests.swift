@@ -78,7 +78,8 @@ final class RuntimeLifecycleTests: XCTestCase {
             operationJournal: journal,
             providerSessions: sessions,
             appContextResolver: AppContextResolver(bundleIdProvider: { "com.google.Chrome" }),
-            providerOutboundSink: { outbound.append($0) }
+            providerOutboundSink: { outbound.append($0) },
+            threeFingerDragEnabled: { false }
         )
         let connectionID = UUID()
         let installID = "chrome-telemetry-test"

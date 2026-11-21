@@ -6,6 +6,8 @@ import Foundation
 /// - `com.apple.AppleMultitouchTrackpad`
 /// - `com.apple.driver.AppleBluetoothMultitouch.trackpad`
 enum SystemGestureSetting: String, CaseIterable {
+    /// 三指拖移（TrackpadThreeFingerDrag）。
+    case threeFingerDrag = "three_finger_drag"
     /// 「在页面间轻扫」使用双指（TrackpadTwoFingerHorizSwipeGesture）。
     case twoFingerPageSwipe = "two_finger_page_swipe"
     /// 「在页面间轻扫」使用三指（TrackpadThreeFingerHorizSwipeGesture）。
@@ -34,6 +36,7 @@ enum TrackpadPreferenceReader {
 
     private static func keys(for setting: SystemGestureSetting) -> [String] {
         switch setting {
+        case .threeFingerDrag: return ["TrackpadThreeFingerDrag"]
         case .twoFingerPageSwipe: return ["TrackpadTwoFingerHorizSwipeGesture"]
         case .threeFingerPageSwipe: return ["TrackpadThreeFingerHorizSwipeGesture"]
         case .fourFingerAppSwipe: return ["TrackpadFourFingerHorizSwipeGesture"]

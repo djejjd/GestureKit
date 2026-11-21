@@ -25,6 +25,9 @@ final class GestureKitRuntime {
     /// 与控制中心共用的操作账本；仅记录已进入 Provider 操作生命周期的事件。
     private let operationJournal: (any OperationJournaling)?
     private let diagnosticSink: (LocalIPCEnvelope) -> Void
+    /// 系统三指拖移与 GestureKit 三指滑动共用同一物理输入；
+    /// 用于裁剪冲突期的保护特征，并抑制无法可靠区分的三指 swipe。
+    private let threeFingerDragEnabled: () -> Bool
     private var listeningTask: Task<Void, Never>?
     private var eventServer: LocalEventServer?
     private let providerSessions: ProviderSessionRegistry
@@ -87,6 +90,9 @@ final class GestureKitRuntime {
         controlCenterOpenHandler: @escaping () -> Void = {},
         diagnosticSink: @escaping (LocalIPCEnvelope) -> Void = { _ in },
         dragInputShield: (any DragInputShield)? = nil,
+        threeFingerDragEnabled: @escaping () -> Bool = {
+            TrackpadPreferenceReader.isEnabled(.threeFingerDrag)
+        },
         e2eControlToken: String? = nil
     ) {
         self.menuBarHandler = menuBarHandler
@@ -109,6 +115,7 @@ final class GestureKitRuntime {
         self.providerOutboundSink = providerOutboundSink
         self.controlCenterOpenHandler = controlCenterOpenHandler
         self.diagnosticSink = diagnosticSink
+        self.threeFingerDragEnabled = threeFingerDragEnabled
         // Task 4：优先从用户绑定覆盖构建 RuleEngine；无覆盖时回退权威配置/存量规则。
         let userBindings = (try? settingsStore.loadBindingOverrides()) ?? []
         if !userBindings.isEmpty {
@@ -293,6 +300,18 @@ final class GestureKitRuntime {
                 if let gesture = recognized.gesture, gesture.rawValue.contains("swipe"), let id = lastCandidateSessionID {
                     // 滑动不恢复同次暂存点击；在动作切换标签之前发给原页面。
                     handleCandidateGuardDiscard(sessionID: id)
+                }
+                if shouldSuppressThreeFingerSwipe(recognized) {
+                    // 预览策略：系统三指拖移与三指横向滑动共用同一物理输入，当前没有
+                    // DOM 拖选证据可区分两者。保留识别结果用于诊断，但不进入 context/action。
+                    if let sessionID = lastCandidateSessionID {
+                        logger.debug(
+                            "three_finger_swipe_suppressed sessionId=\(sessionID) gesture=\(recognized.gesture?.rawValue ?? "unknown") reason=system_three_finger_drag"
+                        )
+                        gestureCoordinator.handle(.primitiveRejected(recognized))
+                    }
+                    lastCandidateSessionID = nil
+                    continue
                 }
                 if let sessionID = lastCandidateSessionID {
                     pendingCoordinatorGestureInfo[sessionID] = recognized.gesture
@@ -933,7 +952,7 @@ final class GestureKitRuntime {
     /// 候选刚出现便把由绑定配置导出的 guard 特征交给 Provider。这里不传手势名，
     /// 避免 Chrome 端依赖手指数或任何本地识别规则。
     private func handleCandidateGuardArm(sessionID: String, fingerCount: Int) {
-        let candidateFeatures = recognitionPlan?.candidateFeatures(fingerCount: fingerCount) ?? []
+        let candidateFeatures = candidateGuardFeatures(sessionID: sessionID, fingerCount: fingerCount)
         if candidateFeatures.contains(.dragSelection), appContextResolver.currentContext(elementType: .any).browserKind == .chrome {
             dragInputShield.arm(sessionID: sessionID)
             shieldSessionID = sessionID
@@ -960,6 +979,31 @@ final class GestureKitRuntime {
         } catch {
             logger.warn("candidate_guard_arm_send_failed", rateLimitKey: "candidate_guard_arm_send_failed")
         }
+    }
+
+    /// 系统三指拖移开启时，三指拖选必须优先保留系统拖动语义。
+    /// 原生鼠标护盾和 Provider 页面 guard 共用返回值，避免只放行其中一层。
+    private func candidateGuardFeatures(
+        sessionID: String,
+        fingerCount: Int
+    ) -> Set<InteractionGuardFeature> {
+        let configured = recognitionPlan?.candidateFeatures(fingerCount: fingerCount) ?? []
+        guard fingerCount == 3, threeFingerDragEnabled(), configured.contains(.dragSelection) else {
+            return configured
+        }
+        var filtered = configured
+        filtered.remove(.dragSelection)
+        logger.debug(
+            "candidate_guard_filtered sessionId=\(sessionID) feature=drag_selection reason=system_three_finger_drag"
+        )
+        return filtered
+    }
+
+    /// 系统三指拖移开启时，三指左右滑动与拖选无法可靠区分。
+    /// 预览阶段保守丢弃三指 swipe 的动作派发；点按、四指及系统设置关闭时不受影响。
+    private func shouldSuppressThreeFingerSwipe(_ recognized: RecognizedGesture) -> Bool {
+        guard threeFingerDragEnabled(), let gesture = recognized.gesture else { return false }
+        return gesture == .threeFingerSwipeLeft || gesture == .threeFingerSwipeRight
     }
 
     private func handleCandidateGuardRelease(sessionID: String) {
