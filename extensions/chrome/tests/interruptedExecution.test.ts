@@ -39,7 +39,12 @@ describe("disconnect during accepted browser execution", () => {
     const remove = vi.fn(async () => {});
     const api = { tabs: {
       query: async (query: chrome.tabs.QueryInfo) => query.active ? [tab] : [{ ...tab, id: 9, index: 0 }, tab],
-      update: async () => { active = false; return tab; }, remove
+      update: async () => { active = false; return tab; }, remove,
+      sendMessage: async (_id: number, message: Record<string, unknown>) => (
+        message.type === "gesturekit.closeClickArm"
+          ? { status: "close_click_armed" }
+          : { status: "success" }
+      )
     } } as unknown as ChromeApi;
     const provider = new ChromeProvider(api, async () => null);
     const deadline = Date.now() + 10_000;

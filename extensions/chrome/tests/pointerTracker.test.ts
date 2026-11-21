@@ -331,6 +331,159 @@ describe("pointerTracker", () => {
     vi.useRealTimers();
   });
 
+  it("restores a consumed same-document protected click exactly once when the guard is released", async () => {
+    vi.useFakeTimers();
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    let runtimeListener: ((message: Record<string, unknown>, sender: unknown, sendResponse: (response: unknown) => void) => boolean) | null = null;
+    vi.stubGlobal("chrome", {
+      runtime: {
+        onMessage: {
+          addListener: vi.fn((listener) => { runtimeListener = listener; })
+        }
+      }
+    });
+    const module = await import("../src/content/pointerTracker");
+    module.setLinkClickProtectionEnabled(false);
+    const anchor = document.getElementById("target") as HTMLAnchorElement;
+    window.dispatchEvent(new PointerEvent("pointermove", { clientX: 10, clientY: 20 }));
+
+    runtimeListener?.({ type: "gesturekit.linkGuardArm", gestureSessionId: "single-wait", features: ["link_click"], leaseMs: 500 }, {}, () => {});
+    const click = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 });
+    expect(anchor.dispatchEvent(click)).toBe(false);
+    expect(click.defaultPrevented).toBe(true);
+
+    let consumeResponse: unknown = null;
+    runtimeListener?.({ type: "gesturekit.guardConsume", gestureSessionId: "single-wait" }, {}, (response) => { consumeResponse = response; });
+    expect(consumeResponse).toEqual({ status: "guard_consumed" });
+
+    let releaseResponse: unknown = null;
+    runtimeListener?.({ type: "gesturekit.linkGuardRelease", gestureSessionId: "single-wait" }, {}, (response) => { releaseResponse = response; });
+    expect(releaseResponse).toEqual({ status: "guard_released" });
+    expect((window as unknown as {
+      __gestureKitPointerTrackerState?: { consumedProtectedClick: unknown };
+    }).__gestureKitPointerTrackerState?.consumedProtectedClick).toBeNull();
+    await vi.advanceTimersByTimeAsync(1_300);
+
+    expect(consoleError).toHaveBeenCalledTimes(1);
+    expect(module.resolveLinkAtLastPointer(Date.now())).toMatchObject({ status: "success" });
+    consoleError.mockRestore();
+    vi.useRealTimers();
+  });
+
+  it("isolates one delayed same-session click in the replacement document without swallowing the next click", async () => {
+    vi.useFakeTimers();
+    let runtimeListener: ((message: Record<string, unknown>, sender: unknown, sendResponse: (response: unknown) => void) => boolean) | null = null;
+    vi.stubGlobal("chrome", {
+      runtime: {
+        onMessage: {
+          addListener: vi.fn((listener) => { runtimeListener = listener; })
+        }
+      }
+    });
+    const module = await import("../src/content/pointerTracker");
+    module.setLinkClickProtectionEnabled(false);
+    const anchor = document.getElementById("target") as HTMLAnchorElement;
+    let armResponse: any = null;
+    runtimeListener?.({
+      type: "gesturekit.closeClickArm",
+      gestureSessionId: "double-tap-close",
+      leaseMs: 1_200
+    }, {}, (response) => { armResponse = response; });
+    expect(armResponse).toMatchObject({
+      status: "close_click_armed",
+      gestureSessionId: "double-tap-close"
+    });
+
+    const delayedClick = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0, detail: 1 });
+    expect(anchor.dispatchEvent(delayedClick)).toBe(false);
+    expect(delayedClick.defaultPrevented).toBe(true);
+
+    const nextClick = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0, detail: 1 });
+    expect(anchor.dispatchEvent(nextClick)).toBe(true);
+    expect(nextClick.defaultPrevented).toBe(false);
+    vi.useRealTimers();
+  });
+
+  it("dismisses replacement-document isolation before a new active pointerdown and click", async () => {
+    vi.useFakeTimers();
+    let runtimeListener: ((message: Record<string, unknown>, sender: unknown, sendResponse: (response: unknown) => void) => boolean) | null = null;
+    vi.stubGlobal("chrome", {
+      runtime: {
+        onMessage: {
+          addListener: vi.fn((listener) => { runtimeListener = listener; }),
+        },
+        sendMessage: vi.fn(async () => undefined)
+      }
+    });
+    const module = await import("../src/content/pointerTracker");
+    module.setLinkClickProtectionEnabled(false);
+    const anchor = document.getElementById("target") as HTMLAnchorElement;
+    runtimeListener?.({ type: "gesturekit.closeClickArm", gestureSessionId: "double-tap-close", leaseMs: 1_200 }, {}, () => {});
+
+    window.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: 10, clientY: 20 }));
+    const click = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0, detail: 1 });
+    expect(anchor.dispatchEvent(click)).toBe(true);
+    expect(click.defaultPrevented).toBe(false);
+    vi.useRealTimers();
+  });
+
+  it("expires and disarms replacement-document isolation without affecting ordinary clicks", async () => {
+    vi.useFakeTimers();
+    let runtimeListener: ((message: Record<string, unknown>, sender: unknown, sendResponse: (response: unknown) => void) => boolean) | null = null;
+    vi.stubGlobal("chrome", {
+      runtime: {
+        onMessage: {
+          addListener: vi.fn((listener) => { runtimeListener = listener; }),
+        },
+        sendMessage: vi.fn(async () => undefined)
+      }
+    });
+    const module = await import("../src/content/pointerTracker");
+    module.setLinkClickProtectionEnabled(false);
+    const anchor = document.getElementById("target") as HTMLAnchorElement;
+
+    runtimeListener?.({ type: "gesturekit.closeClickArm", gestureSessionId: "expired", leaseMs: 40 }, {}, () => {});
+    await vi.advanceTimersByTimeAsync(41);
+    const expiredClick = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0, detail: 1 });
+    expect(anchor.dispatchEvent(expiredClick)).toBe(true);
+    expect(expiredClick.defaultPrevented).toBe(false);
+
+    runtimeListener?.({ type: "gesturekit.closeClickArm", gestureSessionId: "disarmed", leaseMs: 1_200 }, {}, () => {});
+    let disarmResponse: any = null;
+    runtimeListener?.({ type: "gesturekit.closeClickDisarm", gestureSessionId: "disarmed" }, {}, (response) => { disarmResponse = response; });
+    expect(disarmResponse).toEqual({ status: "close_click_disarmed" });
+    const disarmedClick = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0, detail: 1 });
+    expect(anchor.dispatchEvent(disarmedClick)).toBe(true);
+    expect(disarmedClick.defaultPrevented).toBe(false);
+    vi.useRealTimers();
+  });
+
+  it("does not classify a keyboard or programmatic zero-detail click as the delayed system click", async () => {
+    vi.useFakeTimers();
+    let runtimeListener: ((message: Record<string, unknown>, sender: unknown, sendResponse: (response: unknown) => void) => boolean) | null = null;
+    vi.stubGlobal("chrome", {
+      runtime: {
+        onMessage: {
+          addListener: vi.fn((listener) => { runtimeListener = listener; }),
+        },
+        sendMessage: vi.fn(async () => undefined)
+      }
+    });
+    const module = await import("../src/content/pointerTracker");
+    module.setLinkClickProtectionEnabled(false);
+    const anchor = document.getElementById("target") as HTMLAnchorElement;
+    runtimeListener?.({ type: "gesturekit.closeClickArm", gestureSessionId: "double-tap-close", leaseMs: 1_200 }, {}, () => {});
+
+    const keyboardClick = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0, detail: 0 });
+    expect(anchor.dispatchEvent(keyboardClick)).toBe(true);
+    expect(keyboardClick.defaultPrevented).toBe(false);
+
+    const mouseClick = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0, detail: 1 });
+    expect(anchor.dispatchEvent(mouseClick)).toBe(true);
+    expect(mouseClick.defaultPrevented).toBe(false);
+    vi.useRealTimers();
+  });
+
   it("returns non_anchor_navigation for card-style targets", async () => {
     vi.resetModules();
     document.body.innerHTML = `

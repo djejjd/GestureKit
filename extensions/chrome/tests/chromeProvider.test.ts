@@ -25,6 +25,8 @@ function bridge(frame = () => 0, guard = () => "guard_consumed") {
   return async (_tabId: number, message: Record<string, unknown>) => {
     if (message.type === "gesturekit.guardArm") return { status: "guard_armed" };
     if (message.type === "gesturekit.guardConsume") return { status: guard() };
+    if (message.type === "gesturekit.closeClickArm") return { status: "close_click_armed" };
+    if (message.type === "gesturekit.closeClickDisarm") return { status: "close_click_disarmed" };
     return { status: "success", url: "https://example.com/a", frameId: frame() };
   };
 }
@@ -71,7 +73,11 @@ describe("ChromeProvider", () => {
         goBack: vi.fn(),
         goForward: vi.fn(),
         reload: vi.fn(),
-        sendMessage: vi.fn(async () => ({ status: "success" }))
+        sendMessage: vi.fn(async (_tabId: number, message: Record<string, unknown>) => (
+          message.type === "gesturekit.closeClickArm"
+            ? { status: "close_click_armed" }
+            : { status: "success" }
+        ))
       },
       sessions: { restore: vi.fn(async () => ({})) }
     } satisfies ChromeApi;
@@ -338,6 +344,55 @@ describe("ChromeProvider", () => {
       deadline
     })).resolves.toMatchObject({ status: "success" });
     expect(api.tabs.remove).toHaveBeenCalled();
+  });
+
+  it("passes the closing gesture session to replacement-document click isolation", async () => {
+    const tabs = [
+      { id: 9, index: 0, windowId: 4, url: "https://replacement.example/" },
+      { id: 10, index: 1, active: true, windowId: 4, url: "https://current.example/" }
+    ] as chrome.tabs.Tab[];
+    const api = {
+      tabs: {
+        query: vi.fn(async (query: chrome.tabs.QueryInfo) =>
+          query.active ? tabs.filter((tab) => tab.active) : tabs),
+        create: vi.fn(),
+        update: vi.fn(async (id: number) => {
+          for (const tab of tabs) tab.active = tab.id === id;
+          return tabs.find((tab) => tab.id === id)!;
+        }),
+        remove: vi.fn(async () => {}),
+        goBack: vi.fn(),
+        goForward: vi.fn(),
+        reload: vi.fn(),
+        sendMessage: vi.fn(async (_tabId: number, message: Record<string, unknown>) => (
+          message.type === "gesturekit.closeClickArm"
+            ? { status: "close_click_armed" }
+            : { status: "success" }
+        ))
+      },
+      sessions: { restore: vi.fn(async () => ({})) }
+    } satisfies ChromeApi;
+    const provider = new ChromeProvider(api, bridge());
+    const deadline = Date.now() + 10_000;
+    const snapshot = await provider.context({
+      gestureSessionId: "g-close-isolation",
+      requiresTargetRef: false,
+      deadline
+    });
+
+    await expect(provider.execute({
+      operationId: "op-close-isolation",
+      actionId: "browser.tab.close_current",
+      contextId: snapshot.contextId,
+      gestureSessionId: "g-close-isolation",
+      deadline
+    })).resolves.toMatchObject({ status: "success" });
+
+    expect(api.tabs.sendMessage).toHaveBeenCalledWith(9, {
+      type: "gesturekit.closeClickArm",
+      gestureSessionId: "g-close-isolation",
+      leaseMs: 1_200
+    }, { frameId: 0 });
   });
 });
 

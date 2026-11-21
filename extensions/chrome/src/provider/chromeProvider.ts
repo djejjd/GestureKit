@@ -204,11 +204,19 @@ export class ChromeProvider {
         reload: (...args) => effect(() => this.api.tabs.reload(...args)),
         goBack: id => effect(() => this.api.tabs.goBack(id)),
         goForward: id => effect(() => this.api.tabs.goForward(id)),
-        sendMessage: (id, message) => effect(() => this.api.tabs.sendMessage(id, message))
+        sendMessage: (id, message, options) => effect(() => (
+          options
+            ? this.api.tabs.sendMessage(id, message, options)
+            : this.api.tabs.sendMessage(id, message)
+        ))
       }, sessions: { restore: (...args) => effect(() => this.api.sessions.restore(...args)) }
     };
     try {
-      const result = await executeStandardAction(api, request.actionId, url, request.parameters);
+      const result = await executeStandardAction(api, request.actionId, url, request.parameters, {
+        closeClickIsolation: request.actionId === "browser.tab.close_current"
+          ? { gestureSessionId: request.gestureSessionId }
+          : undefined
+      });
       if (!isActive() && result.status !== "success") {
         const status = effectStarted ? "result_unknown" : "provider_disconnected";
         this.statuses.set(request.operationId, { operationId: request.operationId, status: effectStarted ? "result_unknown" : "failed" });

@@ -353,7 +353,7 @@ describe("createNativePortManager", () => {
     await vi.advanceTimersByTimeAsync(300);
 
     expect(executeAction).toHaveBeenCalledTimes(1);
-    expect(executeAction).toHaveBeenCalledWith({ action: "close_tab" });
+    expect(executeAction).toHaveBeenCalledWith({ action: "close_tab", gestureSessionId: "gesture-1" });
     expect(postMessage).toHaveBeenCalledWith(expect.objectContaining({
       payload: { action: "close_tab", status: "success" }
     }));
@@ -374,7 +374,7 @@ describe("createNativePortManager", () => {
     await vi.advanceTimersByTimeAsync(340);
     await manager.handleNativeMessage(gestureMessage("three_finger_tap", { touchX: 0.52, durationMs: 104 }));
 
-    expect(executeAction).toHaveBeenCalledWith({ action: "close_tab" });
+    expect(executeAction).toHaveBeenCalledWith({ action: "close_tab", gestureSessionId: "gesture-1" });
   });
 
   it("does not close a tab when double-tap close is disabled", async () => {

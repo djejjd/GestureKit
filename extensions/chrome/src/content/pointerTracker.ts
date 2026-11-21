@@ -13,6 +13,7 @@ const CONSUME_CLICK_WINDOW_MS = 2000;
 // 页面链接 lease 覆盖合法长点按、双击仲裁和上下文刷新；原生输入屏蔽仍上限 800ms。
 const LINK_CLICK_PROTECTION_WINDOW_MS = 1200;
 const LEGACY_CLICK_PROTECTION_WINDOW_MS = 750;
+const CLOSE_CLICK_ISOLATION_WINDOW_MS = 1200;
 
 type PointerTrackerState = {
   lastPointer: PointerSnapshot | null;
@@ -21,6 +22,10 @@ type PointerTrackerState = {
   protectedLinkClick: { url: string; gestureSessionId: string | null; timestamp: number; timeout: ReturnType<typeof setTimeout> } | null;
   consumedProtectedClick: { url: string; gestureSessionId: string } | null;
   expiredProtectedClick: { url: string; timestamp: number } | null;
+  closeClickIsolation: {
+    gestureSessionId: string;
+    timeout: ReturnType<typeof setTimeout>;
+  } | null;
   linkClickProtectionEnabled: boolean;
   timedOutAndNavigated: boolean;
 };
@@ -51,6 +56,16 @@ type ResolveOptions = {
 };
 
 lifecycle.on(
+  "pointerdown",
+  () => {
+    if (state.closeClickIsolation) {
+      clearCloseClickIsolation("close_click_dismissed", "new_pointerdown");
+    }
+  },
+  { capture: true, passive: true }
+);
+
+lifecycle.on(
   "pointermove",
   (event) => {
     state.lastPointer = {
@@ -71,6 +86,17 @@ lifecycle.on(
       event.stopImmediatePropagation();
       traceGuard(discarded.gestureSessionId, "click_blocked", "classified_swipe_discard");
       return;
+    }
+    if (state.closeClickIsolation) {
+      const isolatedAnchor = linkAnchorForEvent(event);
+      if (!isolatedAnchor?.href || event.detail <= 0 || !shouldProtectLinkClick(event, isolatedAnchor)) {
+        clearCloseClickIsolation("close_click_dismissed", "ineligible_click");
+      } else {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        clearCloseClickIsolation("close_click_blocked", "delayed_system_click");
+        return;
+      }
     }
     const anchor = linkAnchorForEvent(event);
     const activeGuard = interactionGuard.active(performance.now());
@@ -251,11 +277,53 @@ function resetTransientClickState() {
   if (state.protectedLinkClick) {
     clearTimeout(state.protectedLinkClick.timeout);
   }
+  if (state.closeClickIsolation) {
+    clearTimeout(state.closeClickIsolation.timeout);
+  }
   state.pendingConsumedClick = null;
   state.lastLinkClick = null;
   state.protectedLinkClick = null;
   state.consumedProtectedClick = null;
   state.expiredProtectedClick = null;
+  state.closeClickIsolation = null;
+}
+
+function armCloseClickIsolation(gestureSessionId: string, leaseMs: number): boolean {
+  if (!gestureSessionId || !Number.isFinite(leaseMs) || leaseMs <= 0) {
+    return false;
+  }
+  if (state.closeClickIsolation) {
+    clearCloseClickIsolation("close_click_dismissed", "rearmed");
+  }
+  state.closeClickIsolation = {
+    gestureSessionId,
+    timeout: setTimeout(() => {
+      if (!lifecycle.valid()) return;
+      if (state.closeClickIsolation?.gestureSessionId === gestureSessionId) {
+        clearCloseClickIsolation("close_click_expired", "lease_expired");
+      }
+    }, Math.min(CLOSE_CLICK_ISOLATION_WINDOW_MS, leaseMs))
+  };
+  traceGuard(gestureSessionId, "close_click_armed", "replacement_document");
+  return true;
+}
+
+function clearCloseClickIsolation(stage: string, detail: string): boolean {
+  const isolation = state.closeClickIsolation;
+  if (!isolation) {
+    return false;
+  }
+  clearTimeout(isolation.timeout);
+  state.closeClickIsolation = null;
+  traceGuard(isolation.gestureSessionId, stage, detail);
+  return true;
+}
+
+function disarmCloseClickIsolation(gestureSessionId: string): boolean {
+  if (state.closeClickIsolation?.gestureSessionId !== gestureSessionId) {
+    return false;
+  }
+  return clearCloseClickIsolation("close_click_disarmed", "explicit_disarm");
 }
 
 export function cancelProtectedClick() {
@@ -312,6 +380,7 @@ function sharedState(): PointerTrackerState {
     protectedLinkClick: null,
     consumedProtectedClick: null,
     expiredProtectedClick: null,
+    closeClickIsolation: null,
     linkClickProtectionEnabled: false,
     timedOutAndNavigated: false
   };
@@ -356,6 +425,27 @@ if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
           ? { status: "guard_discarded" }
           : guard
       );
+      return false;
+    }
+    if (message.type === "gesturekit.closeClickArm") {
+      const requestedLeaseMs = typeof message.leaseMs === "number"
+        ? Math.min(CLOSE_CLICK_ISOLATION_WINDOW_MS, Math.max(0, message.leaseMs))
+        : CLOSE_CLICK_ISOLATION_WINDOW_MS;
+      const armed = armCloseClickIsolation(
+        typeof message.gestureSessionId === "string" ? message.gestureSessionId : "",
+        requestedLeaseMs
+      );
+      sendResponse({
+        status: armed ? "close_click_armed" : "close_click_unavailable",
+        ...(armed ? { gestureSessionId: message.gestureSessionId, documentToken } : {})
+      });
+      return false;
+    }
+    if (message.type === "gesturekit.closeClickDisarm") {
+      const disarmed = disarmCloseClickIsolation(
+        typeof message.gestureSessionId === "string" ? message.gestureSessionId : ""
+      );
+      sendResponse({ status: disarmed ? "close_click_disarmed" : "close_click_unavailable" });
       return false;
     }
     if (message.type === "gesturekit.guardArm") {
