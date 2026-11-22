@@ -32,6 +32,20 @@ function bridge(frame = () => 0, guard = () => "guard_consumed") {
 }
 
 describe("ChromeProvider", () => {
+  it("skips tab activation for a drag and permits the following swipe", async () => {
+    const api = makeApi();
+    const provider = new ChromeProvider(api, async (_tab, message) => ({
+      dragging: message.type === "gesturekit.dragEvidence" && message.gestureSessionId === "drag"
+    }));
+    const deadline = Date.now() + 1000;
+    for (const id of ["drag", "swipe"]) {
+      const context = await provider.context({ gestureSessionId: id, requiresTargetRef: false, deadline });
+      const result = await provider.execute({ gestureSessionId: id, operationId: id, contextId: context.contextId,
+        actionId: "browser.tab.activate_next", deadline });
+      expect(result.status).toBe(id === "drag" ? "guard_unavailable" : "success");
+    }
+    expect(api.tabs.update).toHaveBeenCalledTimes(1);
+  });
   it("rejects link action when guard is not armed", async () => {
     const api = makeApi();
     const provider = new ChromeProvider(api, bridge());

@@ -67,9 +67,7 @@ final class ThreeFingerInteractionCompatibilityTests: XCTestCase {
         XCTAssertNil(harness.outbound.latest(of: .actionRequest))
     }
 
-    /// 预览策略：系统三指拖移开启时，无 DOM 证据的三指横向滑动无法与拖选可靠区分，
-    /// 因此保留识别结果但不进入 context/action，避免切换标签页。
-    func testFastHorizontalThreeFingerSwipeIsSuppressedWhenSystemDragEnabled() throws {
+    func testFastHorizontalThreeFingerSwipeRequestsContextWhenSystemDragEnabled() throws {
         let harness = try makeHarness(systemThreeFingerDragEnabled: true)
         defer { cleanup(harness) }
 
@@ -78,13 +76,13 @@ final class ThreeFingerInteractionCompatibilityTests: XCTestCase {
         let event = harness.runtime.processFrameForTesting(frame(0.26, 0))
 
         XCTAssertEqual(event?.gesture, .threeFingerSwipeRight)
-        XCTAssertNil(harness.outbound.latest(of: .contextRequest))
+        XCTAssertNotNil(harness.outbound.latest(of: .contextRequest))
         XCTAssertNil(harness.outbound.latest(of: .actionRequest))
         let discarded = harness.outbound.all(of: .interactionGuardRelease).contains { envelope in
             guard case .interactionGuardRelease(let payload) = envelope.payload else { return false }
             return payload.disposition == .discard
         }
-        XCTAssertTrue(discarded, "被抑制的三指 swipe 必须以 discard 终态释放页面 guard")
+        XCTAssertTrue(discarded)
     }
 
     func testSystemDragOffStillDispatchesFastThreeFingerSwipe() throws {

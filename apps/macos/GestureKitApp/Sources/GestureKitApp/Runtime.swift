@@ -76,6 +76,8 @@ final class GestureKitRuntime {
     /// 当前候选对应的 coordinator session ID，供后续 classification 事件关联。
     private var lastCandidateSessionID: String?
     private var configurationAppliedByProvider: Bool?
+    /// 仅保留最近派发的动作枚举，供结果摘要按 operationId 关联。
+    private var diagnosticActions: [String: StandardActionID] = [:]
     private var operationJournalSequence: Int64 = 0
 
     init(
@@ -231,6 +233,7 @@ final class GestureKitRuntime {
         gestureCoordinator.cancelAll()
         pendingCoordinatorSessions.removeAll()
         pendingCoordinatorGestureInfo.removeAll()
+        diagnosticActions.removeAll()
         lastCandidateSessionID = nil
         shieldSessionID = nil
         dragInputShield.cancel(reason: reason)
@@ -300,18 +303,6 @@ final class GestureKitRuntime {
                 if let gesture = recognized.gesture, gesture.rawValue.contains("swipe"), let id = lastCandidateSessionID {
                     // 滑动不恢复同次暂存点击；在动作切换标签之前发给原页面。
                     handleCandidateGuardDiscard(sessionID: id)
-                }
-                if shouldSuppressThreeFingerSwipe(recognized) {
-                    // 预览策略：系统三指拖移与三指横向滑动共用同一物理输入，当前没有
-                    // DOM 拖选证据可区分两者。保留识别结果用于诊断，但不进入 context/action。
-                    if let sessionID = lastCandidateSessionID {
-                        logger.debug(
-                            "three_finger_swipe_suppressed sessionId=\(sessionID) gesture=\(recognized.gesture?.rawValue ?? "unknown") reason=system_three_finger_drag"
-                        )
-                        gestureCoordinator.handle(.primitiveRejected(recognized))
-                    }
-                    lastCandidateSessionID = nil
-                    continue
                 }
                 if let sessionID = lastCandidateSessionID {
                     pendingCoordinatorGestureInfo[sessionID] = recognized.gesture
@@ -695,10 +686,11 @@ final class GestureKitRuntime {
                 rateLimitKey: "provider_event_\(envelope.type.rawValue)"
             )
             if case (.actionResult, .actionResult(let resultPayload)) = (envelope.type, envelope.payload) {
+                let actionID = diagnosticActions.removeValue(forKey: operationId)?.rawValue ?? "unknown"
                 logger.info("action_result_outcome operationId=\(operationId) outcome=\(resultPayload.outcome.rawValue) reason=\(resultPayload.reason?.rawValue ?? "nil")")
                 if resultPayload.reason == .guardUnavailable || resultPayload.reason == .guardExpired {
                     logger.warn(
-                        "link_operation_summary operationId=\(operationId) sessionId=\(gestureSessionId) outcome=\(resultPayload.outcome.rawValue) guard=\(resultPayload.reason?.rawValue ?? "unknown") action=not_dispatched",
+                        "guard_operation_summary action=\(actionID) operationId=\(operationId) sessionId=\(gestureSessionId) outcome=\(resultPayload.outcome.rawValue) guard=\(resultPayload.reason?.rawValue ?? "unknown") stage=preflight",
                         rateLimitKey: "link_operation_guard_failure_\(operationId)",
                         interval: 0
                     )
@@ -958,7 +950,11 @@ final class GestureKitRuntime {
             shieldSessionID = sessionID
         }
         guard let session = providerSessions.activeSession() else { return }
-        let features = candidateFeatures.map(\.rawValue).sorted()
+        var features = candidateFeatures.map(\.rawValue).sorted()
+        if fingerCount == 3, !candidateFeatures.contains(.dragSelection),
+           recognitionPlan?.candidateFeatures(fingerCount: fingerCount).contains(.dragSelection) == true {
+            features.append("observe_drag")
+        }
         guard !features.isEmpty else { return }
         // 450ms 合法点按 + 300ms 双击仲裁 + 300ms context/action 预算 + 150ms Provider 余量。
         // 仅延长页面链接保护；本地输入屏蔽与纯滑动页面 lease 仍上限 800ms。
@@ -997,13 +993,6 @@ final class GestureKitRuntime {
             "candidate_guard_filtered sessionId=\(sessionID) feature=drag_selection reason=system_three_finger_drag"
         )
         return filtered
-    }
-
-    /// 系统三指拖移开启时，三指左右滑动与拖选无法可靠区分。
-    /// 预览阶段保守丢弃三指 swipe 的动作派发；点按、四指及系统设置关闭时不受影响。
-    private func shouldSuppressThreeFingerSwipe(_ recognized: RecognizedGesture) -> Bool {
-        guard threeFingerDragEnabled(), let gesture = recognized.gesture else { return false }
-        return gesture == .threeFingerSwipeLeft || gesture == .threeFingerSwipeRight
     }
 
     private func handleCandidateGuardRelease(sessionID: String) {
@@ -1054,6 +1043,10 @@ final class GestureKitRuntime {
         )
         do {
             try providerSessions.send(request, to: session.providerSessionID)
+            if diagnosticActions.count >= 256, let key = diagnosticActions.keys.first {
+                diagnosticActions.removeValue(forKey: key)
+            }
+            diagnosticActions[operationId] = configuredAction.actionId
             logger.info("coordinator_action_request action=\(configuredAction.actionId.rawValue) operationId=\(operationId) sessionId=\(sessionID)")
         } catch {
             logger.warn("action_request_send_failed operationId=\(operationId) action=\(action.actionId.rawValue)")

@@ -357,7 +357,7 @@ describe("pointerTracker", () => {
     expect(consumeResponse).toEqual({ status: "guard_consumed" });
 
     let releaseResponse: unknown = null;
-    runtimeListener?.({ type: "gesturekit.linkGuardRelease", gestureSessionId: "single-wait" }, {}, (response) => { releaseResponse = response; });
+    runtimeListener?.({ type: "gesturekit.guardRelease", gestureSessionId: "single-wait" }, {}, (response) => { releaseResponse = response; });
     expect(releaseResponse).toEqual({ status: "guard_released" });
     expect((window as unknown as {
       __gestureKitPointerTrackerState?: { consumedProtectedClick: unknown };
@@ -402,6 +402,42 @@ describe("pointerTracker", () => {
     expect(anchor.dispatchEvent(nextClick)).toBe(true);
     expect(nextClick.defaultPrevented).toBe(false);
     vi.useRealTimers();
+  });
+
+  it("attributes a changed selection to this swipe and allows the next swipe with the same selection", async () => {
+    const addListener = vi.fn();
+    vi.stubGlobal("chrome", { runtime: { onMessage: { addListener } } });
+    await import("../src/content/pointerTracker");
+    const listener = addListener.mock.calls[0][0];
+    const reply = vi.fn();
+    const message = (type: string, gestureSessionId: string) =>
+      listener({ type: `gesturekit.${type}`, gestureSessionId, features: ["observe_drag"], leaseMs: 800 }, {}, reply);
+    const text = document.querySelector("a")!.firstChild!;
+    for (const session of ["drag", "swipe"]) {
+      message("linkGuardArm", session);
+      if (session === "drag") window.getSelection()!.setBaseAndExtent(text, 0, text, 2);
+      message("linkGuardDiscard", session);
+      message("dragEvidence", session);
+      expect(reply.mock.lastCall?.[0]).toMatchObject({ dragging: session === "drag" });
+    }
+  });
+
+  it("blocks the delayed refresh button click and allows the next deliberate click", async () => {
+    const addListener = vi.fn();
+    vi.stubGlobal("chrome", { runtime: { onMessage: { addListener } } });
+    await import("../src/content/pointerTracker");
+    const listener = addListener.mock.calls[0][0];
+    document.body.innerHTML = "<button>Refresh</button>";
+    const button = document.querySelector("button")!;
+    const refresh = vi.fn();
+    button.addEventListener("click", refresh);
+    listener({ type: "gesturekit.closeClickArm", gestureSessionId: "close", leaseMs: 1200 }, {}, vi.fn());
+    const click = () => new MouseEvent("click", { bubbles: true, cancelable: true, detail: 1 });
+    button.dispatchEvent(click());
+    expect(refresh).not.toHaveBeenCalled();
+    button.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    button.dispatchEvent(click());
+    expect(refresh).toHaveBeenCalledTimes(1);
   });
 
   it("dismisses replacement-document isolation before a new active pointerdown and click", async () => {
@@ -508,6 +544,21 @@ describe("pointerTracker", () => {
 
     expect(anchor.dispatchEvent(click)).toBe(true);
     expect(click.defaultPrevented).toBe(false);
+  });
+
+  it("resolves the guarded link for its own session with a stationary pointer", async () => {
+    const send = vi.fn();
+    vi.stubGlobal("chrome", { runtime: { onMessage: { addListener: send } } });
+    await import("../src/content/pointerTracker");
+    const listener = send.mock.calls[0][0];
+    const respond = vi.fn();
+    listener({ type: "gesturekit.linkGuardArm", gestureSessionId: "tap", leaseMs: 1200 }, {}, respond);
+    const anchor = document.getElementById("target")!;
+    expect(anchor.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }))).toBe(false);
+    listener({ type: "gesturekit.resolveLastPointer", gestureSessionId: "other" }, {}, respond);
+    expect(respond.mock.lastCall?.[0].status).toBe("no_recent_pointer");
+    listener({ type: "gesturekit.resolveLastPointer", gestureSessionId: "tap" }, {}, respond);
+    expect(respond.mock.lastCall?.[0]).toMatchObject({ status: "success", url: "http://localhost:3000/docs" });
   });
 
   it("protects only a link click following a candidate link guard", async () => {

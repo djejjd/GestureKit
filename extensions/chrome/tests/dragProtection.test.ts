@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { ChromeProvider } from "../src/provider/chromeProvider";
+import type { ChromeApi } from "../src/background/chromeApi";
+
 describe("candidate drag protection", () => {
   let listeners: [string, EventListenerOrEventListenerObject, boolean | AddEventListenerOptions | undefined][];
   let receive: (message: any, sender: any, respond: (value: any) => void) => void;
@@ -42,6 +45,15 @@ describe("candidate drag protection", () => {
     receive({ type: "gesturekit.linkGuardDiscard", gestureSessionId: "swipe" }, {}, () => {});
     expect(eventOn(id, "dragstart").defaultPrevented).toBe(false);
   });
+  it.each(["image", "link"])("allows text selection and blocks an object drag on %s without vetoing the swipe", id => {
+    arm(800, ["observe_drag"]);
+    expect(eventOn("text", "selectstart").defaultPrevented).toBe(false);
+    expect(eventOn(id, "dragstart").defaultPrevented).toBe(true);
+    const reply = vi.fn();
+    receive({ type: "gesturekit.dragEvidence", gestureSessionId: "swipe" }, {}, reply);
+    expect(reply).toHaveBeenCalledWith({ dragging: false });
+  });
+
   it("blocks selection during candidate and restores after expiration", () => {
     const now = vi.spyOn(performance, "now").mockReturnValue(0);
     arm();
@@ -79,6 +91,25 @@ describe("candidate drag protection", () => {
     now.mockReturnValue(3201);
     receive({ type: "gesturekit.guardConsume", gestureSessionId: "swipe" }, {}, value => { response = value; });
     expect(response.status).toBe("guard_unavailable");
+  });
+
+  it("keeps the source page on successful adjacent open even if cleanup arrives late", async () => {
+    const source = window.location.href;
+    const anchor = document.getElementById("link") as HTMLAnchorElement;
+    anchor.href = "#destination";
+    const create = vi.fn(async () => ({ id: 2 }));
+    const api = { tabs: { query: async () => [{ id: 1, index: 0, windowId: 1, url: source }], create } } as unknown as ChromeApi;
+    const provider = new ChromeProvider(api, async (_, message) => new Promise(resolve => receive(message, {}, resolve)));
+    arm(1200, ["link_click"]);
+    expect(anchor.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }))).toBe(false);
+    const request = { gestureSessionId: "swipe", deadline: Date.now() + 1000 };
+    const context = await provider.context({ ...request, requiresTargetRef: true });
+    const result = await provider.execute({ ...request, operationId: "open", actionId: "browser.link.open_adjacent",
+      contextId: context.contextId, targetRef: context.targetRef });
+    expect(result.status).toBe("success");
+    expect(create).toHaveBeenCalledTimes(1);
+    receive({ type: "gesturekit.linkGuardRelease", gestureSessionId: "swipe" }, {}, () => {});
+    expect(window.location.href).toBe(source);
   });
 
   it("does not turn link-only guard into a drag blocker", () => {

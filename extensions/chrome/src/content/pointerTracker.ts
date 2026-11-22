@@ -35,16 +35,43 @@ const interactionGuard = createInteractionGuard();
 const documentToken = crypto.randomUUID();
 declare const __GESTUREKIT_BUILD_ID__: string | undefined;
 const BUILD_ID = typeof __GESTUREKIT_BUILD_ID__ !== "undefined" ? __GESTUREKIT_BUILD_ID__ : "unbuilt";
+function selectionEndpoints() {
+  const selection = window.getSelection();
+  return [selection?.anchorNode, selection?.anchorOffset, selection?.focusNode, selection?.focusOffset];
+}
+
+let dragObservation: {
+  id: string; endpoints: ReturnType<typeof selectionEndpoints>; dragging: boolean; timeout: ReturnType<typeof setTimeout>
+} | null = null;
+
+function clearDragObservation() {
+  if (dragObservation) clearTimeout(dragObservation.timeout);
+  dragObservation = null;
+}
+
+function recordSelectionChange() {
+  if (dragObservation && !window.getSelection()?.isCollapsed &&
+      selectionEndpoints().some((value, index) => value !== dragObservation?.endpoints[index])) {
+    dragObservation.dragging = true;
+  }
+}
+
 const lifecycle = beginContentLifecycle(() => {
+  clearDragObservation();
   resetTransientClickState();
   state.lastPointer = null;
   state.timedOutAndNavigated = false;
 });
+lifecycle.on("selectionchange", recordSelectionChange, { capture: true });
 
 for (const eventType of ["dragstart", "selectstart"] as const) {
   lifecycle.on(eventType, (event) => {
     const guard = interactionGuard.active(performance.now());
-    if (!guard?.features?.includes("drag_selection") || !event.cancelable) return;
+    if (!guard || !event.cancelable) return;
+    // 三指拖选期间保留文本选择，只取消图片或链接的浏览器默认拖动。
+    const objectDrag = eventType === "dragstart" && guard.features?.includes("observe_drag") &&
+      event.composedPath().some(node => node instanceof Element && node.matches("img, a[href]"));
+    if (!objectDrag && !guard.features?.includes("drag_selection")) return;
     event.preventDefault();
     event.stopImmediatePropagation();
     traceGuard(guard.gestureSessionId, "dom_blocked", eventType);
@@ -88,8 +115,7 @@ lifecycle.on(
       return;
     }
     if (state.closeClickIsolation) {
-      const isolatedAnchor = linkAnchorForEvent(event);
-      if (!isolatedAnchor?.href || event.detail <= 0 || !shouldProtectLinkClick(event, isolatedAnchor)) {
+      if (event.detail <= 0 || !isPlainPrimaryClick(event)) {
         clearCloseClickIsolation("close_click_dismissed", "ineligible_click");
       } else {
         event.preventDefault();
@@ -211,15 +237,18 @@ export function setLinkClickProtectionEnabled(enabled: boolean) {
   state.linkClickProtectionEnabled = enabled;
 }
 
-function shouldProtectLinkClick(event: MouseEvent, anchor: HTMLAnchorElement): boolean {
+function isPlainPrimaryClick(event: MouseEvent): boolean {
   return event.cancelable &&
     !event.defaultPrevented &&
     event.button === 0 &&
     !event.metaKey &&
     !event.ctrlKey &&
     !event.shiftKey &&
-    !event.altKey &&
-    isHttpLink(anchor.href) &&
+    !event.altKey;
+}
+
+function shouldProtectLinkClick(event: MouseEvent, anchor: HTMLAnchorElement): boolean {
+  return isPlainPrimaryClick(event) && isHttpLink(anchor.href) &&
     !anchor.download &&
     (!anchor.target || anchor.target === "_self");
 }
@@ -333,7 +362,7 @@ export function cancelProtectedClick() {
   }
 }
 
-function releaseProtectedClick(gestureSessionId: string): { status: "guard_released" | "guard_unavailable" } {
+function releaseProtectedClick(gestureSessionId: string, restoreConsumed = true): { status: "guard_released" | "guard_unavailable" } {
   const protectedClick = state.protectedLinkClick;
   if (protectedClick?.gestureSessionId === gestureSessionId) {
     clearTimeout(protectedClick.timeout);
@@ -344,7 +373,7 @@ function releaseProtectedClick(gestureSessionId: string): { status: "guard_relea
     return { status: "guard_released" };
   }
   const consumed = state.consumedProtectedClick;
-  if (consumed?.gestureSessionId !== gestureSessionId) return { status: "guard_unavailable" };
+  if (!restoreConsumed || consumed?.gestureSessionId !== gestureSessionId) return { status: "guard_unavailable" };
   state.consumedProtectedClick = null;
   traceGuard(gestureSessionId, "released", "consumed_click_restored");
   window.location.href = consumed.url;
@@ -405,14 +434,27 @@ if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
         features: message.features ?? ["link_click"]
       };
       interactionGuard.arm(command, performance.now());
+      clearDragObservation();
+      if (command.features?.includes("observe_drag")) {
+        dragObservation = { id: command.gestureSessionId, endpoints: selectionEndpoints(), dragging: false,
+          timeout: setTimeout(clearDragObservation, command.leaseMs) };
+      }
       traceGuard(command.gestureSessionId, "armed", "content_script_ack");
       sendResponse({ status: "guard_armed", gestureSessionId: command.gestureSessionId, documentToken });
       return false;
     }
     if (message.type === "gesturekit.linkGuardRelease") {
-      const released = releaseProtectedClick(message.gestureSessionId);
+      if (dragObservation?.id === message.gestureSessionId) clearDragObservation();
+      const released = releaseProtectedClick(message.gestureSessionId, false);
       const guard = interactionGuard.release({ gestureSessionId: message.gestureSessionId, nowMonotonicMs: performance.now() });
       sendResponse(released.status === "guard_released" ? released : guard);
+      return false;
+    }
+    if (message.type === "gesturekit.dragEvidence") {
+      const matches = dragObservation?.id === message.gestureSessionId;
+      if (matches) recordSelectionChange();
+      sendResponse({ dragging: matches && dragObservation?.dragging === true });
+      if (matches) clearDragObservation();
       return false;
     }
     if (message.type === "gesturekit.linkGuardDiscard") {
@@ -461,6 +503,12 @@ if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
       return false;
     }
     if (message.type === "gesturekit.guardConsume") {
+      const result = interactionGuard.consume({ gestureSessionId: message.gestureSessionId, nowMonotonicMs: performance.now() });
+      if (result.status !== "guard_consumed") {
+        traceGuard(message.gestureSessionId, "consume_rejected", result.status);
+        sendResponse(result);
+        return false;
+      }
       const protectedClick = state.protectedLinkClick;
       if (protectedClick && protectedClick.gestureSessionId === message.gestureSessionId) {
         clearTimeout(protectedClick.timeout);
@@ -476,8 +524,7 @@ if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
         state.pendingConsumedClick = { url: message.url, expiresAt: Date.now() + CONSUME_CLICK_WINDOW_MS };
         traceGuard(message.gestureSessionId, "consumed", "pending_click");
       }
-      const result = interactionGuard.consume({ gestureSessionId: message.gestureSessionId, nowMonotonicMs: performance.now() });
-      traceGuard(message.gestureSessionId, result.status === "guard_consumed" ? "consume_acknowledged" : "consume_rejected", result.status);
+      traceGuard(message.gestureSessionId, "consume_acknowledged", result.status);
       sendResponse(result);
       return false;
     }
@@ -503,6 +550,13 @@ if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
       return false;
     }
 
+    const protectedClick = state.protectedLinkClick;
+    if (!message.consumeNextClick && protectedClick?.gestureSessionId &&
+        protectedClick.gestureSessionId === message.gestureSessionId &&
+        interactionGuard.active(performance.now())?.gestureSessionId === message.gestureSessionId) {
+      sendResponse({ status: "success", url: protectedClick.url });
+      return false;
+    }
     sendResponse(resolveLinkAtLastPointer(Date.now(), { consumeNextClick: Boolean(message.consumeNextClick) }));
     return false;
   });
