@@ -4,7 +4,7 @@ import type { GestureEventMessage } from "../protocol/messages";
 import { createDevelopmentUpdater, type DevelopmentUpdateStatus } from "./developmentUpdater";
 import { createNativeConnection } from "./nativeConnection";
 import { createInteractionGuardRouter } from "./interactionGuardRouter";
-import { executeGestureAction, executeStandardAction } from "./actionExecutor";
+import { executeGestureAction, executeStandardAction, forgetReadingTab } from "./actionExecutor";
 import { chromeApi } from "./chromeApi";
 import { createNativePortManager } from "./nativePortManager";
 import { runConnectionProbe } from "./connectionProbe";
@@ -64,8 +64,9 @@ const guardTraces = new Map<string, GuardTrace[]>();
 let diagnosticLoggingEnabled = false;
 // v2 boundary keeps resolved page URLs and target references inside Chrome.
 const practiceURL = chrome.runtime.getURL("dist/practice.html");
-const practice = practiceBridge(practiceURL);
+const practice = practiceBridge(practiceURL, tabId => chromeProvider.invalidatePractice(tabId));
 chrome.runtime.onConnect?.addListener(practice.attach);
+chrome.tabs.onRemoved?.addListener(forgetReadingTab);
 async function sendToPage(tabId: number, message: Record<string, unknown>, options?: chrome.tabs.MessageSendOptions) {
   const page = practice.pages.get(tabId);
   if (page) return page.send(message);
@@ -332,6 +333,7 @@ function makePageGuardRouter() { return createInteractionGuardRouter({
 }); }
 let routeInteractionGuard = makePageGuardRouter();
 function resetPageGuards() {
+  chromeProvider.invalidatePractice();
   for (const page of practice.pages.values()) void page.send({ type: "gesturekit.practiceReset" });
   void routeInteractionGuard.dispose();
   routeInteractionGuard = makePageGuardRouter();

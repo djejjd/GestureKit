@@ -63,6 +63,7 @@ describe("executeGestureAction", () => {
     const api = makeChromeApi([{ id: 10, index: 0, active: true, windowId: 7 }]);
     let nextId = 100;
     const tabs = [{ id: 10, index: 0, active: true, windowId: 7, openerTabId: undefined as number | undefined }];
+    tabs.push({ id: 52, index: 2, active: false, windowId: 7, openerTabId: 10 });
     vi.mocked(api.tabs.query).mockImplementation(async q => (q.active ? [tabs[0]] : tabs) as chrome.tabs.Tab[]);
     vi.mocked(api.tabs.create).mockImplementation(async args => {
       const tab = { id: nextId++, index: args.index!, active: !!args.active, windowId: 7, openerTabId: args.openerTabId };

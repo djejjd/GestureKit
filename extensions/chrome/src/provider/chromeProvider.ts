@@ -195,18 +195,32 @@ export class ChromeProvider {
     return { status: "ready", url };
   }
 
+  invalidatePractice(tabId?: number) {
+    for (const [id, context] of this.contexts) {
+      if (context.practice && (tabId === undefined || context.tabId === tabId)) this.contexts.delete(id);
+    }
+  }
+
   async executeAccepted(request: ActionRequest, url?: string, isActive: () => boolean = () => true): Promise<ActionResult> {
     this.statuses.set(request.operationId, { operationId: request.operationId, status: "accepted" });
     const context = this.contexts.get(request.contextId);
-    if (context?.practice) {
+    const expired = (): ActionResult => {
+      this.contexts.delete(request.contextId);
+      this.statuses.set(request.operationId, { operationId: request.operationId, status: "failed" });
+      return { status: "context_expired" };
+    };
+    if (!context || context.gestureSessionId !== request.gestureSessionId || context.expiresAt < Date.now()) return expired();
+    if (context.practice) {
       const tab = await activeTab(this.api);
-      if (!isActive() || tab?.id !== context.tabId || tab?.url !== this.practiceURL || request.deadline <= Date.now()) return { status: "context_expired" };
+      if (!isActive() || tab?.id !== context.tabId || tab?.url !== this.practiceURL || request.deadline <= Date.now() || !this.contexts.has(request.contextId)) return expired();
       const reply = await this.content(context.tabId, { type: "gesturekit.practicePreview", actionId: request.actionId,
         gestureSessionId: request.gestureSessionId }).catch(() => null) as { status?: string } | null;
+      if (!this.contexts.has(request.contextId)) return expired();
       const ok = reply?.status === "previewed";
       this.statuses.set(request.operationId, { operationId: request.operationId, status: ok ? "success" : "failed" });
       return { status: ok ? "success" : "page_unavailable" };
     }
+    const sourceChanged = new Error("source_tab_changed");
     let effectStarted = false;
     const effect = <T>(operation: () => Promise<T>): Promise<T> => {
       if (!isActive()) throw new Error("provider_disconnected");
@@ -217,7 +231,11 @@ export class ChromeProvider {
     // executor queries and between multi-step operations such as close-current.
     const api: ChromeApi = {
       tabs: {
-        query: query => this.api.tabs.query(query),
+        query: async query => {
+          const tabs = await this.api.tabs.query(query);
+          if (query.active && (tabs[0]?.id !== context.tabId || (this.practiceURL && tabs[0]?.url === this.practiceURL))) throw sourceChanged;
+          return tabs;
+        },
         create: args => effect(() => this.api.tabs.create(args)),
         update: (id, args) => effect(() => this.api.tabs.update(id, args)),
         remove: ids => effect(() => this.api.tabs.remove(ids)),
@@ -259,7 +277,8 @@ export class ChromeProvider {
         }).catch(() => undefined);
       } else if (status !== "success") await this.releaseCurrentGuard(request.gestureSessionId);
       return { status };
-    } catch {
+    } catch (error) {
+      if (error === sourceChanged) return expired();
       if (!isActive()) {
         const status = effectStarted ? "result_unknown" : "provider_disconnected";
         this.statuses.set(request.operationId, { operationId: request.operationId, status: effectStarted ? "result_unknown" : "failed" });

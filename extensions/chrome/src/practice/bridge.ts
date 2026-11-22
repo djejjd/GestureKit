@@ -1,5 +1,5 @@
 /** 按练习标签路由消息，页面离开时释放端口的所有待处理请求。 */
-export function practiceBridge(pageURL: string) {
+export function practiceBridge(pageURL: string, invalidate: (tabId: number) => void) {
   const pages = new Map<number, { send: (message: Record<string, unknown>) => Promise<any> }>();
   function attach(port: chrome.runtime.Port) {
     const id = port.sender?.tab?.id;
@@ -14,10 +14,14 @@ export function practiceBridge(pageURL: string) {
         try { port.postMessage({ key, message }); } catch { finish(null); }
       });
     } };
+    invalidate(id);
     pages.set(id, page);
     port.onMessage.addListener(({ key, result }) => pending.get(key)?.(result));
     port.onDisconnect.addListener(() => {
-      if (pages.get(id) === page) pages.delete(id);
+      if (pages.get(id) === page) {
+        pages.delete(id);
+        invalidate(id);
+      }
       for (const finish of pending.values()) finish(null);
     });
   }

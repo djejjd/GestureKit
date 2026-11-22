@@ -45,6 +45,20 @@ describe("ChromeProvider", () => {
     expect(content).toHaveBeenCalledWith(10, expect.objectContaining({ type: "gesturekit.practicePreview", actionId: request.actionId }));
     vi.mocked(api.tabs.query).mockResolvedValue([{ id: 20, url: "https://example.test" }] as chrome.tabs.Tab[]);
     expect((await provider.executeAccepted(request)).status).toBe("context_expired");
+    expect((await provider.reconcile("p")).status).toBe("failed");
+    vi.mocked(api.tabs.query).mockResolvedValue([{ id: 10, url: practiceURL }] as chrome.tabs.Tab[]);
+    expect((await provider.preflight(request)).status).toBe("context_expired");
+    expect(api.tabs.remove).not.toHaveBeenCalled();
+  });
+  it("cancels an accepted close when the practice tab takes focus", async () => {
+    const api = makeApi();
+    const provider = new ChromeProvider(api, bridge());
+    const deadline = Date.now() + 1000;
+    const ctx = await provider.context({ gestureSessionId: "g", requiresTargetRef: false, deadline });
+    const request = { gestureSessionId: "g", operationId: "op", contextId: ctx.contextId, actionId: "browser.tab.close_current" as const, deadline };
+    expect((await provider.preflight(request)).status).toBe("ready");
+    vi.mocked(api.tabs.query).mockResolvedValue([{ id: 2, index: 0, windowId: 4, url: "chrome-extension://fixture/dist/practice.html" }] as chrome.tabs.Tab[]);
+    expect((await provider.executeAccepted(request)).status).toBe("context_expired");
     expect(api.tabs.remove).not.toHaveBeenCalled();
   });
   it("skips tab activation for a drag and permits the following swipe", async () => {
