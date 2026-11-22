@@ -25,6 +25,7 @@ export const PROVIDER_PROTOCOL_VERSION = 2 as const;
  * 所有 V1 手势行为映射到这组标准化动作。V2.5 新增 Tab 管理类与链接页面类。
  */
 export type StandardActionID =
+  | "browser.link.open_background"
   | "browser.link.open_adjacent"
   | "browser.tab.activate_previous"
   | "browser.tab.activate_next"
@@ -361,7 +362,7 @@ const VALID_OUTCOMES = new Set<string>(["succeeded", "failed", "result_unknown"]
 
 /** StandardActionID 合法值集合（与 Swift/JSON Schema 三方一致）。 */
 const VALID_ACTION_IDS: readonly string[] = [
-  "browser.link.open_adjacent",
+  "browser.link.open_adjacent", "browser.link.open_background",
   "browser.tab.activate_previous",
   "browser.tab.activate_next",
   "browser.tab.close_current",

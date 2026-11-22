@@ -34,13 +34,14 @@ try {
   // allSettled ensures failed compilers stop writing before temporary output cleanup.
   const results = await Promise.allSettled([
     ["background/background", "esm"], ["content/pointerTracker", "iife"],
-    ["popup/popup", "esm"], ["smoke/smoke", "esm"]
+    ["practice/page", "esm"], ["popup/popup", "esm"], ["smoke/smoke", "esm"]
   ].map(([entry, format]) => build({
     entryPoints: [`src/${entry}.ts`], bundle: true, format,
     outfile: `${staging}/${entry}.js`, sourcemap: false, define
   })));
   const failure = results.find(result => result.status === "rejected");
   if (failure) throw failure.reason;
+  writeFileSync(join(staging, "practice.html"), readFileSync("src/practice/practice.html"));
   writeFileSync(join(staging, "build.json"), JSON.stringify({ schemaVersion: 1, buildId }) + "\n");
   if (existsSync(outdir)) { renameSync(outdir, backup); movedPrevious = true; }
   try { renameSync(staging, outdir); }

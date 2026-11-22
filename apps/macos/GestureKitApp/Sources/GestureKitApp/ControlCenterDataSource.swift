@@ -371,6 +371,7 @@ private func displayGestureName(_ rawValue: String?) -> String? {
 
 func displayActionName(_ actionId: StandardActionID) -> String {
     switch actionId {
+    case .browserLinkOpenBackground: return "在后台打开链接"
     case .browserLinkOpenAdjacent: return "链接在新标签页打开"
     case .browserTabActivatePrevious: return "切换左侧标签页"
     case .browserTabActivateNext: return "切换右侧标签页"

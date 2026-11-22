@@ -23,6 +23,7 @@ export class ChromeActionAdapter {
 
   /** 副作用前的同步上下文校验，供分发器在写入 acceptance 前 fail-closed。 */
   preflight(action: ActionDescriptor, now = Date.now()): PreflightResult {
+    if (action.actionId === "browser.link.open_background") return { outcome: "failed", reason: "capability_unavailable" };
     if (action.actionId !== "browser.link.open_adjacent") {
       return this.executeStandard ? { outcome: "ready" } : { outcome: "failed", reason: "capability_unavailable" };
     }

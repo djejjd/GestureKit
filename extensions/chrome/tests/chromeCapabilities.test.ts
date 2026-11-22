@@ -5,6 +5,7 @@ describe("ChromeProviderCapabilities", () => {
   it("declares every standard action implemented by ChromeProvider", () => {
     expect(ChromeProviderCapabilities.standard).toEqual([
       "browser.link.open_adjacent",
+      "browser.link.open_background",
       "browser.tab.activate_previous",
       "browser.tab.activate_next",
       "browser.tab.close_current",
@@ -21,6 +22,6 @@ describe("ChromeProviderCapabilities", () => {
       "browser.page.copy_url",
       "browser.page.scroll_top_bottom"
     ]);
-    expect(new Set(ChromeProviderCapabilities.standard).size).toBe(16);
+    expect(new Set(ChromeProviderCapabilities.standard).size).toBe(17);
   });
 });

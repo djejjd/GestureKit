@@ -17,6 +17,7 @@ export type ActionExecutionResult = {
 export type StandardActionExecutionResult = { status: "success" | "page_unavailable" | "edge_reached" };
 
 export type StandardActionOptions = {
+  sourceTabId?: number;
   closeClickIsolation?: {
     gestureSessionId: string;
     leaseMs?: number;
@@ -37,6 +38,9 @@ export async function executeStandardAction(
   parameters?: Record<string, string>,
   options?: StandardActionOptions
 ): Promise<StandardActionExecutionResult> {
+  if (actionId === "browser.link.open_background") {
+    return queueBackgroundLink(api, targetURL, options?.sourceTabId);
+  }
   if (actionId === "browser.link.open_adjacent") {
     if (!targetURL) return { status: "page_unavailable" };
     return standardResult(await openLinkBackground(api, targetURL));
@@ -70,6 +74,24 @@ export async function executeStandardAction(
     return scrollActiveTab(api, activeTab.id, parameters?.position);
   }
   return { status: "success" };
+}
+
+// 顺序执行创建请求，每次按 Chrome 当前标签顺序重算插入位置。
+let readingQueue: Promise<unknown> = Promise.resolve();
+function queueBackgroundLink(api: ChromeApi, value?: string, sourceId?: number): Promise<StandardActionExecutionResult> {
+  const open = async (): Promise<StandardActionExecutionResult> => {
+    const url = value && parseAllowedURL(value);
+    const source = await getActiveTab(api);
+    if (!url || !source?.id || (sourceId !== undefined && source.id !== sourceId)) return { status: "page_unavailable" };
+    const tabs = await api.tabs.query({ windowId: source.windowId });
+    const children = tabs.filter(tab => tab.openerTabId === source.id && tab.index > source.index);
+    const index = children.reduce((last, tab) => Math.max(last, tab.index), source.index) + 1;
+    await api.tabs.create({ url: url.toString(), index, windowId: source.windowId, openerTabId: source.id, active: false });
+    return { status: "success" };
+  };
+  const result = readingQueue.then(open, open);
+  readingQueue = result.then(() => undefined, () => undefined);
+  return result;
 }
 
 function standardResult(result: ActionExecutionResult): StandardActionExecutionResult {

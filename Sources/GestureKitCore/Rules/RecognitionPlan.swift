@@ -21,7 +21,7 @@ public struct RecognitionPlan: Sendable, Equatable {
         }
         self.definitions = configuration.gestureDefinitions
         var features: [String: Set<InteractionGuardFeature>] = [:]
-        for rule in configuration.rules where rule.enabled && rule.actionId == .browserLinkOpenAdjacent {
+        for rule in configuration.rules where rule.enabled && [.browserLinkOpenAdjacent, .browserLinkOpenBackground].contains(rule.actionId) {
             features[rule.gestureDefinitionId, default: []].insert(.linkClick)
         }
         for definition in configuration.gestureDefinitions where definition.primitive == .swipe && definition.fingers >= 3 {

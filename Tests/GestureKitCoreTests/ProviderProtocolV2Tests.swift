@@ -324,7 +324,7 @@ final class ProviderProtocolV2Tests: XCTestCase {
 
     // MARK: - 标准动作 ID
 
-    /// Provider Protocol v2 必须定义以下 16 个标准动作 ID。
+    /// Provider Protocol v2 必须定义以下 17 个标准动作 ID。
     /// 这是 Core 与 Provider 之间的最小契约，Provider 通过能力声明告知支持哪些动作。
     func testStandardActionIDCases() {
         // browser.link.open_adjacent：在当前标签右侧打开目标链接
@@ -365,6 +365,7 @@ final class ProviderProtocolV2Tests: XCTestCase {
     func testAllStandardActionIDsAreCovered() {
         let all: Set<StandardActionID> = [
             .browserLinkOpenAdjacent,
+            .browserLinkOpenBackground,
             .browserTabActivatePrevious,
             .browserTabActivateNext,
             .browserTabCloseCurrent,
@@ -381,7 +382,7 @@ final class ProviderProtocolV2Tests: XCTestCase {
             .browserPageCopyURL,
             .browserPageScrollTopBottom
         ]
-        XCTAssertEqual(all.count, 16, "Provider Protocol v2 必须恰好包含 16 个标准动作")
+        XCTAssertEqual(all.count, StandardActionID.allCases.count, "Provider Protocol v2 必须恰好包含 17 个标准动作")
     }
 
     // MARK: - ProviderEvent 证据链字段
