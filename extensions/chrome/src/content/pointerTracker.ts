@@ -45,7 +45,7 @@ const SUSTAINED_SELECTION_MS = 120;
 type Endpoints = ReturnType<typeof selectionEndpoints>;
 let dragObservation: {
   id: string; initial: Endpoints; last: Endpoints; firstChange?: number;
-  dragging: boolean; awaitingCommit: boolean; timeout: ReturnType<typeof setTimeout>;
+  classified?: boolean; dragging: boolean; awaitingCommit: boolean; timeout: ReturnType<typeof setTimeout>;
 } | null = null;
 
 function clearDragObservation() {
@@ -59,7 +59,7 @@ function sameSelection(left: Endpoints, right: Endpoints) {
 
 function recordSelectionChange() {
   const observation = dragObservation;
-  if (!observation || observation.awaitingCommit) return;
+  if (!observation || observation.classified || observation.awaitingCommit) return;
   const next = selectionEndpoints();
   if (sameSelection(next, observation.last)) return;
   observation.last = next;
@@ -67,6 +67,28 @@ function recordSelectionChange() {
   const now = performance.now();
   observation.firstChange ??= now;
   observation.dragging ||= now - observation.firstChange >= SUSTAINED_SELECTION_MS;
+}
+
+// 在分类抵达时固定结论，后续查询延迟不会把快速划过变成拖选。
+function classifySelection(id: string) {
+  const observation = dragObservation;
+  if (!observation || observation.id !== id || observation.classified) return;
+  recordSelectionChange();
+  observation.classified = true;
+  if (observation.firstChange !== undefined && !window.getSelection()?.isCollapsed &&
+      !sameSelection(observation.initial, observation.last)) {
+    observation.dragging ||= performance.now() - observation.firstChange >= SUSTAINED_SELECTION_MS;
+  }
+}
+
+// 页面保护到期时只留下本会话的判断，供有界的动作查询使用。
+let expiredSelectionID: string | null = null;
+function expireDragObservation() {
+  if (dragObservation) {
+    classifySelection(dragObservation.id);
+    if (dragObservation.dragging) expiredSelectionID = dragObservation.id;
+  }
+  clearDragObservation();
 }
 
 function restoreSwipeSelection(id: string) {
@@ -85,6 +107,7 @@ function restoreSwipeSelection(id: string) {
 
 const lifecycle = beginContentLifecycle(() => {
   clearDragObservation();
+  expiredSelectionID = null;
   resetTransientClickState();
   state.lastPointer = null;
   state.timedOutAndNavigated = false;
@@ -461,11 +484,12 @@ if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
         features: message.features ?? ["link_click"]
       };
       interactionGuard.arm(command, performance.now());
+      expiredSelectionID = null;
       clearDragObservation();
       if (command.features?.includes("observe_drag")) {
         const initial = selectionEndpoints();
         dragObservation = { id: command.gestureSessionId, initial, last: initial, dragging: false, awaitingCommit: false,
-          timeout: setTimeout(clearDragObservation, command.leaseMs) };
+          timeout: setTimeout(expireDragObservation, command.leaseMs) };
       }
       traceGuard(command.gestureSessionId, "armed", "content_script_ack");
       sendResponse({ status: "guard_armed", gestureSessionId: command.gestureSessionId, documentToken });
@@ -484,18 +508,23 @@ if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
       return false;
     }
     if (message.type === "gesturekit.dragEvidence") {
+      if (expiredSelectionID !== null && expiredSelectionID === message.gestureSessionId) {
+        sendResponse({ dragging: true });
+        return false;
+      }
       const matches = dragObservation?.id === message.gestureSessionId;
       if (matches) recordSelectionChange();
       sendResponse({ dragging: matches && dragObservation?.dragging === true,
         ...(matches && !dragObservation?.dragging && !sameSelection(dragObservation!.initial, dragObservation!.last) ? { awaitingCommit: true } : {}) });
       if (matches && dragObservation) {
         traceGuard(message.gestureSessionId, "drag_evidence", dragObservation.dragging ? "sustained_selection" : "swipe");
-        if (dragObservation.dragging) clearDragObservation();
+        if (dragObservation.dragging) expireDragObservation();
         else dragObservation.awaitingCommit = true;
       }
       return false;
     }
     if (message.type === "gesturekit.linkGuardDiscard") {
+      classifySelection(message.gestureSessionId);
       const discarded = discardProtectedClick(message.gestureSessionId);
       const guard = interactionGuard.discard({ gestureSessionId: message.gestureSessionId, nowMonotonicMs: performance.now() });
       // 即使原始 click 尚未来得及写入本地暂存，匹配的 guard 也已被安全丢弃；

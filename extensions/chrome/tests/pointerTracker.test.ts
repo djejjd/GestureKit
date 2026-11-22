@@ -436,6 +436,33 @@ describe("pointerTracker", () => {
     } finally { now.mockRestore(); }
   });
 
+  it.each(["held", "expired", "quick"])("keeps the selection verdict through preflight: %s", async mode => {
+    vi.useFakeTimers();
+    const epoch = Date.now();
+    const clock = vi.spyOn(performance, "now").mockImplementation(() => Date.now() - epoch);
+    try {
+      const addListener = vi.fn();
+      vi.stubGlobal("chrome", { runtime: { onMessage: { addListener } } });
+      await import("../src/content/pointerTracker");
+      const send = (type: string, id = "first") => {
+        const reply = vi.fn();
+        addListener.mock.calls[0][0]({ type: `gesturekit.${type}`, gestureSessionId: id, features: ["observe_drag"], leaseMs: 800 }, {}, reply);
+        return reply.mock.lastCall?.[0];
+      };
+      send("linkGuardArm");
+      const text = document.querySelector("a")!.firstChild!;
+      window.getSelection()!.setBaseAndExtent(text, 0, text, 3);
+      document.dispatchEvent(new Event("selectionchange"));
+      await vi.advanceTimersByTimeAsync(mode === "quick" ? 30 : mode === "expired" ? 850 : 200);
+      send("linkGuardDiscard");
+      await vi.advanceTimersByTimeAsync(180);
+      expect(send("dragEvidence").dragging).toBe(mode !== "quick");
+      expect(window.getSelection()!.focusOffset).toBe(3);
+      send("linkGuardArm", "next");
+      expect(send("dragEvidence", "next").dragging).toBe(false);
+    } finally { clock.mockRestore(); vi.useRealTimers(); }
+  });
+
   it("blocks the delayed refresh button click and allows the next deliberate click", async () => {
     const addListener = vi.fn();
     vi.stubGlobal("chrome", { runtime: { onMessage: { addListener } } });
