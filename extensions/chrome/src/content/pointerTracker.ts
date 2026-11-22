@@ -37,11 +37,15 @@ declare const __GESTUREKIT_BUILD_ID__: string | undefined;
 const BUILD_ID = typeof __GESTUREKIT_BUILD_ID__ !== "undefined" ? __GESTUREKIT_BUILD_ID__ : "unbuilt";
 function selectionEndpoints() {
   const selection = window.getSelection();
-  return [selection?.anchorNode, selection?.anchorOffset, selection?.focusNode, selection?.focusOffset];
+  return [selection?.anchorNode, selection?.anchorOffset, selection?.focusNode, selection?.focusOffset] as const;
 }
 
+// 从第一次实际选区变化计时，避免把 IPC 等待时间算作持续拖选。
+const SUSTAINED_SELECTION_MS = 120;
+type Endpoints = ReturnType<typeof selectionEndpoints>;
 let dragObservation: {
-  id: string; endpoints: ReturnType<typeof selectionEndpoints>; dragging: boolean; timeout: ReturnType<typeof setTimeout>
+  id: string; initial: Endpoints; last: Endpoints; firstChange?: number;
+  dragging: boolean; awaitingCommit: boolean; timeout: ReturnType<typeof setTimeout>;
 } | null = null;
 
 function clearDragObservation() {
@@ -49,10 +53,33 @@ function clearDragObservation() {
   dragObservation = null;
 }
 
+function sameSelection(left: Endpoints, right: Endpoints) {
+  return left.every((value, index) => value === right[index]);
+}
+
 function recordSelectionChange() {
-  if (dragObservation && !window.getSelection()?.isCollapsed &&
-      selectionEndpoints().some((value, index) => value !== dragObservation?.endpoints[index])) {
-    dragObservation.dragging = true;
+  const observation = dragObservation;
+  if (!observation || observation.awaitingCommit) return;
+  const next = selectionEndpoints();
+  if (sameSelection(next, observation.last)) return;
+  observation.last = next;
+  if (window.getSelection()?.isCollapsed && observation.firstChange === undefined) return;
+  const now = performance.now();
+  observation.firstChange ??= now;
+  observation.dragging ||= now - observation.firstChange >= SUSTAINED_SELECTION_MS;
+}
+
+function restoreSwipeSelection(id: string) {
+  const observation = dragObservation;
+  if (!observation?.awaitingCommit || observation.id !== id) return;
+  clearDragObservation();
+  if (!sameSelection(selectionEndpoints(), observation.last) || sameSelection(observation.initial, observation.last)) return;
+  const [anchor, start, focus, end] = observation.initial;
+  const selection = window.getSelection();
+  if (!anchor || !focus) selection?.removeAllRanges();
+  else if (anchor.isConnected && focus.isConnected) {
+    try { selection?.setBaseAndExtent(anchor, start!, focus, end!); }
+    catch { /* 页面已更新文本，保留页面当前选区。 */ }
   }
 }
 
@@ -436,7 +463,8 @@ if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
       interactionGuard.arm(command, performance.now());
       clearDragObservation();
       if (command.features?.includes("observe_drag")) {
-        dragObservation = { id: command.gestureSessionId, endpoints: selectionEndpoints(), dragging: false,
+        const initial = selectionEndpoints();
+        dragObservation = { id: command.gestureSessionId, initial, last: initial, dragging: false, awaitingCommit: false,
           timeout: setTimeout(clearDragObservation, command.leaseMs) };
       }
       traceGuard(command.gestureSessionId, "armed", "content_script_ack");
@@ -450,11 +478,21 @@ if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
       sendResponse(released.status === "guard_released" ? released : guard);
       return false;
     }
+    if (message.type === "gesturekit.swipeCommitted") {
+      restoreSwipeSelection(message.gestureSessionId);
+      sendResponse({ status: "handled" });
+      return false;
+    }
     if (message.type === "gesturekit.dragEvidence") {
       const matches = dragObservation?.id === message.gestureSessionId;
       if (matches) recordSelectionChange();
-      sendResponse({ dragging: matches && dragObservation?.dragging === true });
-      if (matches) clearDragObservation();
+      sendResponse({ dragging: matches && dragObservation?.dragging === true,
+        ...(matches && !dragObservation?.dragging && !sameSelection(dragObservation!.initial, dragObservation!.last) ? { awaitingCommit: true } : {}) });
+      if (matches && dragObservation) {
+        traceGuard(message.gestureSessionId, "drag_evidence", dragObservation.dragging ? "sustained_selection" : "swipe");
+        if (dragObservation.dragging) clearDragObservation();
+        else dragObservation.awaitingCommit = true;
+      }
       return false;
     }
     if (message.type === "gesturekit.linkGuardDiscard") {

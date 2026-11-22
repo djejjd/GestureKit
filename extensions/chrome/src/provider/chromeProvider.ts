@@ -27,7 +27,7 @@ type PointerResolution =
   | { status: "no_target" }
   | { status: "page_unavailable" };
 type StoredTarget = { contextId: string; gestureSessionId: string; tabId: number; frameId: number; url: string; expiresAt: number };
-type StoredContext = { gestureSessionId: string; tabId: number; expiresAt: number; allowedActionIds?: readonly StandardActionID[] };
+type StoredContext = { restoreAfterSwipe?: boolean; gestureSessionId: string; tabId: number; expiresAt: number; allowedActionIds?: readonly StandardActionID[] };
 type ContentBridge = (tabId: number, message: Record<string, unknown>) => Promise<unknown>;
 
 /**
@@ -141,7 +141,8 @@ export class ChromeProvider {
         (request.actionId === "browser.tab.activate_previous" || request.actionId === "browser.tab.activate_next")) {
       const evidence = await this.content(active.id, {
         type: "gesturekit.dragEvidence", gestureSessionId: request.gestureSessionId
-      }).catch(() => null) as { dragging?: boolean } | null;
+      }).catch(() => null) as { dragging?: boolean; awaitingCommit?: boolean } | null;
+      context.restoreAfterSwipe = evidence?.awaitingCommit === true;
       if (evidence?.dragging) return { status: "guard_unavailable" };
     }
     let url: string | undefined;
@@ -231,6 +232,12 @@ export class ChromeProvider {
       }
       const status = result.status === "success" ? "success" : result.status;
       this.statuses.set(request.operationId, { operationId: request.operationId, status: status === "success" ? "success" : "failed" });
+      if (status === "success" && (request.actionId === "browser.tab.activate_previous" || request.actionId === "browser.tab.activate_next")) {
+        const source = this.contexts.get(request.contextId);
+        if (source?.restoreAfterSwipe) await this.content(source.tabId, {
+          type: "gesturekit.swipeCommitted", gestureSessionId: request.gestureSessionId
+        }).catch(() => undefined);
+      }
       if (status === "success" && request.actionId === "browser.link.open_adjacent") {
         // 已创建相邻标签，只清理同会话的暂存点击。保留对延迟系统 click 的一次性拦截。
         const source = this.targets.get(request.targetRef ?? "");

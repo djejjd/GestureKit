@@ -404,22 +404,36 @@ describe("pointerTracker", () => {
     vi.useRealTimers();
   });
 
-  it("attributes a changed selection to this swipe and allows the next swipe with the same selection", async () => {
+  it.each(["quick", "extend", "shrink", "failed", "stale"])("arbitrates a %s text swipe on the same line", async mode => {
     const addListener = vi.fn();
     vi.stubGlobal("chrome", { runtime: { onMessage: { addListener } } });
     await import("../src/content/pointerTracker");
     const listener = addListener.mock.calls[0][0];
     const reply = vi.fn();
-    const message = (type: string, gestureSessionId: string) =>
-      listener({ type: `gesturekit.${type}`, gestureSessionId, features: ["observe_drag"], leaseMs: 800 }, {}, reply);
-    const text = document.querySelector("a")!.firstChild!;
-    for (const session of ["drag", "swipe"]) {
-      message("linkGuardArm", session);
-      if (session === "drag") window.getSelection()!.setBaseAndExtent(text, 0, text, 2);
-      message("linkGuardDiscard", session);
-      message("dragEvidence", session);
-      expect(reply.mock.lastCall?.[0]).toMatchObject({ dragging: session === "drag" });
-    }
+    const message = (type: string, id = "gesture") =>
+      listener({ type: `gesturekit.${type}`, gestureSessionId: id, features: ["observe_drag"], leaseMs: 800 }, {}, reply);
+    const now = vi.spyOn(performance, "now").mockReturnValue(0);
+    try {
+      const text = document.querySelector("a")!.firstChild!;
+      const selection = window.getSelection()!;
+      selection.setBaseAndExtent(text, 1, text, 0);
+      message("linkGuardArm");
+      const move = (at: number, end: number) => {
+        now.mockReturnValue(at);
+        selection.setBaseAndExtent(text, 0, text, end);
+        document.dispatchEvent(new Event("selectionchange"));
+      };
+      move(10, 1);
+      move(30, 2);
+      const dragging = mode === "extend" || mode === "shrink";
+      move(dragging ? 190 : 45, mode === "shrink" ? 1 : 3);
+      message("linkGuardDiscard");
+      message("dragEvidence");
+      expect(reply.mock.lastCall?.[0]).toMatchObject({ dragging });
+      if (mode === "stale") message("linkGuardArm", "new");
+      if (mode !== "failed") message("swipeCommitted");
+      expect(selection.focusOffset).toBe(mode === "quick" ? 0 : mode === "shrink" ? 1 : 3);
+    } finally { now.mockRestore(); }
   });
 
   it("blocks the delayed refresh button click and allows the next deliberate click", async () => {
