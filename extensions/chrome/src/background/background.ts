@@ -1,9 +1,10 @@
+import { practiceBridge } from "../practice/bridge";
 import { restoreContentScripts } from "./contentRestore";
 import type { GestureEventMessage } from "../protocol/messages";
 import { createDevelopmentUpdater, type DevelopmentUpdateStatus } from "./developmentUpdater";
 import { createNativeConnection } from "./nativeConnection";
 import { createInteractionGuardRouter } from "./interactionGuardRouter";
-import { executeGestureAction, executeStandardAction } from "./actionExecutor";
+import { executeGestureAction, executeStandardAction, forgetReadingTab } from "./actionExecutor";
 import { chromeApi } from "./chromeApi";
 import { createNativePortManager } from "./nativePortManager";
 import { runConnectionProbe } from "./connectionProbe";
@@ -62,10 +63,17 @@ type GuardTrace = { timestamp: number; stage: string; detail: string };
 const guardTraces = new Map<string, GuardTrace[]>();
 let diagnosticLoggingEnabled = false;
 // v2 boundary keeps resolved page URLs and target references inside Chrome.
-const chromeProvider = new ChromeProvider(chromeApi, async (tabId, message) => {
-  try { return await chrome.tabs.sendMessage(tabId, message); }
-  catch { return { status: "page_unavailable" as const }; }
-});
+const practiceURL = chrome.runtime.getURL("dist/practice.html");
+const practice = practiceBridge(practiceURL, tabId => chromeProvider.invalidatePractice(tabId));
+chrome.runtime.onConnect?.addListener(practice.attach);
+chrome.tabs.onRemoved?.addListener(forgetReadingTab);
+async function sendToPage(tabId: number, message: Record<string, unknown>, options?: chrome.tabs.MessageSendOptions) {
+  const page = practice.pages.get(tabId);
+  if (page) return page.send(message);
+  try { return await chrome.tabs.sendMessage(tabId, message, options); }
+  catch { return { status: "page_unavailable" }; }
+}
+const chromeProvider = new ChromeProvider(chromeApi, sendToPage, undefined, practiceURL);
 
 async function resolveLastPointer() {
   const [tab] = await chrome.tabs.query({ active: true, lastFocusedWindow: true });
@@ -105,7 +113,11 @@ function createManager(port: PortLike, isActive: () => boolean) {
   return createNativePortManager({
     port,
     resolveLastPointer,
-    executeAction: (intent) => executeGestureAction(chromeApi, intent),
+    executeAction: async intent => {
+      const [tab] = await chromeApi.tabs.query({ active: true, lastFocusedWindow: true });
+      if (tab?.url === practiceURL) return { action: intent.action, status: "page_unavailable" };
+      return executeGestureAction(chromeApi, intent);
+    },
     getSettings: () => loadGestureSettings(chrome.storage.local),
     cancelPendingTap,
     onActionResult: (message) => {
@@ -316,11 +328,13 @@ const connection = createNativeConnection({
 
 function makePageGuardRouter() { return createInteractionGuardRouter({
   query: () => chrome.tabs.query({ active: true, lastFocusedWindow: true }),
-  send: (tabId, message) => chrome.tabs.sendMessage(tabId, message, { frameId: 0 }).catch(() => null),
+  send: (tabId, message) => sendToPage(tabId, message, { frameId: 0 }),
   trace: recordGuardTrace
 }); }
 let routeInteractionGuard = makePageGuardRouter();
 function resetPageGuards() {
+  chromeProvider.invalidatePractice();
+  for (const page of practice.pages.values()) void page.send({ type: "gesturekit.practiceReset" });
   void routeInteractionGuard.dispose();
   routeInteractionGuard = makePageGuardRouter();
 }

@@ -81,6 +81,7 @@ public struct ProviderError: Codable, Sendable, Equatable {
 /// 均为向后兼容 case：旧 Provider 不解读新 case 即忽略，旧消息解码不受影响。
 public enum StandardActionID: String, Codable, Sendable, Equatable, CaseIterable {
     case browserLinkOpenAdjacent = "browser.link.open_adjacent"
+    case browserLinkOpenBackground = "browser.link.open_background"
     case browserTabActivatePrevious = "browser.tab.activate_previous"
     case browserTabActivateNext = "browser.tab.activate_next"
     case browserTabCloseCurrent = "browser.tab.close_current"

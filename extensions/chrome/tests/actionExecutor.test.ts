@@ -59,6 +59,21 @@ function makeChromeApi(tabs: MockTab[]): ChromeApi {
 }
 
 describe("executeGestureAction", () => {
+  it("opens three background links in reading order and keeps the source active", async () => {
+    const api = makeChromeApi([{ id: 10, index: 0, active: true, windowId: 7 }]);
+    let nextId = 100;
+    const tabs = [{ id: 10, index: 0, active: true, windowId: 7, openerTabId: undefined as number | undefined }];
+    tabs.push({ id: 52, index: 2, active: false, windowId: 7, openerTabId: 10 });
+    vi.mocked(api.tabs.query).mockImplementation(async q => (q.active ? [tabs[0]] : tabs) as chrome.tabs.Tab[]);
+    vi.mocked(api.tabs.create).mockImplementation(async args => {
+      const tab = { id: nextId++, index: args.index!, active: !!args.active, windowId: 7, openerTabId: args.openerTabId };
+      tabs.splice(tab.index, 0, tab);
+      return tab as chrome.tabs.Tab;
+    });
+    await Promise.all(["A", "B", "C"].map(id => executeStandardAction(api, "browser.link.open_background", `https://example.test/${id}`)));
+    expect(vi.mocked(api.tabs.create).mock.calls.map(([args]) => [args.index, args.active])).toEqual([[1,false],[2,false],[3,false]]);
+    expect(tabs.filter(tab => tab.active).map(tab => tab.id)).toEqual([10]);
+  });
   it("maps browser.history.back to Chrome tabs.goBack", async () => {
     const api = makeChromeApi([{ id: 10, index: 0, active: true, windowId: 7 }]);
 

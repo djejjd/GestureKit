@@ -27,7 +27,7 @@ type PointerResolution =
   | { status: "no_target" }
   | { status: "page_unavailable" };
 type StoredTarget = { contextId: string; gestureSessionId: string; tabId: number; frameId: number; url: string; expiresAt: number };
-type StoredContext = { restoreAfterSwipe?: boolean; gestureSessionId: string; tabId: number; expiresAt: number; allowedActionIds?: readonly StandardActionID[] };
+type StoredContext = { practice?: boolean; restoreAfterSwipe?: boolean; gestureSessionId: string; tabId: number; expiresAt: number; allowedActionIds?: readonly StandardActionID[] };
 type ContentBridge = (tabId: number, message: Record<string, unknown>) => Promise<unknown>;
 
 /**
@@ -66,7 +66,8 @@ export class ChromeProvider {
   constructor(
     private readonly api: ChromeApi,
     private readonly content: ContentBridge,
-    private readonly accept?: (request: ActionRequest) => Promise<boolean>
+    private readonly accept?: (request: ActionRequest) => Promise<boolean>,
+    private readonly practiceURL?: string
   ) {}
 
   async context(request: ContextRequest): Promise<ContextSnapshot> {
@@ -75,7 +76,8 @@ export class ChromeProvider {
     const tab = await activeTab(this.api);
     if (!tab?.id) return unavailable("page_unavailable", request.deadline);
     const pageIdentityInfo = pageIdentityFromTabURL(tab.url);
-    const supportsLinkTarget = pageIdentityInfo?.protocol === "http:" || pageIdentityInfo?.protocol === "https:";
+    const practice = !!this.practiceURL && tab.url === this.practiceURL;
+    const supportsLinkTarget = practice || pageIdentityInfo?.protocol === "http:" || pageIdentityInfo?.protocol === "https:";
     const pageIdentity = request.requiresTargetRef && !supportsLinkTarget ? "" : pageIdentityInfo?.identity ?? "";
     const contextId = crypto.randomUUID();
     const expiresAt = request.deadline;
@@ -83,7 +85,7 @@ export class ChromeProvider {
     // 即使无法解析页面，也要先登记会话绑定的 context；链接目标仍单独 fail-closed。
     this.contexts.set(contextId, {
       gestureSessionId: request.gestureSessionId,
-      tabId: tab.id,
+      tabId: tab.id, practice,
       expiresAt,
       allowedActionIds: request.requiresTargetRef ? undefined : NON_TARGET_ACTION_IDS
     });
@@ -100,9 +102,9 @@ export class ChromeProvider {
       await this.releaseGuard(tab.id, request.gestureSessionId);
       return { contextId, expiresAt, targetKind: "page_unavailable", pageIdentity };
     }
-    if (resolved.status !== "success") {
+    if (resolved?.status !== "success") {
       await this.releaseGuard(tab.id, request.gestureSessionId);
-      return { contextId, expiresAt, targetKind: resolved.status === "no_target" ? "no_target" : "page_unavailable", pageIdentity };
+      return { contextId, expiresAt, targetKind: resolved?.status === "no_target" ? "no_target" : "page_unavailable", pageIdentity };
     }
     const targetRef = crypto.randomUUID();
     this.targets.set(targetRef, { contextId, gestureSessionId: request.gestureSessionId, tabId: tab.id, frameId: resolved.frameId ?? 0, url: resolved.url, expiresAt });
@@ -130,13 +132,14 @@ export class ChromeProvider {
       return { status: "context_expired" };
     }
     if (context.gestureSessionId !== request.gestureSessionId) {
-      return { status: request.actionId === "browser.link.open_adjacent" ? "guard_unavailable" : "context_expired" };
+      return { status: (request.actionId === "browser.link.open_adjacent" || request.actionId === "browser.link.open_background") ? "guard_unavailable" : "context_expired" };
     }
     if (context.allowedActionIds && !context.allowedActionIds.includes(request.actionId)) {
       return { status: "context_expired" };
     }
     const active = await activeTab(this.api);
     if (!active?.id || active.id !== context.tabId) return { status: "context_expired" };
+    if (context.practice) return active.url === this.practiceURL ? { status: "ready" } : { status: "context_expired" };
     if (/^https?:\/\//i.test(active.url ?? "") && context.allowedActionIds) {
       const evidence = await this.content(active.id, {
         type: "gesturekit.dragEvidence", gestureSessionId: request.gestureSessionId
@@ -145,7 +148,7 @@ export class ChromeProvider {
       if (evidence?.dragging) return { status: "guard_unavailable" };
     }
     let url: string | undefined;
-    if (request.actionId === "browser.link.open_adjacent") {
+    if ((request.actionId === "browser.link.open_adjacent" || request.actionId === "browser.link.open_background")) {
       const target = request.targetRef ? this.targets.get(request.targetRef) : undefined;
       if (!target || target.contextId !== request.contextId || target.expiresAt < now) {
         await this.releaseCurrentGuard(request.gestureSessionId);
@@ -192,8 +195,32 @@ export class ChromeProvider {
     return { status: "ready", url };
   }
 
+  invalidatePractice(tabId?: number) {
+    for (const [id, context] of this.contexts) {
+      if (context.practice && (tabId === undefined || context.tabId === tabId)) this.contexts.delete(id);
+    }
+  }
+
   async executeAccepted(request: ActionRequest, url?: string, isActive: () => boolean = () => true): Promise<ActionResult> {
     this.statuses.set(request.operationId, { operationId: request.operationId, status: "accepted" });
+    const context = this.contexts.get(request.contextId);
+    const expired = (): ActionResult => {
+      this.contexts.delete(request.contextId);
+      this.statuses.set(request.operationId, { operationId: request.operationId, status: "failed" });
+      return { status: "context_expired" };
+    };
+    if (!context || context.gestureSessionId !== request.gestureSessionId || context.expiresAt < Date.now()) return expired();
+    if (context.practice) {
+      const tab = await activeTab(this.api);
+      if (!isActive() || tab?.id !== context.tabId || tab?.url !== this.practiceURL || request.deadline <= Date.now() || !this.contexts.has(request.contextId)) return expired();
+      const reply = await this.content(context.tabId, { type: "gesturekit.practicePreview", actionId: request.actionId,
+        gestureSessionId: request.gestureSessionId }).catch(() => null) as { status?: string } | null;
+      if (!this.contexts.has(request.contextId)) return expired();
+      const ok = reply?.status === "previewed";
+      this.statuses.set(request.operationId, { operationId: request.operationId, status: ok ? "success" : "failed" });
+      return { status: ok ? "success" : "page_unavailable" };
+    }
+    const sourceChanged = new Error("source_tab_changed");
     let effectStarted = false;
     const effect = <T>(operation: () => Promise<T>): Promise<T> => {
       if (!isActive()) throw new Error("provider_disconnected");
@@ -204,7 +231,11 @@ export class ChromeProvider {
     // executor queries and between multi-step operations such as close-current.
     const api: ChromeApi = {
       tabs: {
-        query: query => this.api.tabs.query(query),
+        query: async query => {
+          const tabs = await this.api.tabs.query(query);
+          if (query.active && (tabs[0]?.id !== context.tabId || (this.practiceURL && tabs[0]?.url === this.practiceURL))) throw sourceChanged;
+          return tabs;
+        },
         create: args => effect(() => this.api.tabs.create(args)),
         update: (id, args) => effect(() => this.api.tabs.update(id, args)),
         remove: ids => effect(() => this.api.tabs.remove(ids)),
@@ -220,6 +251,7 @@ export class ChromeProvider {
     };
     try {
       const result = await executeStandardAction(api, request.actionId, url, request.parameters, {
+        sourceTabId: this.contexts.get(request.contextId)?.tabId,
         closeClickIsolation: request.actionId === "browser.tab.close_current"
           ? { gestureSessionId: request.gestureSessionId }
           : undefined
@@ -237,7 +269,7 @@ export class ChromeProvider {
           type: "gesturekit.swipeCommitted", gestureSessionId: request.gestureSessionId
         }).catch(() => undefined);
       }
-      if (status === "success" && request.actionId === "browser.link.open_adjacent") {
+      if (status === "success" && (request.actionId === "browser.link.open_adjacent" || request.actionId === "browser.link.open_background")) {
         // 已创建相邻标签，只清理同会话的暂存点击。保留对延迟系统 click 的一次性拦截。
         const source = this.targets.get(request.targetRef ?? "");
         if (source) await this.content(source.tabId, {
@@ -245,7 +277,8 @@ export class ChromeProvider {
         }).catch(() => undefined);
       } else if (status !== "success") await this.releaseCurrentGuard(request.gestureSessionId);
       return { status };
-    } catch {
+    } catch (error) {
+      if (error === sourceChanged) return expired();
       if (!isActive()) {
         const status = effectStarted ? "result_unknown" : "provider_disconnected";
         this.statuses.set(request.operationId, { operationId: request.operationId, status: effectStarted ? "result_unknown" : "failed" });

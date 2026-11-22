@@ -124,5 +124,6 @@ export function createInteractionGuard() {
     return activeGuard.gestureSessionId === gestureSessionId ? activeGuard : null;
   }
 
-  return { arm, consume, release, discard, discarded, observeDOMEvent, active };
+  function reset() { activeGuard = null; discardedClick = null; }
+  return { reset, arm, consume, release, discard, discarded, observeDOMEvent, active };
 }

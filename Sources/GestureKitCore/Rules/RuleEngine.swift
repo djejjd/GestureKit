@@ -82,8 +82,9 @@ private enum BindingResolver {
             .first
 
         guard let binding else { return nil }
-        let targetRef = binding.actionId == .browserLinkOpenAdjacent ? context.targetRef : nil
-        guard binding.actionId != .browserLinkOpenAdjacent || targetRef != nil else { return nil }
+        let opensLink = [.browserLinkOpenAdjacent, .browserLinkOpenBackground].contains(binding.actionId)
+        let targetRef = opensLink ? context.targetRef : nil
+        guard !opensLink || targetRef != nil else { return nil }
         return ActionDescriptor(
             actionId: binding.actionId,
             contextId: context.contextId,

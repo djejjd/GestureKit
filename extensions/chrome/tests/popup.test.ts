@@ -38,6 +38,12 @@ describe("minimal popup", () => {
     expect(document.querySelector("#diagnosticsList")).toBeNull();
   });
 
+  it("exposes one practice entry after a bundle-only update of an existing popup", async () => {
+    await initializePopup(document, storageWith({}));
+    await initializePopup(document, storageWith({}));
+    expect(document.querySelectorAll('a[href="dist/practice.html"]')).toHaveLength(1);
+  });
+
   it("maps guard failure without leaking internal status", () => {
     const state = popupStateForTesting({ lastResult: "guard_unavailable" });
     expect(state.latestResult).toMatchObject({ title: "为避免误触，本次操作未执行" });

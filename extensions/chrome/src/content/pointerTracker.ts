@@ -341,6 +341,19 @@ function isHttpLink(urlValue: string): boolean {
   }
 }
 
+// 练习页可以暂存点击用于识别，恢复导航始终停留在该页。
+function restoreNavigation(url: string) {
+  if (location.protocol === "chrome-extension:" && location.pathname === "/dist/practice.html") return;
+  window.location.href = url;
+}
+
+export function endPracticeGesture() {
+  clearDragObservation();
+  expiredSelectionID = null;
+  resetTransientClickState();
+  interactionGuard.reset();
+}
+
 function protectLinkClick(event: MouseEvent, url: string, gestureSessionId: string | null, remainingLeaseMs: number) {
   if (state.protectedLinkClick) {
     clearTimeout(state.protectedLinkClick.timeout);
@@ -360,7 +373,7 @@ function protectLinkClick(event: MouseEvent, url: string, gestureSessionId: stri
       state.protectedLinkClick = null;
       state.timedOutAndNavigated = true;
       traceGuard(gestureSessionId, "lease_expired", "original_navigation_restored");
-      window.location.href = url;
+      restoreNavigation(url);
     }, Math.min(LINK_CLICK_PROTECTION_WINDOW_MS, remainingLeaseMs))
   };
 }
@@ -432,14 +445,14 @@ function releaseProtectedClick(gestureSessionId: string, restoreConsumed = true)
     state.protectedLinkClick = null;
     traceGuard(gestureSessionId, "released", "protected_click_restored");
     // 被暂存的原生导航在候选被拒绝或 Provider 放弃时必须恢复。
-    window.location.href = protectedClick.url;
+    restoreNavigation(protectedClick.url);
     return { status: "guard_released" };
   }
   const consumed = state.consumedProtectedClick;
   if (!restoreConsumed || consumed?.gestureSessionId !== gestureSessionId) return { status: "guard_unavailable" };
   state.consumedProtectedClick = null;
   traceGuard(gestureSessionId, "released", "consumed_click_restored");
-  window.location.href = consumed.url;
+  restoreNavigation(consumed.url);
   return { status: "guard_released" };
 }
 
@@ -479,8 +492,7 @@ function sharedState(): PointerTrackerState {
   return target[key]!;
 }
 
-if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
-  lifecycle.onMessage((message, _sender, sendResponse) => {
+export function handlePageMessage(message: any, sendResponse: (response: any) => void) {
     if (message.type === "gesturekit.contentVersion") {
       sendResponse({ buildId: BUILD_ID, documentToken });
       return false;
@@ -639,7 +651,10 @@ if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
     }
     sendResponse(resolveLinkAtLastPointer(Date.now(), { consumeNextClick: Boolean(message.consumeNextClick) }));
     return false;
-  });
+}
+
+if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
+  lifecycle.onMessage((message, _sender, respond) => handlePageMessage(message, respond));
 }
 
 /**
