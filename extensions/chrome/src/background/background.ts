@@ -432,11 +432,30 @@ function appendGuardTrace(gestureSessionId: string, trace: GuardTrace, index: nu
 }
 
 function isGuardTerminalStage(stage: string) {
-  return ["consume_acknowledged", "consume_rejected", "forward_failed", "lease_expired", "guard_discarded", "guard_released"].includes(stage);
+  return [
+    "consume_acknowledged",
+    "consume_rejected",
+    "forward_failed",
+    "lease_expired",
+    "guard_discarded",
+    "guard_released",
+    "close_click_blocked",
+    "close_click_dismissed",
+    "close_click_disarmed",
+    "close_click_expired"
+  ].includes(stage);
 }
 
 function isGuardFailureStage(stage: string) {
-  return !["consume_acknowledged", "guard_discarded", "guard_released"].includes(stage);
+  return ![
+    "consume_acknowledged",
+    "guard_discarded",
+    "guard_released",
+    "close_click_blocked",
+    "close_click_dismissed",
+    "close_click_disarmed",
+    "close_click_expired"
+  ].includes(stage);
 }
 
 async function handleConfigurationSnapshot(

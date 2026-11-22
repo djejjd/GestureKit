@@ -7,7 +7,7 @@ export type ChromeApi = {
     goBack(tabId: number): Promise<void>;
     goForward(tabId: number): Promise<void>;
     reload(tabId?: number, reloadProperties?: chrome.tabs.ReloadProperties): Promise<void>;
-    sendMessage(tabId: number, message: unknown): Promise<unknown>;
+    sendMessage(tabId: number, message: unknown, options?: chrome.tabs.MessageSendOptions): Promise<unknown>;
   };
   sessions: {
     restore(sessionId?: string): Promise<chrome.sessions.Session>;

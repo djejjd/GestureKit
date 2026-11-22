@@ -331,6 +331,239 @@ describe("pointerTracker", () => {
     vi.useRealTimers();
   });
 
+  it("restores a consumed same-document protected click exactly once when the guard is released", async () => {
+    vi.useFakeTimers();
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    let runtimeListener: ((message: Record<string, unknown>, sender: unknown, sendResponse: (response: unknown) => void) => boolean) | null = null;
+    vi.stubGlobal("chrome", {
+      runtime: {
+        onMessage: {
+          addListener: vi.fn((listener) => { runtimeListener = listener; })
+        }
+      }
+    });
+    const module = await import("../src/content/pointerTracker");
+    module.setLinkClickProtectionEnabled(false);
+    const anchor = document.getElementById("target") as HTMLAnchorElement;
+    window.dispatchEvent(new PointerEvent("pointermove", { clientX: 10, clientY: 20 }));
+
+    runtimeListener?.({ type: "gesturekit.linkGuardArm", gestureSessionId: "single-wait", features: ["link_click"], leaseMs: 500 }, {}, () => {});
+    const click = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0 });
+    expect(anchor.dispatchEvent(click)).toBe(false);
+    expect(click.defaultPrevented).toBe(true);
+
+    let consumeResponse: unknown = null;
+    runtimeListener?.({ type: "gesturekit.guardConsume", gestureSessionId: "single-wait" }, {}, (response) => { consumeResponse = response; });
+    expect(consumeResponse).toEqual({ status: "guard_consumed" });
+
+    let releaseResponse: unknown = null;
+    runtimeListener?.({ type: "gesturekit.guardRelease", gestureSessionId: "single-wait" }, {}, (response) => { releaseResponse = response; });
+    expect(releaseResponse).toEqual({ status: "guard_released" });
+    expect((window as unknown as {
+      __gestureKitPointerTrackerState?: { consumedProtectedClick: unknown };
+    }).__gestureKitPointerTrackerState?.consumedProtectedClick).toBeNull();
+    await vi.advanceTimersByTimeAsync(1_300);
+
+    expect(consoleError).toHaveBeenCalledTimes(1);
+    expect(module.resolveLinkAtLastPointer(Date.now())).toMatchObject({ status: "success" });
+    consoleError.mockRestore();
+    vi.useRealTimers();
+  });
+
+  it("isolates one delayed same-session click in the replacement document without swallowing the next click", async () => {
+    vi.useFakeTimers();
+    let runtimeListener: ((message: Record<string, unknown>, sender: unknown, sendResponse: (response: unknown) => void) => boolean) | null = null;
+    vi.stubGlobal("chrome", {
+      runtime: {
+        onMessage: {
+          addListener: vi.fn((listener) => { runtimeListener = listener; })
+        }
+      }
+    });
+    const module = await import("../src/content/pointerTracker");
+    module.setLinkClickProtectionEnabled(false);
+    const anchor = document.getElementById("target") as HTMLAnchorElement;
+    let armResponse: any = null;
+    runtimeListener?.({
+      type: "gesturekit.closeClickArm",
+      gestureSessionId: "double-tap-close",
+      leaseMs: 1_200
+    }, {}, (response) => { armResponse = response; });
+    expect(armResponse).toMatchObject({
+      status: "close_click_armed",
+      gestureSessionId: "double-tap-close"
+    });
+
+    const delayedClick = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0, detail: 1 });
+    expect(anchor.dispatchEvent(delayedClick)).toBe(false);
+    expect(delayedClick.defaultPrevented).toBe(true);
+
+    const nextClick = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0, detail: 1 });
+    expect(anchor.dispatchEvent(nextClick)).toBe(true);
+    expect(nextClick.defaultPrevented).toBe(false);
+    vi.useRealTimers();
+  });
+
+  it.each(["quick", "extend", "shrink", "failed", "stale"])("arbitrates a %s text swipe on the same line", async mode => {
+    const addListener = vi.fn();
+    vi.stubGlobal("chrome", { runtime: { onMessage: { addListener } } });
+    await import("../src/content/pointerTracker");
+    const listener = addListener.mock.calls[0][0];
+    const reply = vi.fn();
+    const message = (type: string, id = "gesture") =>
+      listener({ type: `gesturekit.${type}`, gestureSessionId: id, features: ["observe_drag"], leaseMs: 800 }, {}, reply);
+    const now = vi.spyOn(performance, "now").mockReturnValue(0);
+    try {
+      const text = document.querySelector("a")!.firstChild!;
+      const selection = window.getSelection()!;
+      selection.setBaseAndExtent(text, 1, text, 0);
+      message("linkGuardArm");
+      const move = (at: number, end: number) => {
+        now.mockReturnValue(at);
+        selection.setBaseAndExtent(text, 0, text, end);
+        document.dispatchEvent(new Event("selectionchange"));
+      };
+      move(10, 1);
+      move(30, 2);
+      const dragging = mode === "extend" || mode === "shrink";
+      move(dragging ? 190 : 45, mode === "shrink" ? 1 : 3);
+      message("linkGuardDiscard");
+      message("dragEvidence");
+      expect(reply.mock.lastCall?.[0]).toMatchObject({ dragging });
+      if (mode === "stale") message("linkGuardArm", "new");
+      if (mode !== "failed") message("swipeCommitted");
+      expect(selection.focusOffset).toBe(mode === "quick" ? 0 : mode === "shrink" ? 1 : 3);
+    } finally { now.mockRestore(); }
+  });
+
+  it.each(["held", "expired", "quick", "textarea", "input"])("keeps the selection verdict through preflight: %s", async mode => {
+    vi.useFakeTimers();
+    const epoch = Date.now();
+    const clock = vi.spyOn(performance, "now").mockImplementation(() => Date.now() - epoch);
+    try {
+      const addListener = vi.fn();
+      vi.stubGlobal("chrome", { runtime: { onMessage: { addListener } } });
+      await import("../src/content/pointerTracker");
+      const send = (type: string, id = "first") => {
+        const reply = vi.fn();
+        addListener.mock.calls[0][0]({ type: `gesturekit.${type}`, gestureSessionId: id, features: ["observe_drag"], leaseMs: 800 }, {}, reply);
+        return reply.mock.lastCall?.[0];
+      };
+      const field = mode === "textarea" ? document.createElement("textarea") : mode === "input" ? document.createElement("input") : null;
+      if (field) { document.body.append(field); field.value = "abcdef"; field.focus(); field.setSelectionRange(0, 0); }
+      send("linkGuardArm");
+      const text = document.querySelector("a")!.firstChild!;
+      if (field) field.setSelectionRange(0, 3);
+      else window.getSelection()!.setBaseAndExtent(text, 0, text, 3);
+      document.dispatchEvent(new Event("selectionchange"));
+      await vi.advanceTimersByTimeAsync(mode === "quick" ? 30 : mode === "expired" ? 850 : 200);
+      send("linkGuardDiscard");
+      await vi.advanceTimersByTimeAsync(180);
+      expect(send("dragEvidence").dragging).toBe(mode !== "quick");
+      expect(field ? field.selectionEnd : window.getSelection()!.focusOffset).toBe(3);
+      send("linkGuardArm", "next");
+      expect(send("dragEvidence", "next").dragging).toBe(false);
+    } finally { clock.mockRestore(); vi.useRealTimers(); }
+  });
+
+  it("blocks the delayed refresh button click and allows the next deliberate click", async () => {
+    const addListener = vi.fn();
+    vi.stubGlobal("chrome", { runtime: { onMessage: { addListener } } });
+    await import("../src/content/pointerTracker");
+    const listener = addListener.mock.calls[0][0];
+    document.body.innerHTML = "<button>Refresh</button>";
+    const button = document.querySelector("button")!;
+    const refresh = vi.fn();
+    button.addEventListener("click", refresh);
+    listener({ type: "gesturekit.closeClickArm", gestureSessionId: "close", leaseMs: 1200 }, {}, vi.fn());
+    const click = () => new MouseEvent("click", { bubbles: true, cancelable: true, detail: 1 });
+    button.dispatchEvent(click());
+    expect(refresh).not.toHaveBeenCalled();
+    button.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true }));
+    button.dispatchEvent(click());
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it("dismisses replacement-document isolation before a new active pointerdown and click", async () => {
+    vi.useFakeTimers();
+    let runtimeListener: ((message: Record<string, unknown>, sender: unknown, sendResponse: (response: unknown) => void) => boolean) | null = null;
+    vi.stubGlobal("chrome", {
+      runtime: {
+        onMessage: {
+          addListener: vi.fn((listener) => { runtimeListener = listener; }),
+        },
+        sendMessage: vi.fn(async () => undefined)
+      }
+    });
+    const module = await import("../src/content/pointerTracker");
+    module.setLinkClickProtectionEnabled(false);
+    const anchor = document.getElementById("target") as HTMLAnchorElement;
+    runtimeListener?.({ type: "gesturekit.closeClickArm", gestureSessionId: "double-tap-close", leaseMs: 1_200 }, {}, () => {});
+
+    window.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, clientX: 10, clientY: 20 }));
+    const click = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0, detail: 1 });
+    expect(anchor.dispatchEvent(click)).toBe(true);
+    expect(click.defaultPrevented).toBe(false);
+    vi.useRealTimers();
+  });
+
+  it("expires and disarms replacement-document isolation without affecting ordinary clicks", async () => {
+    vi.useFakeTimers();
+    let runtimeListener: ((message: Record<string, unknown>, sender: unknown, sendResponse: (response: unknown) => void) => boolean) | null = null;
+    vi.stubGlobal("chrome", {
+      runtime: {
+        onMessage: {
+          addListener: vi.fn((listener) => { runtimeListener = listener; }),
+        },
+        sendMessage: vi.fn(async () => undefined)
+      }
+    });
+    const module = await import("../src/content/pointerTracker");
+    module.setLinkClickProtectionEnabled(false);
+    const anchor = document.getElementById("target") as HTMLAnchorElement;
+
+    runtimeListener?.({ type: "gesturekit.closeClickArm", gestureSessionId: "expired", leaseMs: 40 }, {}, () => {});
+    await vi.advanceTimersByTimeAsync(41);
+    const expiredClick = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0, detail: 1 });
+    expect(anchor.dispatchEvent(expiredClick)).toBe(true);
+    expect(expiredClick.defaultPrevented).toBe(false);
+
+    runtimeListener?.({ type: "gesturekit.closeClickArm", gestureSessionId: "disarmed", leaseMs: 1_200 }, {}, () => {});
+    let disarmResponse: any = null;
+    runtimeListener?.({ type: "gesturekit.closeClickDisarm", gestureSessionId: "disarmed" }, {}, (response) => { disarmResponse = response; });
+    expect(disarmResponse).toEqual({ status: "close_click_disarmed" });
+    const disarmedClick = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0, detail: 1 });
+    expect(anchor.dispatchEvent(disarmedClick)).toBe(true);
+    expect(disarmedClick.defaultPrevented).toBe(false);
+    vi.useRealTimers();
+  });
+
+  it("does not classify a keyboard or programmatic zero-detail click as the delayed system click", async () => {
+    vi.useFakeTimers();
+    let runtimeListener: ((message: Record<string, unknown>, sender: unknown, sendResponse: (response: unknown) => void) => boolean) | null = null;
+    vi.stubGlobal("chrome", {
+      runtime: {
+        onMessage: {
+          addListener: vi.fn((listener) => { runtimeListener = listener; }),
+        },
+        sendMessage: vi.fn(async () => undefined)
+      }
+    });
+    const module = await import("../src/content/pointerTracker");
+    module.setLinkClickProtectionEnabled(false);
+    const anchor = document.getElementById("target") as HTMLAnchorElement;
+    runtimeListener?.({ type: "gesturekit.closeClickArm", gestureSessionId: "double-tap-close", leaseMs: 1_200 }, {}, () => {});
+
+    const keyboardClick = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0, detail: 0 });
+    expect(anchor.dispatchEvent(keyboardClick)).toBe(true);
+    expect(keyboardClick.defaultPrevented).toBe(false);
+
+    const mouseClick = new MouseEvent("click", { bubbles: true, cancelable: true, button: 0, detail: 1 });
+    expect(anchor.dispatchEvent(mouseClick)).toBe(true);
+    expect(mouseClick.defaultPrevented).toBe(false);
+    vi.useRealTimers();
+  });
+
   it("returns non_anchor_navigation for card-style targets", async () => {
     vi.resetModules();
     document.body.innerHTML = `
@@ -355,6 +588,21 @@ describe("pointerTracker", () => {
 
     expect(anchor.dispatchEvent(click)).toBe(true);
     expect(click.defaultPrevented).toBe(false);
+  });
+
+  it("resolves the guarded link for its own session with a stationary pointer", async () => {
+    const send = vi.fn();
+    vi.stubGlobal("chrome", { runtime: { onMessage: { addListener: send } } });
+    await import("../src/content/pointerTracker");
+    const listener = send.mock.calls[0][0];
+    const respond = vi.fn();
+    listener({ type: "gesturekit.linkGuardArm", gestureSessionId: "tap", leaseMs: 1200 }, {}, respond);
+    const anchor = document.getElementById("target")!;
+    expect(anchor.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }))).toBe(false);
+    listener({ type: "gesturekit.resolveLastPointer", gestureSessionId: "other" }, {}, respond);
+    expect(respond.mock.lastCall?.[0].status).toBe("no_recent_pointer");
+    listener({ type: "gesturekit.resolveLastPointer", gestureSessionId: "tap" }, {}, respond);
+    expect(respond.mock.lastCall?.[0]).toMatchObject({ status: "success", url: "http://localhost:3000/docs" });
   });
 
   it("protects only a link click following a candidate link guard", async () => {

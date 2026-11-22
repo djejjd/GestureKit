@@ -30,7 +30,7 @@ export function createInteractionGuardRouter({ query, send, trace }: Dependencie
     const id = payload.gestureSessionId;
     if (message.type === "interaction_guard_arm") {
       if (closed.has(id) || entries.has(id)) return;
-      const features = payload.features?.filter(value => value === "link_click" || value === "drag_selection") ?? [];
+      const features = payload.features?.filter(value => ["link_click", "drag_selection", "observe_drag"].includes(value)) ?? [];
       const maxLeaseMs = features.includes("link_click") ? 1200 : 800;
       const deadline = Math.min(payload.deadline ?? 0, now + maxLeaseMs);
       if (!features.length || deadline <= now || entries.size >= 128) {

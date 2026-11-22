@@ -46,7 +46,11 @@ function makeChromeApi(tabs: MockTab[]): ChromeApi {
       goBack: vi.fn(async () => {}),
       goForward: vi.fn(async () => {}),
       reload: vi.fn(async () => {}),
-      sendMessage: vi.fn(async () => ({ status: "success" }))
+      sendMessage: vi.fn(async (_tabId, message: any) => (
+        message.type === "gesturekit.closeClickArm"
+          ? { status: "close_click_armed" }
+          : { status: "success" }
+      ))
     },
     sessions: {
       restore: vi.fn(async () => ({}))
@@ -136,6 +140,165 @@ describe("executeGestureAction", () => {
 
     expect(result.status).toBe("success");
     expect(api.tabs.remove).toHaveBeenCalledWith(20);
+  });
+
+  it("arms the replacement document before switching and closing the active tab", async () => {
+    const api = makeChromeApi([
+      { id: 10, index: 0, windowId: 7, url: "https://replacement.example/" },
+      { id: 11, index: 1, active: true, windowId: 7, url: "https://current.example/" }
+    ]);
+
+    const result = await executeStandardAction(
+      api,
+      "browser.tab.close_current",
+      undefined,
+      undefined,
+      { closeClickIsolation: { gestureSessionId: "double-tap-close", leaseMs: 1_200 } }
+    );
+
+    expect(result).toEqual({ status: "success" });
+    expect(api.tabs.sendMessage).toHaveBeenCalledWith(10, {
+      type: "gesturekit.closeClickArm",
+      gestureSessionId: "double-tap-close",
+      leaseMs: 1_200
+    }, { frameId: 0 });
+    const sendOrder = vi.mocked(api.tabs.sendMessage).mock.invocationCallOrder[0];
+    const updateOrder = vi.mocked(api.tabs.update).mock.invocationCallOrder[0];
+    const removeOrder = vi.mocked(api.tabs.remove).mock.invocationCallOrder[0];
+    expect(sendOrder).toBeLessThan(updateOrder);
+    expect(updateOrder).toBeLessThan(removeOrder);
+  });
+
+  it("disarms replacement-document isolation when closing fails after arming", async () => {
+    const api = makeChromeApi([
+      { id: 10, index: 0, windowId: 7, url: "https://replacement.example/" },
+      { id: 11, index: 1, active: true, windowId: 7, url: "https://current.example/" }
+    ]);
+    vi.mocked(api.tabs.update).mockRejectedValueOnce(new Error("update failed"));
+
+    await expect(executeStandardAction(
+      api,
+      "browser.tab.close_current",
+      undefined,
+      undefined,
+      { closeClickIsolation: { gestureSessionId: "double-tap-close", leaseMs: 1_200 } }
+    )).rejects.toThrow("update failed");
+
+    expect(api.tabs.sendMessage).toHaveBeenLastCalledWith(10, {
+      type: "gesturekit.closeClickDisarm",
+      gestureSessionId: "double-tap-close"
+    }, { frameId: 0 });
+    expect(api.tabs.remove).not.toHaveBeenCalled();
+  });
+
+  it("disarms replacement-document isolation when tab removal fails after activation", async () => {
+    const api = makeChromeApi([
+      { id: 10, index: 0, windowId: 7, url: "https://replacement.example/" },
+      { id: 11, index: 1, active: true, windowId: 7, url: "https://current.example/" }
+    ]);
+    vi.mocked(api.tabs.remove).mockRejectedValueOnce(new Error("remove failed"));
+
+    await expect(executeStandardAction(
+      api,
+      "browser.tab.close_current",
+      undefined,
+      undefined,
+      { closeClickIsolation: { gestureSessionId: "double-tap-close", leaseMs: 1_200 } }
+    )).rejects.toThrow("remove failed");
+
+    expect(api.tabs.update).toHaveBeenCalledWith(10, { active: true });
+    expect(api.tabs.sendMessage).toHaveBeenLastCalledWith(10, {
+      type: "gesturekit.closeClickDisarm",
+      gestureSessionId: "double-tap-close"
+    }, { frameId: 0 });
+  });
+
+  it("fails closed when replacement-document click isolation is unavailable", async () => {
+    const api = makeChromeApi([
+      { id: 10, index: 0, windowId: 7, url: "https://replacement.example/" },
+      { id: 11, index: 1, active: true, windowId: 7, url: "https://current.example/" }
+    ]);
+    vi.mocked(api.tabs.sendMessage).mockRejectedValueOnce(new Error("content script unavailable"));
+
+    await expect(executeStandardAction(
+      api,
+      "browser.tab.close_current",
+      undefined,
+      undefined,
+      { closeClickIsolation: { gestureSessionId: "double-tap-close", leaseMs: 1_200 } }
+    )).resolves.toEqual({ status: "page_unavailable" });
+
+    expect(api.tabs.sendMessage).toHaveBeenLastCalledWith(10, {
+      type: "gesturekit.closeClickDisarm",
+      gestureSessionId: "double-tap-close"
+    }, { frameId: 0 });
+    expect(api.tabs.update).not.toHaveBeenCalled();
+    expect(api.tabs.remove).not.toHaveBeenCalled();
+  });
+
+  it("disarms when the replacement document does not confirm click isolation", async () => {
+    const api = makeChromeApi([
+      { id: 10, index: 0, windowId: 7, url: "https://replacement.example/" },
+      { id: 11, index: 1, active: true, windowId: 7, url: "https://current.example/" }
+    ]);
+    vi.mocked(api.tabs.sendMessage).mockResolvedValueOnce({ status: "close_click_unavailable" });
+
+    await expect(executeStandardAction(
+      api,
+      "browser.tab.close_current",
+      undefined,
+      undefined,
+      { closeClickIsolation: { gestureSessionId: "double-tap-close", leaseMs: 1_200 } }
+    )).resolves.toEqual({ status: "page_unavailable" });
+
+    expect(api.tabs.sendMessage).toHaveBeenLastCalledWith(10, {
+      type: "gesturekit.closeClickDisarm",
+      gestureSessionId: "double-tap-close"
+    }, { frameId: 0 });
+    expect(api.tabs.update).not.toHaveBeenCalled();
+    expect(api.tabs.remove).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    "chrome://newtab/",
+    "chrome://extensions/",
+    "https://chromewebstore.google.com/detail/example",
+    "https://chrome.google.com/webstore/category/extensions"
+  ])("closes the known restricted replacement tab without arming: %s", async (url) => {
+    const api = makeChromeApi([
+      { id: 10, index: 0, windowId: 7, url },
+      { id: 11, index: 1, active: true, windowId: 7, url: "https://current.example/" }
+    ]);
+
+    await expect(executeStandardAction(
+      api,
+      "browser.tab.close_current",
+      undefined,
+      undefined,
+      { closeClickIsolation: { gestureSessionId: "double-tap-close", leaseMs: 1_200 } }
+    )).resolves.toEqual({ status: "success" });
+
+    expect(api.tabs.sendMessage).not.toHaveBeenCalled();
+    expect(api.tabs.update).toHaveBeenCalledWith(10, { active: true });
+    expect(api.tabs.remove).toHaveBeenCalledWith(11);
+  });
+
+  it("isolates replacement-document clicks for the legacy close gesture path", async () => {
+    const api = makeChromeApi([
+      { id: 10, index: 0, windowId: 7, url: "https://replacement.example/" },
+      { id: 11, index: 1, active: true, windowId: 7, url: "https://current.example/" }
+    ]);
+
+    await expect(executeGestureAction(api, {
+      action: "close_tab",
+      gestureSessionId: "legacy-gesture-close"
+    })).resolves.toMatchObject({ status: "success" });
+
+    expect(api.tabs.sendMessage).toHaveBeenCalledWith(10, {
+      type: "gesturekit.closeClickArm",
+      gestureSessionId: "legacy-gesture-close",
+      leaseMs: 1_200
+    }, { frameId: 0 });
   });
 
   it("returns to the opener tab when closing a GestureKit-opened tab", async () => {

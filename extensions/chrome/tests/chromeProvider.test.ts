@@ -25,11 +25,36 @@ function bridge(frame = () => 0, guard = () => "guard_consumed") {
   return async (_tabId: number, message: Record<string, unknown>) => {
     if (message.type === "gesturekit.guardArm") return { status: "guard_armed" };
     if (message.type === "gesturekit.guardConsume") return { status: guard() };
+    if (message.type === "gesturekit.closeClickArm") return { status: "close_click_armed" };
+    if (message.type === "gesturekit.closeClickDisarm") return { status: "close_click_disarmed" };
     return { status: "success", url: "https://example.com/a", frameId: frame() };
   };
 }
 
 describe("ChromeProvider", () => {
+  it("skips tab activation for a drag and permits the following swipe", async () => {
+    const api = makeApi();
+    const provider = new ChromeProvider(api, async (_tab, message) => ({
+      dragging: message.type === "gesturekit.dragEvidence" && message.gestureSessionId === "drag"
+    }));
+    const deadline = Date.now() + 1000;
+    for (const id of ["drag", "swipe"]) {
+      const context = await provider.context({ gestureSessionId: id, requiresTargetRef: false, deadline });
+      const result = await provider.execute({ gestureSessionId: id, operationId: id, contextId: context.contextId,
+        actionId: "browser.tab.activate_next", deadline });
+      expect(result.status).toBe(id === "drag" ? "guard_unavailable" : "success");
+    }
+    expect(api.tabs.update).toHaveBeenCalledTimes(1);
+  });
+  it("blocks a remapped close action during selection", async () => {
+    const api = makeApi();
+    const provider = new ChromeProvider(api, async () => ({ dragging: true }));
+    const deadline = Date.now() + 1000;
+    const ctx = await provider.context({ gestureSessionId: "drag", requiresTargetRef: false, deadline });
+    const result = await provider.execute({ operationId: "remapped", gestureSessionId: "drag", contextId: ctx.contextId, actionId: "browser.tab.close_current", deadline });
+    expect(result.status).toBe("guard_unavailable");
+    expect(api.tabs.remove).not.toHaveBeenCalled();
+  });
   it("rejects link action when guard is not armed", async () => {
     const api = makeApi();
     const provider = new ChromeProvider(api, bridge());
@@ -71,7 +96,11 @@ describe("ChromeProvider", () => {
         goBack: vi.fn(),
         goForward: vi.fn(),
         reload: vi.fn(),
-        sendMessage: vi.fn(async () => ({ status: "success" }))
+        sendMessage: vi.fn(async (_tabId: number, message: Record<string, unknown>) => (
+          message.type === "gesturekit.closeClickArm"
+            ? { status: "close_click_armed" }
+            : { status: "success" }
+        ))
       },
       sessions: { restore: vi.fn(async () => ({})) }
     } satisfies ChromeApi;
@@ -338,6 +367,55 @@ describe("ChromeProvider", () => {
       deadline
     })).resolves.toMatchObject({ status: "success" });
     expect(api.tabs.remove).toHaveBeenCalled();
+  });
+
+  it("passes the closing gesture session to replacement-document click isolation", async () => {
+    const tabs = [
+      { id: 9, index: 0, windowId: 4, url: "https://replacement.example/" },
+      { id: 10, index: 1, active: true, windowId: 4, url: "https://current.example/" }
+    ] as chrome.tabs.Tab[];
+    const api = {
+      tabs: {
+        query: vi.fn(async (query: chrome.tabs.QueryInfo) =>
+          query.active ? tabs.filter((tab) => tab.active) : tabs),
+        create: vi.fn(),
+        update: vi.fn(async (id: number) => {
+          for (const tab of tabs) tab.active = tab.id === id;
+          return tabs.find((tab) => tab.id === id)!;
+        }),
+        remove: vi.fn(async () => {}),
+        goBack: vi.fn(),
+        goForward: vi.fn(),
+        reload: vi.fn(),
+        sendMessage: vi.fn(async (_tabId: number, message: Record<string, unknown>) => (
+          message.type === "gesturekit.closeClickArm"
+            ? { status: "close_click_armed" }
+            : { status: "success" }
+        ))
+      },
+      sessions: { restore: vi.fn(async () => ({})) }
+    } satisfies ChromeApi;
+    const provider = new ChromeProvider(api, bridge());
+    const deadline = Date.now() + 10_000;
+    const snapshot = await provider.context({
+      gestureSessionId: "g-close-isolation",
+      requiresTargetRef: false,
+      deadline
+    });
+
+    await expect(provider.execute({
+      operationId: "op-close-isolation",
+      actionId: "browser.tab.close_current",
+      contextId: snapshot.contextId,
+      gestureSessionId: "g-close-isolation",
+      deadline
+    })).resolves.toMatchObject({ status: "success" });
+
+    expect(api.tabs.sendMessage).toHaveBeenCalledWith(9, {
+      type: "gesturekit.closeClickArm",
+      gestureSessionId: "g-close-isolation",
+      leaseMs: 1_200
+    }, { frameId: 0 });
   });
 });
 

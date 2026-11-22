@@ -12,7 +12,8 @@ final class RuntimeDragShieldTests: XCTestCase {
             menuBarHandler: { _ in }, settingsStore: store,
             logger: GestureKitLogger(terminalWriter: { _ in }),
             appContextResolver: AppContextResolver(bundleIdProvider: { chrome ? "com.google.Chrome" : "com.apple.finder" }),
-            dragInputShield: shield
+            dragInputShield: shield,
+            threeFingerDragEnabled: { false }
         )
         return (runtime, shield, store)
     }

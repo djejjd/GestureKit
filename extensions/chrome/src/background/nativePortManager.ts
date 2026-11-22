@@ -10,7 +10,7 @@ type GestureIntent =
   | { action: "open_link_background"; url: string }
   | { action: "activate_left_tab" }
   | { action: "activate_right_tab" }
-  | { action: "close_tab" };
+  | { action: "close_tab"; gestureSessionId?: string };
 
 type Dependencies = {
   port: PortLike;
@@ -121,7 +121,7 @@ export function createNativePortManager(deps: Dependencies) {
               const interval = Date.now() - pendingTap.startedAt;
               if (interval >= settings.doubleTapMinMs && interval <= settings.doubleTapMaxMs) {
                 clearPendingTap("converted_to_double_tap_close");
-                await executeAndPost(message.id, { action: "close_tab" });
+                await executeAndPost(message.id, { action: "close_tab", gestureSessionId: message.id });
                 return;
               }
               clearPendingTap("tap_duration_unstable");

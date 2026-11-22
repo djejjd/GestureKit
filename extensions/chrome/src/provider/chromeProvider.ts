@@ -27,7 +27,7 @@ type PointerResolution =
   | { status: "no_target" }
   | { status: "page_unavailable" };
 type StoredTarget = { contextId: string; gestureSessionId: string; tabId: number; frameId: number; url: string; expiresAt: number };
-type StoredContext = { gestureSessionId: string; tabId: number; expiresAt: number; allowedActionIds?: readonly StandardActionID[] };
+type StoredContext = { restoreAfterSwipe?: boolean; gestureSessionId: string; tabId: number; expiresAt: number; allowedActionIds?: readonly StandardActionID[] };
 type ContentBridge = (tabId: number, message: Record<string, unknown>) => Promise<unknown>;
 
 /**
@@ -95,7 +95,7 @@ export class ChromeProvider {
     }
     let resolved: PointerResolution;
     try {
-      resolved = await this.content(tab.id, { type: "gesturekit.resolveLastPointer" }) as PointerResolution;
+      resolved = await this.content(tab.id, { type: "gesturekit.resolveLastPointer", gestureSessionId: request.gestureSessionId }) as PointerResolution;
     } catch {
       await this.releaseGuard(tab.id, request.gestureSessionId);
       return { contextId, expiresAt, targetKind: "page_unavailable", pageIdentity };
@@ -137,6 +137,13 @@ export class ChromeProvider {
     }
     const active = await activeTab(this.api);
     if (!active?.id || active.id !== context.tabId) return { status: "context_expired" };
+    if (/^https?:\/\//i.test(active.url ?? "") && context.allowedActionIds) {
+      const evidence = await this.content(active.id, {
+        type: "gesturekit.dragEvidence", gestureSessionId: request.gestureSessionId
+      }).catch(() => null) as { dragging?: boolean; awaitingCommit?: boolean } | null;
+      context.restoreAfterSwipe = evidence?.awaitingCommit === true;
+      if (evidence?.dragging) return { status: "guard_unavailable" };
+    }
     let url: string | undefined;
     if (request.actionId === "browser.link.open_adjacent") {
       const target = request.targetRef ? this.targets.get(request.targetRef) : undefined;
@@ -153,7 +160,7 @@ export class ChromeProvider {
         return { status: "context_expired" };
       }
       let current: PointerResolution;
-      try { current = await this.content(active.id, { type: "gesturekit.resolveLastPointer" }) as PointerResolution; } catch {
+      try { current = await this.content(active.id, { type: "gesturekit.resolveLastPointer", gestureSessionId: request.gestureSessionId }) as PointerResolution; } catch {
         await this.releaseGuard(active.id, request.gestureSessionId);
         return { status: "context_expired" };
       }
@@ -204,11 +211,19 @@ export class ChromeProvider {
         reload: (...args) => effect(() => this.api.tabs.reload(...args)),
         goBack: id => effect(() => this.api.tabs.goBack(id)),
         goForward: id => effect(() => this.api.tabs.goForward(id)),
-        sendMessage: (id, message) => effect(() => this.api.tabs.sendMessage(id, message))
+        sendMessage: (id, message, options) => effect(() => (
+          options
+            ? this.api.tabs.sendMessage(id, message, options)
+            : this.api.tabs.sendMessage(id, message)
+        ))
       }, sessions: { restore: (...args) => effect(() => this.api.sessions.restore(...args)) }
     };
     try {
-      const result = await executeStandardAction(api, request.actionId, url, request.parameters);
+      const result = await executeStandardAction(api, request.actionId, url, request.parameters, {
+        closeClickIsolation: request.actionId === "browser.tab.close_current"
+          ? { gestureSessionId: request.gestureSessionId }
+          : undefined
+      });
       if (!isActive() && result.status !== "success") {
         const status = effectStarted ? "result_unknown" : "provider_disconnected";
         this.statuses.set(request.operationId, { operationId: request.operationId, status: effectStarted ? "result_unknown" : "failed" });
@@ -216,7 +231,19 @@ export class ChromeProvider {
       }
       const status = result.status === "success" ? "success" : result.status;
       this.statuses.set(request.operationId, { operationId: request.operationId, status: status === "success" ? "success" : "failed" });
-      if (status !== "success") await this.releaseCurrentGuard(request.gestureSessionId);
+      if (status === "success" && (request.actionId === "browser.tab.activate_previous" || request.actionId === "browser.tab.activate_next")) {
+        const source = this.contexts.get(request.contextId);
+        if (source?.restoreAfterSwipe) await this.content(source.tabId, {
+          type: "gesturekit.swipeCommitted", gestureSessionId: request.gestureSessionId
+        }).catch(() => undefined);
+      }
+      if (status === "success" && request.actionId === "browser.link.open_adjacent") {
+        // 已创建相邻标签，只清理同会话的暂存点击。保留对延迟系统 click 的一次性拦截。
+        const source = this.targets.get(request.targetRef ?? "");
+        if (source) await this.content(source.tabId, {
+          type: "gesturekit.linkGuardDiscard", gestureSessionId: request.gestureSessionId
+        }).catch(() => undefined);
+      } else if (status !== "success") await this.releaseCurrentGuard(request.gestureSessionId);
       return { status };
     } catch {
       if (!isActive()) {

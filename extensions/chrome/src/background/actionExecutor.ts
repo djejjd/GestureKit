@@ -6,7 +6,7 @@ type ActionIntent =
   | { action: "open_link_background"; url: string }
   | { action: "activate_left_tab" }
   | { action: "activate_right_tab" }
-  | { action: "close_tab" };
+  | { action: "close_tab"; gestureSessionId?: string };
 
 export type ActionExecutionResult = {
   action: ActionType;
@@ -16,15 +16,26 @@ export type ActionExecutionResult = {
 
 export type StandardActionExecutionResult = { status: "success" | "page_unavailable" | "edge_reached" };
 
+export type StandardActionOptions = {
+  closeClickIsolation?: {
+    gestureSessionId: string;
+    leaseMs?: number;
+  };
+};
+
+const DEFAULT_CLOSE_CLICK_ISOLATION_MS = 1200;
+
 /**
  * 执行 v2 标准动作；链接 URL 仅由调用方从本地 opaque targetRef 解析。
  * @param parameters 动作参数（如 scroll_to_top_bottom 的 position: top|bottom）
+ * @param options 关闭当前标签时用于隔离延迟系统 click 的会话信息
  */
 export async function executeStandardAction(
   api: ChromeApi,
   actionId: StandardActionID,
   targetURL?: string,
-  parameters?: Record<string, string>
+  parameters?: Record<string, string>,
+  options?: StandardActionOptions
 ): Promise<StandardActionExecutionResult> {
   if (actionId === "browser.link.open_adjacent") {
     if (!targetURL) return { status: "page_unavailable" };
@@ -32,7 +43,9 @@ export async function executeStandardAction(
   }
   if (actionId === "browser.tab.activate_previous") return standardResult(await activateAdjacentTab(api, "left"));
   if (actionId === "browser.tab.activate_next") return standardResult(await activateAdjacentTab(api, "right"));
-  if (actionId === "browser.tab.close_current") return standardResult(await closeActiveTab(api));
+  if (actionId === "browser.tab.close_current") {
+    return standardResult(await closeActiveTab(api, options?.closeClickIsolation));
+  }
   if (actionId === "browser.link.copy") {
     if (!targetURL) return { status: "page_unavailable" };
     return copyToActiveTab(api, targetURL);
@@ -75,7 +88,10 @@ export async function executeGestureAction(api: ChromeApi, intent: ActionIntent)
   if (intent.action === "activate_right_tab") {
     return activateAdjacentTab(api, "right");
   }
-  return closeActiveTab(api);
+  return closeActiveTab(
+    api,
+    intent.gestureSessionId ? { gestureSessionId: intent.gestureSessionId } : undefined
+  );
 }
 
 async function openLinkBackground(api: ChromeApi, urlValue: string): Promise<ActionExecutionResult> {
@@ -136,19 +152,93 @@ async function getActiveTab(api: ChromeApi): Promise<chrome.tabs.Tab | undefined
   return tab;
 }
 
-async function closeActiveTab(api: ChromeApi): Promise<ActionExecutionResult> {
+async function closeActiveTab(
+  api: ChromeApi,
+  closeClickIsolation?: StandardActionOptions["closeClickIsolation"]
+): Promise<ActionExecutionResult> {
   const activeTab = await getActiveTab(api);
   if (!activeTab?.id || activeTab.index === undefined || activeTab.windowId === undefined) {
     return { action: "close_tab", status: "page_unavailable" };
   }
 
   const target = await preferredTabAfterClose(api, activeTab);
-  if (target?.id !== undefined) {
-    await api.tabs.update(target.id, { active: true });
+  let isolatedTabID: number | undefined;
+  const isolationSessionID = closeClickIsolation?.gestureSessionId;
+  const requiresIsolation = target?.id !== undefined &&
+    Boolean(isolationSessionID) &&
+    shouldArmCloseClickIsolation(target);
+  if (requiresIsolation && target?.id !== undefined && closeClickIsolation) {
+    const armed = await armCloseClickIsolation(api, target.id, closeClickIsolation);
+    if (!armed) {
+      await disarmCloseClickIsolation(api, target.id, closeClickIsolation.gestureSessionId);
+      return { action: "close_tab", status: "page_unavailable" };
+    }
+    isolatedTabID = target.id;
   }
-  await api.tabs.remove(activeTab.id);
+  try {
+    if (target?.id !== undefined) {
+      await api.tabs.update(target.id, { active: true });
+    }
+    await api.tabs.remove(activeTab.id);
+  } catch (error) {
+    if (isolatedTabID !== undefined && isolationSessionID) {
+      await disarmCloseClickIsolation(api, isolatedTabID, isolationSessionID);
+    }
+    throw error;
+  }
   openerTabByOpenedTab.delete(activeTab.id);
   return { action: "close_tab", status: "success" };
+}
+
+function shouldArmCloseClickIsolation(tab: chrome.tabs.Tab): boolean {
+  if (!tab.url) {
+    return false;
+  }
+  try {
+    const url = new URL(tab.url);
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      return false;
+    }
+    return !isKnownRestrictedHttpPage(url);
+  } catch {
+    return false;
+  }
+}
+
+/** 仅跳过确定不可注入 content script 的 HTTP(S) 页面；普通网页 arm 失败仍由调用方 fail-closed。 */
+function isKnownRestrictedHttpPage(url: URL): boolean {
+  if (url.hostname === "chromewebstore.google.com") {
+    return true;
+  }
+  return url.hostname === "chrome.google.com" && url.pathname.startsWith("/webstore");
+}
+
+async function armCloseClickIsolation(
+  api: ChromeApi,
+  tabID: number,
+  options: NonNullable<StandardActionOptions["closeClickIsolation"]>
+): Promise<boolean> {
+  try {
+    const response = await api.tabs.sendMessage(tabID, {
+      type: "gesturekit.closeClickArm",
+      gestureSessionId: options.gestureSessionId,
+      leaseMs: options.leaseMs ?? DEFAULT_CLOSE_CLICK_ISOLATION_MS
+    }, { frameId: 0 }) as { status?: string } | undefined;
+    return response?.status === "close_click_armed";
+  } catch {
+    return false;
+  }
+}
+
+async function disarmCloseClickIsolation(api: ChromeApi, tabID: number, gestureSessionId: string): Promise<void> {
+  try {
+    await api.tabs.sendMessage(tabID, {
+      type: "gesturekit.closeClickDisarm",
+      gestureSessionId
+    }, { frameId: 0 });
+  } catch {
+    // Best-effort cleanup; the document-local lease remains bounded.
+  }
 }
 
 async function preferredTabAfterClose(api: ChromeApi, activeTab: chrome.tabs.Tab): Promise<chrome.tabs.Tab | null> {
