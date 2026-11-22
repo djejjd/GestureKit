@@ -46,6 +46,15 @@ describe("ChromeProvider", () => {
     }
     expect(api.tabs.update).toHaveBeenCalledTimes(1);
   });
+  it("blocks a remapped close action during selection", async () => {
+    const api = makeApi();
+    const provider = new ChromeProvider(api, async () => ({ dragging: true }));
+    const deadline = Date.now() + 1000;
+    const ctx = await provider.context({ gestureSessionId: "drag", requiresTargetRef: false, deadline });
+    const result = await provider.execute({ operationId: "remapped", gestureSessionId: "drag", contextId: ctx.contextId, actionId: "browser.tab.close_current", deadline });
+    expect(result.status).toBe("guard_unavailable");
+    expect(api.tabs.remove).not.toHaveBeenCalled();
+  });
   it("rejects link action when guard is not armed", async () => {
     const api = makeApi();
     const provider = new ChromeProvider(api, bridge());

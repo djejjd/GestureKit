@@ -436,7 +436,7 @@ describe("pointerTracker", () => {
     } finally { now.mockRestore(); }
   });
 
-  it.each(["held", "expired", "quick"])("keeps the selection verdict through preflight: %s", async mode => {
+  it.each(["held", "expired", "quick", "textarea", "input"])("keeps the selection verdict through preflight: %s", async mode => {
     vi.useFakeTimers();
     const epoch = Date.now();
     const clock = vi.spyOn(performance, "now").mockImplementation(() => Date.now() - epoch);
@@ -449,15 +449,18 @@ describe("pointerTracker", () => {
         addListener.mock.calls[0][0]({ type: `gesturekit.${type}`, gestureSessionId: id, features: ["observe_drag"], leaseMs: 800 }, {}, reply);
         return reply.mock.lastCall?.[0];
       };
+      const field = mode === "textarea" ? document.createElement("textarea") : mode === "input" ? document.createElement("input") : null;
+      if (field) { document.body.append(field); field.value = "abcdef"; field.focus(); field.setSelectionRange(0, 0); }
       send("linkGuardArm");
       const text = document.querySelector("a")!.firstChild!;
-      window.getSelection()!.setBaseAndExtent(text, 0, text, 3);
+      if (field) field.setSelectionRange(0, 3);
+      else window.getSelection()!.setBaseAndExtent(text, 0, text, 3);
       document.dispatchEvent(new Event("selectionchange"));
       await vi.advanceTimersByTimeAsync(mode === "quick" ? 30 : mode === "expired" ? 850 : 200);
       send("linkGuardDiscard");
       await vi.advanceTimersByTimeAsync(180);
       expect(send("dragEvidence").dragging).toBe(mode !== "quick");
-      expect(window.getSelection()!.focusOffset).toBe(3);
+      expect(field ? field.selectionEnd : window.getSelection()!.focusOffset).toBe(3);
       send("linkGuardArm", "next");
       expect(send("dragEvidence", "next").dragging).toBe(false);
     } finally { clock.mockRestore(); vi.useRealTimers(); }

@@ -137,8 +137,7 @@ export class ChromeProvider {
     }
     const active = await activeTab(this.api);
     if (!active?.id || active.id !== context.tabId) return { status: "context_expired" };
-    if (/^https?:\/\//i.test(active.url ?? "") &&
-        (request.actionId === "browser.tab.activate_previous" || request.actionId === "browser.tab.activate_next")) {
+    if (/^https?:\/\//i.test(active.url ?? "") && context.allowedActionIds) {
       const evidence = await this.content(active.id, {
         type: "gesturekit.dragEvidence", gestureSessionId: request.gestureSessionId
       }).catch(() => null) as { dragging?: boolean; awaitingCommit?: boolean } | null;

@@ -36,6 +36,13 @@ const documentToken = crypto.randomUUID();
 declare const __GESTUREKIT_BUILD_ID__: string | undefined;
 const BUILD_ID = typeof __GESTUREKIT_BUILD_ID__ !== "undefined" ? __GESTUREKIT_BUILD_ID__ : "unbuilt";
 function selectionEndpoints() {
+  const field = document.activeElement;
+  if ((field instanceof HTMLTextAreaElement || field instanceof HTMLInputElement) &&
+      field.selectionStart !== null && field.selectionEnd !== null) {
+    const backwards = field.selectionDirection === "backward";
+    return [field, backwards ? field.selectionEnd : field.selectionStart,
+      field, backwards ? field.selectionStart : field.selectionEnd] as const;
+  }
   const selection = window.getSelection();
   return [selection?.anchorNode, selection?.anchorOffset, selection?.focusNode, selection?.focusOffset] as const;
 }
@@ -63,7 +70,7 @@ function recordSelectionChange() {
   const next = selectionEndpoints();
   if (sameSelection(next, observation.last)) return;
   observation.last = next;
-  if (window.getSelection()?.isCollapsed && observation.firstChange === undefined) return;
+  if (next[0] === next[2] && next[1] === next[3] && observation.firstChange === undefined) return;
   const now = performance.now();
   observation.firstChange ??= now;
   observation.dragging ||= now - observation.firstChange >= SUSTAINED_SELECTION_MS;
@@ -75,7 +82,7 @@ function classifySelection(id: string) {
   if (!observation || observation.id !== id || observation.classified) return;
   recordSelectionChange();
   observation.classified = true;
-  if (observation.firstChange !== undefined && !window.getSelection()?.isCollapsed &&
+  if (observation.firstChange !== undefined && (observation.last[0] !== observation.last[2] || observation.last[1] !== observation.last[3]) &&
       !sameSelection(observation.initial, observation.last)) {
     observation.dragging ||= performance.now() - observation.firstChange >= SUSTAINED_SELECTION_MS;
   }
@@ -98,6 +105,12 @@ function restoreSwipeSelection(id: string) {
   if (!sameSelection(selectionEndpoints(), observation.last) || sameSelection(observation.initial, observation.last)) return;
   const [anchor, start, focus, end] = observation.initial;
   const selection = window.getSelection();
+  if (anchor === focus && (anchor instanceof HTMLInputElement || anchor instanceof HTMLTextAreaElement)) {
+    if (document.activeElement === anchor && start !== undefined && end !== undefined && anchor.selectionStart !== null) {
+      anchor.setSelectionRange(Math.min(start, end), Math.max(start, end), start > end ? "backward" : "forward");
+    }
+    return;
+  }
   if (!anchor || !focus) selection?.removeAllRanges();
   else if (anchor.isConnected && focus.isConnected) {
     try { selection?.setBaseAndExtent(anchor, start!, focus, end!); }
