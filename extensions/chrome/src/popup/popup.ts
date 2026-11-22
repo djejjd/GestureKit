@@ -9,6 +9,15 @@ type PopupStorage = {
 
 /** 初始化只读 popup；配置写入和诊断历史均迁移到 macOS 控制中心。 */
 export async function initializePopup(doc: Document, storage: PopupStorage): Promise<void> {
+  // 弹窗模板可能来自旧安装，随热更新脚本提供练习入口。
+  if (!doc.querySelector('a[href="dist/practice.html"]')) {
+    const link = doc.createElement("a");
+    link.href = "dist/practice.html";
+    link.target = "_blank";
+    link.rel = "noopener";
+    link.textContent = "试试手势";
+    doc.getElementById("openControlCenter")?.before(link);
+  }
   let rawStatus = (await storage.get(STATUS_STORAGE_KEY))[STATUS_STORAGE_KEY];
 
   const render = (): void => renderPopup(doc, presentPopupState(rawStatus));
